@@ -68,8 +68,11 @@ OUT_HTML = ROOT / f"{OUTPUT_SLUG}.html"
 
 # Files whose changes invalidate the version stamp and the deterministic-render
 # timestamp. transforms.py is included unconditionally — git silently ignores
-# nonexistent paths in `log` / `status` queries, so the same query works whether
-# or not the hook file has been activated.
+# nonexistent paths in `log` / `status` queries, and `_content_hash` guards
+# with `p.exists()`, so the same list works whether or not the hook is
+# activated. (Activating the hook does still bump the footer hash, because
+# the new file's bytes become part of the content. That gotcha is intrinsic
+# to a content-derived stamp and is called out in CLAUDE.md.)
 SOURCE_FILES = ["guide.md", "style.css", "build.py", "transforms.py"]
 
 
@@ -225,11 +228,58 @@ def build(want_pdf: bool, want_html: bool) -> None:
         print(f"  PDF   ->  {OUT_PDF}")
 
 
+# ---------------------------------------------------------------------------
+# Template hygiene
+# ---------------------------------------------------------------------------
+
+# Sentinel file shipped with the template repo. bootstrap.py deletes it after
+# it substitutes placeholders for the fork's own values. Its presence means
+# "the user is building the unrenamed template" and suppresses the hygiene
+# check below.
+TEMPLATE_SENTINEL = ROOT / ".template-uninitialized"
+
+# Placeholders the template ships with in its docs (README.md, CLAUDE.md).
+# If a forked guide still contains any of these, the fork forgot to
+# initialize. The hygiene check refuses to build until they're gone.
+PLACEHOLDERS = ("{{GUIDE_NAME}}", "{{GUIDE_SLUG}}", "<DESCRIBE YOUR GUIDE>")
+DEFAULT_TITLE = "Guide Template"
+DEFAULT_SLUG = "guide-template"
+
+
+def _check_template_hygiene() -> None:
+    if TEMPLATE_SENTINEL.exists():
+        return
+    issues = []
+    for name in ("README.md", "CLAUDE.md"):
+        p = ROOT / name
+        if not p.exists():
+            continue
+        body = p.read_text()
+        for ph in PLACEHOLDERS:
+            if ph in body:
+                issues.append(f"{name}: still contains '{ph}'")
+    if TITLE == DEFAULT_TITLE:
+        issues.append("build.py: TITLE is still the template default 'Guide Template'")
+    if OUTPUT_SLUG == DEFAULT_SLUG:
+        issues.append("build.py: OUTPUT_SLUG is still the template default 'guide-template'")
+    if not issues:
+        return
+    bullet = "\n  ".join(issues)
+    raise SystemExit(
+        "build.py: template not initialized. Run\n"
+        "  pixi run python bootstrap.py \"My Guide Title\" my-guide-slug\n"
+        "to substitute placeholders, or delete `.template-uninitialized` to silence\n"
+        "this check after handling them manually.\n\n"
+        f"Issues:\n  {bullet}"
+    )
+
+
 def main():
     p = argparse.ArgumentParser(description=f"Build {TITLE}.")
     p.add_argument("--html-preview", action="store_true",
                    help="Render only the standalone HTML for fast browser preview.")
     args = p.parse_args()
+    _check_template_hygiene()
     if args.html_preview:
         build(want_pdf=False, want_html=True)
     else:

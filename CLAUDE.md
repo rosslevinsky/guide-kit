@@ -57,7 +57,7 @@ The `transforms.py` file is included in the input list unconditionally; git sile
 
 1. **Page count** via `pdfinfo`.
 2. **Text content** via `pdftotext -layout` (with a first-50-lines unified-diff snippet on failure).
-3. **Per-page pixel** via `pdftoppm -r 150 -png` + ImageMagick `compare -metric AE -fuzz 0%`. On failure, per-page diff PNGs land in `verify-diff/page-NN.png`.
+3. **Per-page pixel** via `pdftoppm -r 150 -png` + Pillow `ImageChops.difference` at zero tolerance (any nonzero channel difference counts as a differing pixel; matches the semantics of ImageMagick's `compare -metric AE -fuzz 0%` that the harness used before pillow). On failure, per-page diff PNGs land in `verify-diff/page-NN.png`.
 
 Both PDFs are canonicalized through `qpdf --deterministic-id --normalize-content=y` first so accidental non-determinism in the inputs doesn't masquerade as a real diff.
 
@@ -91,17 +91,25 @@ Direct and friendly. Adult reader new to the topic. No singsong asides, no fake 
 
 ## After editing
 
-The intentional-change workflow (load-bearing — don't shortcut it):
+Use `make release` to do the source-commit + baseline + amend dance in one shot:
 
 ```bash
 # 1. Edit guide.md / style.css / build.py / transforms.py
-# 2. make                          # render the new PDF
+# 2. make                                    # render the new PDF
 # 3. Open {{GUIDE_SLUG}}.pdf and visually inspect. Right? If not, fix and goto 2.
-# 4. git add <the source files you edited>
-# 5. git commit -m "Your message"  # COMMIT SOURCE FIRST
-# 6. make baseline                 # render again; cp to baseline.pdf (clean stamp)
-# 7. git add baseline.pdf
-# 8. git commit --amend --no-edit  # fold baseline.pdf into the source commit
+# 4. make release MSG="Your commit message"  # stages source, commits, re-renders, amends baseline
+```
+
+`make release` refuses to run if the working tree has staged changes or modifications to files outside the SOURCE_FILES set (the version-stamp input list). Handle those with plain `git commit` first.
+
+The manual equivalent, if you ever need to drive the steps yourself:
+
+```bash
+git add <the source files you edited>
+git commit -m "Your message"     # COMMIT SOURCE FIRST — clean stamp depends on it
+make baseline                    # render again; cp to baseline.pdf
+git add baseline.pdf
+git commit --amend --no-edit     # fold baseline.pdf into the source commit
 ```
 
 For doc-only edits (`README.md`, `CLAUDE.md`): commit normally — those files are not in the version-stamp input list, so the rendered PDF doesn't change. Run `make verify` after to confirm.

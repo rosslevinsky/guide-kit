@@ -1,0 +1,52 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel in-flight runs on the same ref when a new commit comes in. Keeps PR
+# iteration loops snappy and saves CI minutes.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: make verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          # Full history so build.py's version stamp (derived from git log
+          # / git status of SOURCE_FILES) matches what a local build sees.
+          # Without this, the stamp would carry the shallow-clone's HEAD
+          # date, and verify would diff against the baseline cleanly only
+          # by coincidence.
+          fetch-depth: 0
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          # The committed pixi.lock pins exact versions for reproducible
+          # rendering. The verify harness is content-pixel-exact at zero
+          # tolerance — a WeasyPrint or font-package version drift here
+          # would cause every PR to fail spuriously.
+          cache: true
+          frozen: true
+
+      - name: make verify
+        run: make verify
+
+      - name: Upload diff PNGs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-diff
+          path: verify-diff/
+          if-no-files-found: ignore
+          retention-days: 7

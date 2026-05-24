@@ -125,8 +125,8 @@ Any text you put on this page lives on its own physical page in the PDF, separat
 
 1. **Page count** via `pdfinfo` — fails if the PDFs disagree on page count.
 2. **Text content** via `pdftotext -layout` — fails on any text difference, with a first-50-lines unified-diff snippet.
-3. **Per-page pixel** via `pdftoppm` + ImageMagick `compare -metric AE` — fails if any pixel differs.
+3. **Per-page pixel** via `pdftoppm` + Pillow `ImageChops.difference` at zero tolerance — fails if any channel of any pixel differs.
 
 When verify fails, per-page diff PNGs land in `verify-diff/page-NN.png` so you can see what changed.
 
-If you change source intentionally, the workflow is: edit → `make` → eyeball the PDF → `make baseline` → commit `baseline.pdf` together with the source change in **one** commit. Splitting them causes the version stamp to disagree between commits and triggers spurious verify failures.
+If you change source intentionally, the workflow is: edit → `make` → eyeball the PDF → `make release MSG="..."` to land source + baseline in one commit. (Or the manual dance: `git commit` source first, then `make baseline`, then `git commit --amend` to fold `baseline.pdf` in. Doing it in the other order produces a dirty-stamp baseline that future verify runs will reject.)

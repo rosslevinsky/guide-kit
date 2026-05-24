@@ -7,7 +7,7 @@ Usage:
 Compares two PDFs with three checks at zero tolerance:
   1. Page count (pdfinfo).
   2. Text content (pdftotext -layout, byte-equal).
-  3. Per-page pixel diff (pdftoppm + ImageMagick `compare -metric AE`).
+  3. Per-page pixel diff (pdftoppm + Pillow ImageChops.difference).
 
 Pre-step: both inputs are canonicalized via `qpdf --deterministic-id
 --normalize-content=y` into temp paths first, so accidental non-determinism
@@ -33,6 +33,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from PIL import Image, ImageChops
+
 HERE = Path(__file__).parent.resolve()
 DIFF_DIR = HERE / "verify-diff"
 
@@ -41,7 +43,10 @@ DIFF_DIR = HERE / "verify-diff"
 # Tool checks
 # ---------------------------------------------------------------------------
 
-REQUIRED_TOOLS = ["pdfinfo", "pdftotext", "pdftoppm", "compare", "qpdf"]
+# `compare` (ImageMagick) was the previous pixel-diff backend. It's been
+# replaced by Pillow so the harness works on Windows too (conda-forge has no
+# imagemagick build for win-64).
+REQUIRED_TOOLS = ["pdfinfo", "pdftotext", "pdftoppm", "qpdf"]
 
 
 def check_tools() -> None:
@@ -147,23 +152,31 @@ def rasterize(pdf: Path, prefix: Path) -> list[Path]:
 
 
 def pixel_diff_page(a: Path, b: Path, out: Path) -> int:
-    """Run `compare -metric AE -fuzz 0%` and return the absolute-error count.
-    compare writes the diff image to `out` and prints the count to stderr."""
-    result = subprocess.run(
-        ["compare", "-metric", "AE", "-fuzz", "0%", str(a), str(b), str(out)],
-        capture_output=True, text=True,
-    )
-    # `compare` exits 1 when images differ (even when no error occurred) — its
-    # AE count goes to stderr. Don't `check=True`.
-    stderr = (result.stderr or "").strip()
-    try:
-        return int(stderr.split()[0])
-    except (ValueError, IndexError):
-        # compare wrote something we couldn't parse — treat as a tool failure.
-        raise RuntimeError(
-            f"could not parse `compare` output for {a.name} vs {b.name}: "
-            f"stderr={stderr!r}"
-        )
+    """Count pixels that differ between rasterized page images `a` and `b`.
+    When the count is nonzero, also writes a visual diff PNG to `out`
+    (the absolute-difference image, like ImageMagick's `compare` produces).
+
+    Returns the absolute-error pixel count (0 means content-identical).
+    """
+    img_a = Image.open(a).convert("RGB")
+    img_b = Image.open(b).convert("RGB")
+    if img_a.size != img_b.size:
+        # Different rasterized dimensions = different layout = full-frame diff.
+        # Save b as the diff and return the larger pixel count so the operator
+        # sees the regression rather than a confusing crash.
+        img_b.save(out)
+        return max(img_a.size[0] * img_a.size[1], img_b.size[0] * img_b.size[1])
+    diff = ImageChops.difference(img_a, img_b)
+    if diff.getbbox() is None:
+        return 0
+    # Per-pixel max across R/G/B via successive `lighter` ops, so a pixel
+    # counts as differing if ANY channel differs (matches ImageMagick's AE).
+    r, g, b = diff.split()
+    max_channel = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    histogram = max_channel.histogram()
+    ae = sum(histogram[1:])  # bin 0 is identical; everything else differs
+    diff.save(out)
+    return ae
 
 
 def check_pixels(baseline: Path, candidate: Path, tmpdir: Path) -> tuple[bool, str]:
