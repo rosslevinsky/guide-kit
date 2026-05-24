@@ -45,7 +45,7 @@ def _parse_build_constants() -> tuple[str, list[str]]:
     hook) is treated as an in-scope release change rather than rejected as
     "outside SOURCE_FILES."
     """
-    text = BUILD_PY.read_text()
+    text = BUILD_PY.read_text(encoding="utf-8")
     slug_m = re.search(r'^OUTPUT_SLUG\s*=\s*"([^"]+)"', text, re.M)
     if not slug_m:
         sys.exit("release.py: could not find OUTPUT_SLUG = \"...\" in build.py")
@@ -62,6 +62,7 @@ def _git(*args: str, capture: bool = False, check: bool = True) -> subprocess.Co
     return subprocess.run(
         ["git", *args], cwd=ROOT, check=check,
         capture_output=capture, text=capture,
+        encoding="utf-8" if capture else None,
     )
 
 

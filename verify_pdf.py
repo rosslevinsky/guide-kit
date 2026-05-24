@@ -89,7 +89,8 @@ PAGES_RE = re.compile(r"^Pages:\s+(\d+)\s*$", re.MULTILINE)
 
 def page_count(pdf: Path) -> int:
     result = subprocess.run(
-        ["pdfinfo", str(pdf)], capture_output=True, text=True, check=True
+        ["pdfinfo", str(pdf)],
+        capture_output=True, text=True, encoding="utf-8", check=True,
     )
     m = PAGES_RE.search(result.stdout)
     if not m:
@@ -112,7 +113,7 @@ def check_page_count(baseline: Path, candidate: Path) -> tuple[bool, str]:
 def pdf_text(pdf: Path) -> str:
     result = subprocess.run(
         ["pdftotext", "-layout", str(pdf), "-"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, encoding="utf-8", check=True,
     )
     return result.stdout
 

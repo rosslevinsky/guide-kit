@@ -62,7 +62,7 @@ def _sub_build_py(
     author: str | None, description: str | None, keywords: str | None,
 ) -> None:
     p = ROOT / "build.py"
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     text = re.sub(r'^TITLE\s*=\s*"[^"]*"', f'TITLE = "{title}"', text, count=1, flags=re.M)
     text = re.sub(r'^OUTPUT_SLUG\s*=\s*"[^"]*"', f'OUTPUT_SLUG = "{slug}"', text, count=1, flags=re.M)
     if author is not None:
@@ -77,20 +77,24 @@ def _sub_build_py(
             f'    "https://creativecommons.org/licenses/by/4.0/"\n'
             f')'
         )
+        # Match `DESCRIPTION = ( ... )` as a multi-line block. The block ends
+        # at a `)` on its own line — required because the standard body of
+        # DESCRIPTION contains a literal `)` inside "(CC BY 4.0)" that breaks
+        # any naive `\([^)]*\)` pattern.
         text = re.sub(
-            r'^DESCRIPTION\s*=\s*\([^)]*\)',
+            r'^DESCRIPTION\s*=\s*\(.*?\n\)',
             new_block,
             text, count=1, flags=re.M | re.S,
         )
     if keywords is not None:
         text = re.sub(r'^KEYWORDS\s*=\s*"[^"]*"', f'KEYWORDS = "{keywords}"', text, count=1, flags=re.M)
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     print("  build.py        updated")
 
 
 def _sub_pixi_toml(slug: str, description: str | None) -> None:
     p = ROOT / "pixi.toml"
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     text = re.sub(r'^name\s*=\s*"[^"]*"', f'name = "{slug}"', text, count=1, flags=re.M)
     if description is not None:
         text = re.sub(
@@ -98,13 +102,13 @@ def _sub_pixi_toml(slug: str, description: str | None) -> None:
             f'description = "{description}"',
             text, count=1, flags=re.M,
         )
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     print("  pixi.toml       updated")
 
 
 def _sub_readme(title: str, slug: str) -> None:
     p = ROOT / "README.md"
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     text = text.replace("{{GUIDE_NAME}}", title).replace("{{GUIDE_SLUG}}", slug)
     # Strip the "Getting started from this template" section — it doesn't apply
     # post-bootstrap. The section runs from its heading to (but not including)
@@ -114,16 +118,16 @@ def _sub_readme(title: str, slug: str) -> None:
         "\n",
         text, count=1, flags=re.S,
     )
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     print("  README.md       updated")
 
 
 def _sub_claude(title: str, slug: str) -> None:
     p = ROOT / "CLAUDE.md"
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     text = text.replace("{{GUIDE_NAME}}", title).replace("{{GUIDE_SLUG}}", slug)
     text = text.replace("<DESCRIBE YOUR GUIDE>\n\n", "")
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     print("  CLAUDE.md       updated")
 
 
