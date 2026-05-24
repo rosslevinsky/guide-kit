@@ -1,8 +1,11 @@
 /* style.css — single-theme WeasyPrint stylesheet for the guide template.
  *
  * Placeholders substituted at build time by build.py:
- *   __TITLE__      — document title (phase 1)
- *   __VERSION__    — auto version stamp (added in phase 2)
+ *   __TITLE__      — document title
+ *   __VERSION__    — auto version stamp: "YYYY-MM-DD · <sha256[:12]>" of the
+ *                    most recent commit touching guide.md / style.css /
+ *                    build.py / transforms.py, plus " · dirty" if the working
+ *                    tree has uncommitted changes to any of those files
  *
  * Inline HTML islands recognized by the rules below:
  *   <div class="title-block">     — h1 + tagline at top of page 1
@@ -24,8 +27,10 @@
     padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
   }
   @bottom-center {
-    /* Phase 2 will populate this slot with the auto version stamp. */
-    content: "";
+    content: "__VERSION__";
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8.5pt; color: #555;
+    padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
   }
   @bottom-right {
     content: "Page " counter(page);
