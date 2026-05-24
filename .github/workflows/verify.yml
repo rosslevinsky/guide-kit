@@ -15,9 +15,20 @@ concurrency:
 
 jobs:
   verify:
-    name: make verify
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      # Don't cancel sibling jobs when one platform fails — the diff PNGs
+      # from each are useful even if e.g. windows blows up while macos passes.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        # Bash everywhere (incl. windows via git-bash) so the Makefile's
+        # awk-based OUTPUT_SLUG scrape works on every runner.
+        shell: bash
     steps:
       - name: Check out repo
         uses: actions/checkout@v4
@@ -35,7 +46,9 @@ jobs:
           # The committed pixi.lock pins exact versions for reproducible
           # rendering. The verify harness is content-pixel-exact at zero
           # tolerance — a WeasyPrint or font-package version drift here
-          # would cause every PR to fail spuriously.
+          # would cause every PR to fail spuriously. Bundled liberation-fonts
+          # ensures the rendered glyphs are identical across macOS / Linux /
+          # Windows runners.
           cache: true
           frozen: true
 
@@ -46,7 +59,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: verify-diff
+          name: verify-diff-${{ matrix.os }}
           path: verify-diff/
           if-no-files-found: ignore
           retention-days: 7

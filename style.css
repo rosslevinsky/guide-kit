@@ -7,6 +7,14 @@
  *                    build.py / transforms.py, plus " · dirty" if the working
  *                    tree has uncommitted changes to any of those files
  *
+ * Font choice: Open Sans / Source Code Pro are listed FIRST in each font
+ * stack so the rendered PDF is byte-identical across macOS / Linux /
+ * Windows. These fonts are bundled via `font-ttf-opensans` and
+ * `font-ttf-source-code-pro` in pixi.toml. The fallback list (Helvetica
+ * Neue / Arial / SF Mono / Menlo / Consolas / Courier New) only matters
+ * when someone strips the conda env — in that case rendering becomes
+ * platform-dependent and `make verify` will fail.
+ *
  * Inline HTML islands recognized by the rules below:
  *   <div class="title-block">     — h1 + tagline at top of page 1
  *   <div class="callout warn">    — amber warning box
@@ -22,26 +30,26 @@
   margin: 0.75in 0.75in 0.85in 0.75in;
   @bottom-left {
     content: "__TITLE__";
-    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-family: "Open Sans", "Helvetica Neue", Arial, sans-serif;
     font-size: 8.5pt; color: #555;
     padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
   }
   @bottom-center {
     content: "__VERSION__";
-    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-family: "Open Sans", "Helvetica Neue", Arial, sans-serif;
     font-size: 8.5pt; color: #555;
     padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
   }
   @bottom-right {
     content: "Page " counter(page);
-    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-family: "Open Sans", "Helvetica Neue", Arial, sans-serif;
     font-size: 8.5pt; color: #555;
     padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
   }
 }
 
 html, body {
-  font-family: "Helvetica Neue", Arial, sans-serif;
+  font-family: "Open Sans", "Helvetica Neue", Arial, sans-serif;
   font-size: 10.5pt; line-height: 1.45; color: #1a1a1a;
   margin: 0; padding: 0;
 }
@@ -85,13 +93,13 @@ p { margin: 0.35em 0 0.55em 0; }
 
 /* ---- Code ---- */
 code {
-  font-family: "Courier New", "Menlo", "Consolas", monospace;
+  font-family: "Source Code Pro", "Courier New", "Menlo", "Consolas", monospace;
   font-size: 9.5pt; color: #1a1a1a;
 }
 pre {
   background: #f4f4f6;
   padding: 0.55em 0.85em; border-radius: 3px;
-  font-family: "Courier New", "Menlo", "Consolas", monospace;
+  font-family: "Source Code Pro", "Courier New", "Menlo", "Consolas", monospace;
   font-size: 9.5pt; line-height: 1.4; color: #1a1a1a;
   page-break-inside: avoid; white-space: pre;
   margin: 0.45em 0 0.7em 0;
@@ -200,7 +208,7 @@ pre.diagram {
   background: #faf8f4; color: #1a1a1a;
   border: 1px solid #d9d3c5;
   padding: 0.9em 1.2em; border-radius: 5px;
-  font-family: "SF Mono", "Menlo", "Consolas", monospace;
+  font-family: "Source Code Pro", "SF Mono", "Menlo", "Consolas", monospace;
   font-size: 9.2pt; line-height: 1.45;
   white-space: pre; text-align: left;
   margin: 0.8em auto;

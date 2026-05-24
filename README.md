@@ -89,7 +89,9 @@ git commit --amend --no-edit     # fold baseline.pdf into the source commit
 
 Why amend? The version stamp in the PDF footer is derived from `git log` and `git status`. Rendering `baseline.pdf` BEFORE the source commit produces a footer with ` · dirty` and the *previous* commit's date — which will never match a future post-commit `make verify`. Committing source first makes the stamp stable; amend keeps source + baseline in one logical commit. `make release` enforces the order; doing it by hand requires you to.
 
-For **doc-only changes** (`README.md`, `CLAUDE.md`) — those files are NOT in the version-stamp input list, so the rendered PDF is unaffected. Commit them normally; no baseline refresh needed.
+For **doc-only changes** — anything outside the version-stamp input list (`SOURCE_FILES` in `build.py`: `guide.md` / `style.css` / `build.py` / `transforms.py`) — the rendered PDF is unaffected. Commit normally; no baseline refresh needed. This covers `README.md`, `CLAUDE.md`, `LICENSE*`, `Makefile`, `pixi.toml`, `pixi.lock`, `verify_pdf.py`, `release.py`, `bootstrap.py`, and `.github/workflows/`. `release.py` enforces this boundary — it refuses to run when modifications outside `SOURCE_FILES` are present, so a doc edit can never accidentally hitchhike into a release commit.
+
+(One sneaky case: a `pixi.lock` update can drift rendering even though it's not a "source" file. That'll surface as a `make verify` failure on the next build — correct behavior. Pin tighter in `pixi.toml` if you want to narrow the window.)
 
 ## Verify harness
 

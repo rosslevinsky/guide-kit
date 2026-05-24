@@ -9,15 +9,28 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [dependencies]
-python = ">=3.10"
-pandoc = ">=3"
-weasyprint = ">=60"
+# All deps are pinned to a major-version range. The verify harness is
+# content-pixel-exact at zero tolerance, so a casual `pixi update` that
+# bumps a major version can silently change rendering and break verify.
+# Major-bounded ranges let minor + patch updates through (typically safe)
+# but prevent the kind of cross-major jump that would force a baseline
+# refresh nobody planned. pixi.lock pins the actual installed versions.
+python = ">=3.10,<3.15"
+pandoc = ">=3,<4"
+weasyprint = ">=60,<70"
 # Harness toolchain: poppler provides pdfinfo / pdftotext / pdftoppm;
 # pillow does the per-page pixel diff; qpdf canonicalizes PDF metadata for
 # deterministic re-rendering.
-poppler = "*"
-pillow = "*"
-qpdf = "*"
+poppler = ">=24,<26"
+pillow = ">=10,<12"
+qpdf = ">=11,<13"
+# Bundled fonts pin glyph metrics across macOS / Linux / Windows. Without
+# this, WeasyPrint falls back to whatever system fonts are present, and
+# a baseline rendered on macOS (with Helvetica Neue) won't match a CI
+# render on Linux (where it falls back to DejaVu). style.css lists these
+# first so all platforms resolve to the bundled font.
+font-ttf-opensans = ">=3,<4"           # Open Sans (Apache 2.0) — body text
+font-ttf-source-code-pro = ">=2,<3"    # Source Code Pro (OFL 1.1) — code + ASCII diagrams
 
 [tasks]
 build = "python build.py"

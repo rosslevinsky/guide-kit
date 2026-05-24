@@ -112,4 +112,18 @@ git add baseline.pdf
 git commit --amend --no-edit     # fold baseline.pdf into the source commit
 ```
 
-For doc-only edits (`README.md`, `CLAUDE.md`): commit normally — those files are not in the version-stamp input list, so the rendered PDF doesn't change. Run `make verify` after to confirm.
+## What affects the rendered PDF
+
+The version stamp (`_content_hash` + `_git_last_source_change_date` + `_is_dirty`) reads only `SOURCE_FILES`: **`guide.md`, `style.css`, `build.py`, `transforms.py`**. Anything else can change without bumping the stamp or breaking `make verify`:
+
+| Edits to… | Bumps stamp? | Needs `make release` / baseline refresh? |
+|---|---|---|
+| `guide.md` / `style.css` / `build.py` / `transforms.py` | yes | yes |
+| `README.md` / `CLAUDE.md` / `LICENSE` / `LICENSE-CONTENT` | no | no — plain `git commit` |
+| `Makefile` / `pixi.toml` / `pixi.lock` | no | no — but watch verify: a lock change can drift rendering |
+| `verify_pdf.py` / `release.py` / `bootstrap.py` | no | no — but a stricter `verify_pdf.py` can fail an existing baseline |
+| `.github/workflows/` / `.gitignore` / `.template-uninitialized` | no | no |
+
+`release.py` enforces this boundary: it refuses to run if the working tree has modifications outside `SOURCE_FILES`, so a doc edit can never accidentally hitchhike into a release commit. Commit doc-only changes with plain `git commit -m "..."`.
+
+**One sneaky case**: `pixi.lock` isn't a source file, but a dependency bump that changes how WeasyPrint or fonts render *will* break `make verify` on the next build. That's correct behavior — you'd notice. The fix is to either pin tighter in `pixi.toml` or refresh the baseline once the new render is what you want.
