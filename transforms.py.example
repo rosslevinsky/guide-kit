@@ -12,8 +12,11 @@ Activating this hook (creating `transforms.py`) also adds it to the
 version-stamp input list, so the rendered PDF footer will change even
 when `post_pandoc_html` is the identity function — the hash changes
 because the input file list grew. After activating OR deactivating the
-hook, run `make baseline` to refresh `baseline.pdf` and commit the
-baseline together with the source change in a single commit.
+hook, follow the amend workflow in CLAUDE.md's "After editing" section:
+commit `transforms.py` first, then `make baseline`, then `git commit
+--amend --no-edit` to fold the refreshed baseline into the same commit.
+Doing it in the other order produces a dirty-stamp baseline that
+subsequent `make verify` runs will reject.
 
 # Hook contract
 

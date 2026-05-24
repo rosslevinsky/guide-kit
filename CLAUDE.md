@@ -79,7 +79,7 @@ Activate the hook by copying `transforms.py.example` → `transforms.py` and rep
 
 2. **`make baseline` without inspection is a footgun**. It silently re-blesses whatever the current render is. If you ran `make` after a CSS edit that broke something and immediately ran `make baseline`, the broken state becomes the new reference and verify will pass forever against the broken baseline. Always eyeball the rendered PDF before `make baseline`.
 
-3. **Don't commit `guide-template.pdf`** (or `{{GUIDE_SLUG}}.pdf`). The `.gitignore` allow-list (`/*.pdf` + `!/baseline.pdf`) handles this — don't override with `git add -f`. Only `baseline.pdf` is tracked.
+3. **Don't commit `{{GUIDE_SLUG}}.pdf`** (the working render). The `.gitignore` allow-list (`/*.pdf` + `!/baseline.pdf`) handles this — don't override with `git add -f`. Only `baseline.pdf` is tracked.
 
 4. **Don't commit `transforms.py`** unless your guide actually uses a substantive transform. The file is intended to be present in working trees of guides that need it; the template ships only `transforms.py.example`.
 

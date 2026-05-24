@@ -14,8 +14,8 @@ Determinism:
   then piped through `qpdf --deterministic-id --normalize-content=y` so the
   PDF document ID is content-derived, not random. Two consecutive builds of
   unchanged source produce content-identical PDFs (same text, same layout;
-  font subset prefixes can still differ at the byte level, but the verify
-  harness in phase 4 doesn't care about those).
+  font subset prefixes can still differ at the byte level, but `verify_pdf.py`
+  doesn't care about those).
 
 Version stamp:
   Footer carries "YYYY-MM-DD · <sha256[:12]>" of the most recent commit
@@ -43,7 +43,6 @@ import hashlib
 import importlib.util
 import os
 import subprocess
-import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path

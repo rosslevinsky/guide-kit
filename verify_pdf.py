@@ -182,6 +182,12 @@ def check_pixels(baseline: Path, candidate: Path, tmpdir: Path) -> tuple[bool, s
         else:
             bad_pages.append((page_num, ae))
     if not bad_pages:
+        # Tidy up the empty diff dir we created — leaves no stale verify-diff/
+        # on disk when everything passed.
+        try:
+            DIFF_DIR.rmdir()
+        except OSError:
+            pass  # directory wasn't empty (operator added files); leave alone
         return True, f"pixel diff: 0 on all {n} pages"
     detail = ", ".join(f"page {p}: AE={ae}" for p, ae in bad_pages)
     return (

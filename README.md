@@ -67,7 +67,7 @@ For **intentional content changes** — anything that alters the rendered PDF �
 ```
 1. Edit guide.md / style.css / build.py / transforms.py
 2. make                          # render the new PDF
-3. Open guide-template.pdf and eyeball it. Right? If not, fix and goto 2.
+3. Open {{GUIDE_SLUG}}.pdf and eyeball it. Right? If not, fix and goto 2.
 4. git add <the source files you edited>
 5. git commit -m "Your message"  # COMMIT SOURCE FIRST — this is load-bearing
 6. make baseline                 # render again; cp to baseline.pdf (clean stamp)
@@ -91,15 +91,16 @@ A green `make verify` is the contract that your latest build is content-identica
 
 ## Getting started from this template
 
-If you just created a new repo via `gh repo create my-new-guide --template rosslevinsky/guide-template`, here's the rename-your-fork checklist. Four files to edit:
+If you just created a new repo via `gh repo create my-new-guide --template rosslevinsky/guide-template`, here's the rename-your-fork checklist. Five files to edit:
 
 1. **`build.py`** — change the constants at the top:
    - `TITLE = "Your Guide Name"`
    - `OUTPUT_SLUG = "your-guide-slug"` (drives the PDF filename: `{OUTPUT_SLUG}.pdf`)
    - `AUTHOR = "..."`, `DESCRIPTION = "..."`, `KEYWORDS = "..."` (PDF metadata)
-2. **`pixi.toml`** — change `name` and `description`.
-3. **`README.md`** — replace `{{GUIDE_NAME}}` and `{{GUIDE_SLUG}}` throughout (e.g. with `sed -i '' 's/{{GUIDE_NAME}}/Your Guide Name/g; s/{{GUIDE_SLUG}}/your-guide-slug/g' README.md`).
-4. **`CLAUDE.md`** — same `{{GUIDE_NAME}}` / `{{GUIDE_SLUG}}` substitutions, plus fill in the `<DESCRIBE YOUR GUIDE>` placeholder under "What this is" and any other guide-specific conventions.
+2. **`Makefile`** — change `OUTPUT_SLUG := guide-template` at the top to match `OUTPUT_SLUG` in `build.py`. They must agree, otherwise `make verify` and `make baseline` look for the wrong filename and fail.
+3. **`pixi.toml`** — change `name` and `description`.
+4. **`README.md`** — replace `{{GUIDE_NAME}}` and `{{GUIDE_SLUG}}` throughout (e.g. with `sed -i '' 's/{{GUIDE_NAME}}/Your Guide Name/g; s/{{GUIDE_SLUG}}/your-guide-slug/g' README.md`).
+5. **`CLAUDE.md`** — same `{{GUIDE_NAME}}` / `{{GUIDE_SLUG}}` substitutions, plus fill in the `<DESCRIBE YOUR GUIDE>` placeholder under "What this is" and any other guide-specific conventions.
 
 After renaming: write your `guide.md`, run `make`, eyeball the PDF, then follow the amend workflow above to land your first content commit + baseline.
 
