@@ -111,8 +111,14 @@ def check_page_count(baseline: Path, candidate: Path) -> tuple[bool, str]:
 # ---------------------------------------------------------------------------
 
 def pdf_text(pdf: Path) -> str:
+    # No `-layout`: extract the text in reading order without trying to
+    # preserve visual column positions via interstitial whitespace.
+    # `-layout` makes the text-content check sensitive to sub-pixel glyph
+    # position shifts (so a 1-px difference in where a word starts can
+    # turn into a leading-space difference here). We want the check to
+    # catch added/removed/reordered text, not visual position drift.
     result = subprocess.run(
-        ["pdftotext", "-layout", str(pdf), "-"],
+        ["pdftotext", str(pdf), "-"],
         capture_output=True, text=True, encoding="utf-8", check=True,
     )
     return result.stdout

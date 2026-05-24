@@ -3,9 +3,15 @@ name = "guide-template"
 version = "0.1.0"
 description = "Template repository for single-document beginner-guide PDF projects (pandoc + WeasyPrint, with content-identicalness regression harness)."
 channels = ["conda-forge"]
-# win-64 is supported. The pixel-diff backend uses Pillow (pure Python +
-# native wheels on every platform) rather than ImageMagick's `compare`, so
-# the verify harness works identically on macOS, Linux, and Windows.
+# Cross-platform Notes: the harness uses Pillow (pure Python + native wheels
+# on every platform) rather than ImageMagick's `compare`, so `make verify`
+# runs identically on macOS / Linux / Windows. But the *strict* pixel-diff
+# check is meaningful only against a baseline rendered with the same
+# fonts: HarfBuzz/Cairo/FreeType differences across OSes shift glyph
+# positions even when the same font file is loaded. The repo ships with
+# system-font stacks (no bundled fonts), and CI runs the full strict
+# verify on macOS only; Linux/Windows CI just runs `make` (build-doesn't-
+# crash smoke). See `.github/workflows/verify.yml`.
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [dependencies]
@@ -24,14 +30,6 @@ weasyprint = ">=60,<70"
 poppler = ">=24,<26"
 pillow = ">=10,<12"
 qpdf = ">=11,<13"
-# Bundled fonts pin glyph metrics across macOS / Linux / Windows. Without
-# this, WeasyPrint falls back to whatever system fonts are present, and
-# a baseline rendered on macOS (with Helvetica Neue) won't match a CI
-# render on Linux (where it falls back to DejaVu). style.css lists these
-# first so all platforms resolve to the bundled font.
-font-ttf-opensans = ">=3,<4"           # Open Sans (Apache 2.0) — body text
-font-ttf-source-code-pro = ">=2,<3"    # Source Code Pro (OFL 1.1) — code + ASCII diagrams
-
 [tasks]
 build = "python build.py"
 html = "python build.py --html-preview"

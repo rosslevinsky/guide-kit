@@ -43,20 +43,30 @@ jobs:
       - name: Install pixi
         uses: prefix-dev/setup-pixi@v0.8.1
         with:
-          # The committed pixi.lock pins exact versions for reproducible
-          # rendering. The verify harness is content-pixel-exact at zero
-          # tolerance — a WeasyPrint or font-package version drift here
-          # would cause every PR to fail spuriously. Bundled liberation-fonts
-          # ensures the rendered glyphs are identical across macOS / Linux /
-          # Windows runners.
+          # pixi.lock pins exact versions per-platform for reproducible
+          # rendering. Don't run `pixi update` from CI — let major-bound
+          # changes happen via local PRs that refresh `baseline.pdf` too.
           cache: true
           frozen: true
 
-      - name: make verify
+      # Build runs everywhere — catches "the pipeline crashes" regressions
+      # on the non-canonical platforms without claiming pixel-identical
+      # output. macOS-only `make verify` below is what catches real
+      # rendering regressions.
+      - name: make (build smoke)
+        run: make
+
+      - name: make verify (macOS only — strict pixel match)
+        # HarfBuzz / Cairo / FreeType differ across OSes; the same font
+        # file renders subtly different glyph positions per platform. The
+        # strict pixel-exact harness only makes sense against a baseline
+        # rendered on the same platform. macOS is the canonical platform
+        # for this repo's baseline.pdf.
+        if: matrix.os == 'macos-latest'
         run: make verify
 
       - name: Upload diff PNGs on failure
-        if: failure()
+        if: failure() && matrix.os == 'macos-latest'
         uses: actions/upload-artifact@v4
         with:
           name: verify-diff-${{ matrix.os }}
