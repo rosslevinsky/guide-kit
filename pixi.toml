@@ -1,0 +1,26 @@
+[workspace]
+name = "guide-template"
+version = "0.1.0"
+description = "Template repository for single-document beginner-guide PDF projects (pandoc + WeasyPrint, with content-identicalness regression harness)."
+channels = ["conda-forge"]
+# win-64 is intentionally omitted: conda-forge has no win-64 build of
+# imagemagick, which the verify harness (phase 4) requires for the per-page
+# `compare -metric AE` pixel diff. To re-enable win-64 later, make imagemagick
+# a [target.<plat>.dependencies] entry on osx/linux only and document the
+# verify-harness gap on Windows.
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+python = ">=3.10"
+pandoc = ">=3"
+weasyprint = ">=60"
+# Harness toolchain: poppler provides pdfinfo / pdftotext / pdftoppm;
+# imagemagick provides `compare`; qpdf canonicalizes PDF metadata for
+# deterministic re-rendering. Wired up in phase 4.
+poppler = "*"
+imagemagick = "*"
+qpdf = "*"
+
+[tasks]
+build = "python build.py"
+html = "python build.py --html-preview"

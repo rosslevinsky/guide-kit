@@ -1,0 +1,14 @@
+"""Optional HTML transforms hook for guide-template.
+
+Phase 1 placeholder. Real content (identity stub + commented uppercase-h2
+example) is filled in by phase 3 of the bootstrap plan. Until then, this
+file is a marker — do not rely on its contents.
+
+When phase 3 lands, this file will document the hook surface:
+
+    def post_pandoc_html(html: str) -> str: ...
+
+Activating the hook (by copying transforms.py.example -> transforms.py)
+also adds transforms.py to the version-stamp input list, so the rendered
+footer will change. See the "transforms hook" section of CLAUDE.md.
+"""

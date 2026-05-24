@@ -1,0 +1,34 @@
+# Pixi managed env (pixi.lock IS committed for reproducibility)
+.pixi/
+
+# HTML preview artifact from `make html` — root-anchored so a forked guide
+# doesn't have to edit this when it changes OUTPUT_SLUG. Leading slash matters:
+# bare `*.html` would match .html files at any depth.
+/*.html
+
+# Rendered PDF working output (regenerated every `make`). Allow-list pattern:
+# ignore all .pdf files at root EXCEPT the committed baseline.pdf. Works
+# regardless of OUTPUT_SLUG so fork authors don't have to edit this either.
+/*.pdf
+!/baseline.pdf
+
+# Verify harness output (per-page diff PNGs written on `make verify` failure).
+verify-diff/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+.claude/
