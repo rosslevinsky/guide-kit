@@ -1,14 +1,53 @@
-"""Optional HTML transforms hook for guide-template.
+"""Optional HTML transforms hook for the guide.
 
-Phase 1 placeholder. Real content (identity stub + commented uppercase-h2
-example) is filled in by phase 3 of the bootstrap plan. Until then, this
-file is a marker — do not rely on its contents.
+To activate: rename or copy this file to `transforms.py` in the same
+directory. `build.py` will discover it, import it, and call
+`post_pandoc_html(html_body) -> str` exactly once between the pandoc step
+and WeasyPrint. The hook receives the raw HTML body emitted by pandoc and
+returns a transformed HTML body.
 
-When phase 3 lands, this file will document the hook surface:
+# Gotcha: version stamp invalidation
 
-    def post_pandoc_html(html: str) -> str: ...
+Activating this hook (creating `transforms.py`) also adds it to the
+version-stamp input list, so the rendered PDF footer will change even
+when `post_pandoc_html` is the identity function — the hash changes
+because the input file list grew. After activating OR deactivating the
+hook, run `make baseline` to refresh `baseline.pdf` and commit the
+baseline together with the source change in a single commit.
 
-Activating the hook (by copying transforms.py.example -> transforms.py)
-also adds transforms.py to the version-stamp input list, so the rendered
-footer will change. See the "transforms hook" section of CLAUDE.md.
+# Hook contract
+
+def post_pandoc_html(html: str) -> str: ...
+
+Called once per build. Errors propagate.
 """
+
+
+def post_pandoc_html(html: str) -> str:
+    """Default identity implementation — returns the HTML unchanged.
+
+    Replace the body of this function with your transform. See the
+    commented example below for a working pattern.
+    """
+    return html
+
+
+# ---------------------------------------------------------------------------
+# Example: uppercase every <h2> heading.
+#
+# To enable it, replace the identity body above with this implementation:
+#
+# import re
+#
+# def post_pandoc_html(html: str) -> str:
+#     return re.sub(
+#         r"(<h2[^>]*>)([^<]+)(</h2>)",
+#         lambda m: m.group(1) + m.group(2).upper() + m.group(3),
+#         html,
+#     )
+#
+# Real guides will reach for richer patterns (rewriting fenced code blocks
+# into styled tables, auto-classifying tables as numeric vs. prose, etc.).
+# See accounting-guide/build_pdf.py for examples of substantive transforms
+# that could live in a forked guide's transforms.py.
+# ---------------------------------------------------------------------------

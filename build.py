@@ -23,8 +23,14 @@ Version stamp:
   uncommitted changes to any of those files. Substituted into style.css via
   the __VERSION__ placeholder.
 
-The optional transforms.py hook (`post_pandoc_html(html) -> str`) is added
-in phase 3.
+Transforms hook:
+  If `transforms.py` exists next to build.py, it's imported and
+  `transforms.post_pandoc_html(html: str) -> str` is called exactly once,
+  between the pandoc step and WeasyPrint. The hook receives the raw HTML body
+  emitted by pandoc and returns a transformed HTML body. Activating the hook
+  also adds transforms.py to the version-stamp input list, so the rendered
+  footer changes — refresh `baseline.pdf` (`make baseline`) after activating
+  or deactivating.
 
 Pandoc options:
   markdown+raw_html  -- inline HTML islands (callouts, exercises, page
@@ -34,6 +40,7 @@ Pandoc options:
 """
 import argparse
 import hashlib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -166,13 +173,28 @@ def _qpdf_canonicalize(pdf_path: Path) -> None:
 # Render
 # ---------------------------------------------------------------------------
 
+def _apply_transforms_hook(html_body: str) -> str:
+    """If `transforms.py` exists next to build.py, import it and call
+    `post_pandoc_html`. Otherwise return the body unchanged."""
+    hook_path = ROOT / "transforms.py"
+    if not hook_path.exists():
+        return html_body
+    spec = importlib.util.spec_from_file_location("transforms", hook_path)
+    if spec is None or spec.loader is None:
+        return html_body
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.post_pandoc_html(html_body)
+
+
 def render_html() -> str:
-    """Run pandoc, wrap in <html>, substitute placeholder values into the CSS."""
+    """Run pandoc, optionally pipe through the transforms hook, wrap in
+    <html>, substitute placeholder values into the CSS."""
     pandoc = subprocess.run(
         ["pandoc", str(SRC), "-f", "markdown+raw_html-smart", "-t", "html5"],
         capture_output=True, text=True, check=True,
     )
-    body = pandoc.stdout
+    body = _apply_transforms_hook(pandoc.stdout)
     css = STYLE.read_text()
     css = css.replace("__TITLE__", TITLE).replace("__VERSION__", _version_stamp())
     return (
