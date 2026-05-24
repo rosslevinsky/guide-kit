@@ -43,7 +43,6 @@ import hashlib
 import importlib.util
 import os
 import subprocess
-import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -176,71 +175,6 @@ def _qpdf_canonicalize(pdf_path: Path) -> None:
 # Render
 # ---------------------------------------------------------------------------
 
-# Mapping of (CSS family, weight, style) → font-file basename (no extension).
-# These names match the layout of the conda-forge `font-ttf-opensans` and
-# `font-ttf-source-code-pro` packages, which deposit files into
-# `$CONDA_PREFIX/fonts/`. Each entry is only emitted if the file is present
-# on disk; missing files are silently skipped so a future package layout
-# change degrades gracefully rather than producing a broken @font-face.
-_BUNDLED_FONTS = (
-    ("Open Sans",       "normal", "normal", "OpenSans-Regular"),
-    ("Open Sans",       "bold",   "normal", "OpenSans-Bold"),
-    ("Open Sans",       "normal", "italic", "OpenSans-Italic"),
-    ("Open Sans",       "bold",   "italic", "OpenSans-BoldItalic"),
-    ("Open Sans",       "600",    "normal", "OpenSans-SemiBold"),
-    ("Open Sans",       "600",    "italic", "OpenSans-SemiBoldItalic"),
-    ("Open Sans",       "300",    "normal", "OpenSans-Light"),
-    ("Open Sans",       "300",    "italic", "OpenSans-LightItalic"),
-    ("Source Code Pro", "normal", "normal", "SourceCodePro-Regular"),
-    ("Source Code Pro", "bold",   "normal", "SourceCodePro-Bold"),
-    ("Source Code Pro", "normal", "italic", "SourceCodePro-It"),
-    ("Source Code Pro", "bold",   "italic", "SourceCodePro-BoldIt"),
-)
-
-
-def _font_face_rules() -> str:
-    """Return `@font-face` rules pointing at the bundled fonts in
-    `$CONDA_PREFIX/fonts/` (resolved via `sys.prefix`, which is the active
-    conda env's prefix when build.py runs under `pixi run`).
-
-    WeasyPrint's font lookup on Linux relies on fontconfig, and on Windows
-    relies on whatever's in the system font dir — neither knows about
-    conda-forge fonts unless explicit @font-face rules point at the files.
-    Without this, CI fails on ubuntu-latest / windows-latest because
-    WeasyPrint falls back to whatever system font is closest, producing
-    different glyph metrics and different line wrap positions than the
-    committed baseline (which was rendered on a machine where the fallback
-    happened to match — usually macOS finding Helvetica Neue).
-
-    Returns an empty string when the font directory doesn't exist (e.g.
-    running outside the pixi env). Callers can then rely on whatever font
-    fallback the system provides — rendering won't match `baseline.pdf`,
-    but at least the build doesn't crash.
-    """
-    font_dir = Path(sys.prefix) / "fonts"
-    print(f"  font dir: {font_dir} (exists={font_dir.is_dir()})", file=sys.stderr)
-    if not font_dir.is_dir():
-        return ""
-    parts = []
-    found = []
-    missing = []
-    for family, weight, style, basename in _BUNDLED_FONTS:
-        p = font_dir / f"{basename}.ttf"
-        if p.exists():
-            found.append(basename)
-            parts.append(
-                f'@font-face {{ font-family: "{family}"; '
-                f'font-weight: {weight}; font-style: {style}; '
-                f'src: url("{p.absolute().as_uri()}"); }}'
-            )
-        else:
-            missing.append(basename)
-    print(f"  fonts found: {len(found)}/{len(_BUNDLED_FONTS)}: {', '.join(found)}", file=sys.stderr)
-    if missing:
-        print(f"  fonts MISSING: {', '.join(missing)}", file=sys.stderr)
-    return "\n".join(parts) + ("\n" if parts else "")
-
-
 def _apply_transforms_hook(html_body: str) -> str:
     """If `transforms.py` exists next to build.py, import it and call
     `post_pandoc_html`. Otherwise return the body unchanged."""
@@ -263,11 +197,7 @@ def render_html() -> str:
         capture_output=True, text=True, encoding="utf-8", check=True,
     )
     body = _apply_transforms_hook(pandoc.stdout)
-    # @font-face rules go FIRST so style.css's font stacks (Open Sans /
-    # Source Code Pro) resolve to the bundled font files even when
-    # fontconfig doesn't know about the conda env (the default state on
-    # Linux + Windows CI runners).
-    css = _font_face_rules() + STYLE.read_text(encoding="utf-8")
+    css = STYLE.read_text(encoding="utf-8")
     css = css.replace("__TITLE__", TITLE).replace("__VERSION__", _version_stamp())
     return (
         '<!DOCTYPE html><html lang="en"><head>'
