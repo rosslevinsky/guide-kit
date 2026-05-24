@@ -4,14 +4,14 @@ version = "0.1.0"
 description = "Template repository for single-document beginner-guide PDF projects (pandoc + WeasyPrint, with content-identicalness regression harness)."
 channels = ["conda-forge"]
 # Cross-platform Notes: the harness uses Pillow (pure Python + native wheels
-# on every platform) rather than ImageMagick's `compare`, so `make verify`
-# runs identically on macOS / Linux / Windows. But the *strict* pixel-diff
-# check is meaningful only against a baseline rendered with the same
-# fonts: HarfBuzz/Cairo/FreeType differences across OSes shift glyph
-# positions even when the same font file is loaded. The repo ships with
-# system-font stacks (no bundled fonts), and CI runs the full strict
-# verify on macOS only; Linux/Windows CI just runs `make` (build-doesn't-
-# crash smoke). See `.github/workflows/verify.yml`.
+# on every platform) so `make verify` *runs* on macOS / Linux / Windows.
+# But strict pixel-exact rendering does NOT reproduce across machines —
+# HarfBuzz/Cairo/FreeType differences (across OSes, and even across
+# macOS minor versions with different bundled font versions) shift glyph
+# positions enough to fail the zero-tolerance pixel diff. The repo
+# ships system-font stacks (no bundled fonts), and CI is build-smoke
+# only (`make` on all 3 OSes). Local pre-push `make verify` against the
+# committed `baseline.pdf` is the sole real gate for regressions.
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [dependencies]

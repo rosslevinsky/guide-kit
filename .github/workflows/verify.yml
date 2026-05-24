@@ -49,27 +49,14 @@ jobs:
           cache: true
           frozen: true
 
-      # Build runs everywhere — catches "the pipeline crashes" regressions
-      # on the non-canonical platforms without claiming pixel-identical
-      # output. macOS-only `make verify` below is what catches real
-      # rendering regressions.
+      # Build smoke only — catches "the pipeline crashes" regressions on
+      # every platform. We deliberately do NOT run `make verify` in CI:
+      # the strict pixel-exact harness depends on rendering reproducing
+      # to zero-pixel tolerance, and cross-machine font/rasterization
+      # drift breaks that even between two macOS hosts (different OS
+      # minor version → different bundled font version → different
+      # glyph metrics). Local pre-push `make verify` is the sole real
+      # gate for rendering regressions; CI confirms the pipeline at
+      # least *runs* on Ubuntu / macOS / Windows.
       - name: make (build smoke)
         run: make
-
-      - name: make verify (macOS only — strict pixel match)
-        # HarfBuzz / Cairo / FreeType differ across OSes; the same font
-        # file renders subtly different glyph positions per platform. The
-        # strict pixel-exact harness only makes sense against a baseline
-        # rendered on the same platform. macOS is the canonical platform
-        # for this repo's baseline.pdf.
-        if: matrix.os == 'macos-latest'
-        run: make verify
-
-      - name: Upload diff PNGs on failure
-        if: failure() && matrix.os == 'macos-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: verify-diff-${{ matrix.os }}
-          path: verify-diff/
-          if-no-files-found: ignore
-          retention-days: 7
