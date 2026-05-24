@@ -218,17 +218,26 @@ def _font_face_rules() -> str:
     but at least the build doesn't crash.
     """
     font_dir = Path(sys.prefix) / "fonts"
+    print(f"  font dir: {font_dir} (exists={font_dir.is_dir()})", file=sys.stderr)
     if not font_dir.is_dir():
         return ""
     parts = []
+    found = []
+    missing = []
     for family, weight, style, basename in _BUNDLED_FONTS:
         p = font_dir / f"{basename}.ttf"
         if p.exists():
+            found.append(basename)
             parts.append(
                 f'@font-face {{ font-family: "{family}"; '
                 f'font-weight: {weight}; font-style: {style}; '
                 f'src: url("{p.absolute().as_uri()}"); }}'
             )
+        else:
+            missing.append(basename)
+    print(f"  fonts found: {len(found)}/{len(_BUNDLED_FONTS)}: {', '.join(found)}", file=sys.stderr)
+    if missing:
+        print(f"  fonts MISSING: {', '.join(missing)}", file=sys.stderr)
     return "\n".join(parts) + ("\n" if parts else "")
 
 
