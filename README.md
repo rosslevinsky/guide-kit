@@ -1,6 +1,6 @@
 # {{GUIDE_NAME}}
 
-A single-document beginner-guide PDF, authored in Markdown (`guide.md`) and rendered to PDF via pandoc + WeasyPrint. Ships with a content-identicalness regression harness (`make verify`) that catches rendering regressions to zero-pixel tolerance.
+A single-document beginner-guide PDF, authored in Markdown (`guide.md`) and rendered to PDF via pandoc + WeasyPrint. Ships with a local `make verify` regression harness (page count + text content + zero-pixel diff against a committed `baseline.pdf`). CI runs build-smoke only on Ubuntu / macOS / Windows; local pre-push `make verify` is the real gate (see CLAUDE.md).
 
 The built PDF (`{{GUIDE_SLUG}}.pdf`) is regenerated locally by `make`. The committed `baseline.pdf` is the verified reference render — the harness fails any future build that diverges from it.
 

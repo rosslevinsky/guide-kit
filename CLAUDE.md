@@ -53,13 +53,15 @@ The `transforms.py` file is included in the input list unconditionally; git sile
 
 ## The verify harness
 
-`make verify` runs `verify_pdf.py baseline.pdf {{GUIDE_SLUG}}.pdf`. Three checks at zero tolerance:
+`make verify` runs `verify_pdf.py baseline.pdf {{GUIDE_SLUG}}.pdf`. Three checks:
 
 1. **Page count** via `pdfinfo`.
-2. **Text content** via `pdftotext -layout` (with a first-50-lines unified-diff snippet on failure).
-3. **Per-page pixel** via `pdftoppm -r 150 -png` + Pillow `ImageChops.difference` at zero tolerance (any nonzero channel difference counts as a differing pixel; matches the semantics of ImageMagick's `compare -metric AE -fuzz 0%` that the harness used before pillow). On failure, per-page diff PNGs land in `verify-diff/page-NN.png`.
+2. **Text content** via `pdftotext` (no `-layout`; first-50-lines unified-diff snippet on failure). Catches added / removed / reordered text, not visual position drift.
+3. **Per-page pixel** via `pdftoppm -r 150 -png` + Pillow `ImageChops.difference` at zero tolerance. On failure, per-page diff PNGs land in `verify-diff/page-NN.png`.
 
 Both PDFs are canonicalized through `qpdf --deterministic-id --normalize-content=y` first so accidental non-determinism in the inputs doesn't masquerade as a real diff.
+
+**CI policy:** `.github/workflows/verify.yml` runs `make` (build smoke) on Ubuntu / macOS / Windows. It does **not** run `make verify` — strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). Local pre-push `make verify` is the sole real regression gate. See the pixi.toml comment block for the longer story.
 
 ### When to run `make baseline`
 
