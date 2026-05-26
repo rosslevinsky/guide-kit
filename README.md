@@ -55,13 +55,15 @@ pixi run python bootstrap.py "My Guide Title" my-guide-slug \
 
 Then write your `guide.md`, eyeball with `make`, and `make release MSG="Initial content"` to land the first source + reference commit. Push, and your guide's PDF is downloadable from your fork's GitHub page.
 
-### Optional: existing forks
+### Optional: examples in the wild
 
-Real guides built from this template, useful as reference:
+Real guides have been built from this template:
 
-- [`rosslevinsky/accounting-guide`](https://github.com/rosslevinsky/accounting-guide) — 52-page beginner's guide to financial accounting. Has a substantive `transforms.py` (journal-entry classification, prose/figures table classification, glossary line breaks). Closest example of using every escape hatch.
-- [`rosslevinsky/mac-terminal-guide`](https://github.com/rosslevinsky/mac-terminal-guide) — 11-page beginner's guide to the macOS Terminal. Minimal — no `transforms.py`, small HTML-island vocabulary.
-- [`rosslevinsky/git-guide`](https://github.com/rosslevinsky/git-guide) — 28-page curriculum-style guide to Git and GitHub. Richer `style.css` (CSS-counter TOC numbering, exercise blocks with difficulty pills, separate `@page :first` at-rules) but no `transforms.py`.
+- A 52-page beginner's guide to financial accounting, with a substantive `transforms.py` (journal-entry classification, prose/figures table classification, glossary line breaks). Closest example of using every escape hatch.
+- An 11-page beginner's guide to the macOS Terminal. Minimal — no `transforms.py`, small HTML-island vocabulary.
+- A 28-page curriculum-style guide to Git and GitHub. Richer `style.css` (CSS-counter TOC numbering, exercise blocks with difficulty pills, separate `@page :first` at-rules) but no `transforms.py`.
+
+These currently live in private repos so the actual sources aren't linked here, but they exercise the template's full range (one with transforms, two without; one with minimal CSS, one with richer CSS).
 
 ---
 
