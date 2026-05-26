@@ -13,7 +13,7 @@ This placeholder guide is shipped with `guide-template`. It exists for two reaso
 1. The build pipeline has something to render before you replace it with your own content.
 2. Every styled element in `style.css` is exercised at least once, so the verify harness's per-page pixel diff catches any future regression to those rules.
 
-Edit `guide.md` to write your own guide. Run `make` to render the PDF. Run `make verify` to confirm a rebuilt PDF matches the committed `baseline.pdf`.
+Edit `guide.md` to write your own guide. Run `make` to render the PDF (output lands at `build/<slug>.pdf`). Run `make verify` to confirm a rebuilt PDF matches the committed reference at the repo root (`<slug>.pdf`).
 
 ## What this section is for
 
@@ -121,12 +121,12 @@ Any text you put on this page lives on its own physical page in the PDF, separat
 
 # How verification works
 
-`make verify` runs `verify_pdf.py` against the committed `baseline.pdf`. Three checks at zero tolerance:
+`make verify` runs `verify_pdf.py` against the committed reference PDF at the repo root. Three checks at zero tolerance:
 
 1. **Page count** via `pdfinfo` — fails if the PDFs disagree on page count.
-2. **Text content** via `pdftotext -layout` — fails on any text difference, with a first-50-lines unified-diff snippet.
+2. **Text content** via `pdftotext` — fails on any text difference, with a first-50-lines unified-diff snippet.
 3. **Per-page pixel** via `pdftoppm` + Pillow `ImageChops.difference` at zero tolerance — fails if any channel of any pixel differs.
 
 When verify fails, per-page diff PNGs land in `verify-diff/page-NN.png` so you can see what changed.
 
-If you change source intentionally, the workflow is: edit → `make` → eyeball the PDF → `make release MSG="..."` to land source + baseline in one commit. (Or the manual dance: `git commit` source first, then `make baseline`, then `git commit --amend` to fold `baseline.pdf` in. Doing it in the other order produces a dirty-stamp baseline that future verify runs will reject.)
+If you change source intentionally, the workflow is: edit → `make` → eyeball the PDF → `make release MSG="..."` to land source + refreshed reference in one commit. (Or the manual dance: `git commit` source first, then `make baseline`, then `git commit --amend` to fold the refreshed reference PDF in. Doing it in the other order produces a dirty-stamp PDF that future verify runs will reject.)
