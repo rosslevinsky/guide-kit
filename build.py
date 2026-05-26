@@ -29,7 +29,7 @@ Transforms hook:
   between the pandoc step and WeasyPrint. The hook receives the raw HTML body
   emitted by pandoc and returns a transformed HTML body. Activating the hook
   also adds transforms.py to the version-stamp input list, so the rendered
-  footer changes — refresh `baseline.pdf` (`make baseline`) after activating
+  footer changes — refresh the committed reference PDF (`make baseline`) after activating
   or deactivating.
 
 Pandoc options:
@@ -63,8 +63,17 @@ KEYWORDS = "guide, template, pandoc, weasyprint, CC-BY-4.0"
 ROOT = Path(__file__).parent.resolve()
 SRC = ROOT / "guide.md"
 STYLE = ROOT / "style.css"
-OUT_PDF = ROOT / f"{OUTPUT_SLUG}.pdf"
-OUT_HTML = ROOT / f"{OUTPUT_SLUG}.html"
+# The build/ directory holds the WORKING render (gitignored). `make` writes
+# here; `make verify` compares this to the committed reference at the repo
+# root. `make baseline` (and `make release`) copies build/<slug>.pdf onto
+# the root <slug>.pdf, which is the file readers download from GitHub.
+BUILD_DIR = ROOT / "build"
+OUT_PDF = BUILD_DIR / f"{OUTPUT_SLUG}.pdf"
+OUT_HTML = BUILD_DIR / f"{OUTPUT_SLUG}.html"
+# The committed reference PDF at the repo root. Named for the guide so it
+# downloads cleanly from GitHub (no anonymous "baseline.pdf"). Override
+# REFERENCE_PDF if you want the old `baseline.pdf` convention.
+REFERENCE_PDF = ROOT / f"{OUTPUT_SLUG}.pdf"
 
 # Files whose changes invalidate the version stamp and the deterministic-render
 # timestamp. transforms.py is included unconditionally — git silently ignores
@@ -217,10 +226,11 @@ def build(want_pdf: bool, want_html: bool) -> None:
     # Pin WeasyPrint's PDF creation timestamp via the reproducible-builds
     # standard env var. WeasyPrint reads this when set.
     os.environ["SOURCE_DATE_EPOCH"] = str(_source_date_epoch())
+    BUILD_DIR.mkdir(exist_ok=True)
 
     full_html = render_html()
     if want_html:
-        OUT_HTML.write_text(full_html)
+        OUT_HTML.write_text(full_html, encoding="utf-8")
         print(f"  HTML  ->  {OUT_HTML}")
     if want_pdf:
         HTML(string=full_html, base_url=str(ROOT)).write_pdf(str(OUT_PDF))
