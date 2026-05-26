@@ -57,7 +57,11 @@ Then write your `guide.md`, eyeball with `make`, and `make release MSG="Initial 
 
 ### Optional: existing forks
 
-The current canonical examples of guides built from this template are linked from [`rosslevinsky/guide-template`'s README on GitHub](https://github.com/rosslevinsky/guide-template). Browse one to see the template fleshed out with real content + a fork-specific `transforms.py` (the accounting guide has a substantive one).
+Real guides built from this template, useful as reference:
+
+- [`rosslevinsky/accounting-guide`](https://github.com/rosslevinsky/accounting-guide) — 52-page beginner's guide to financial accounting. Has a substantive `transforms.py` (journal-entry classification, prose/figures table classification, glossary line breaks). Closest example of using every escape hatch.
+- [`rosslevinsky/mac-terminal-guide`](https://github.com/rosslevinsky/mac-terminal-guide) — 11-page beginner's guide to the macOS Terminal. Minimal — no `transforms.py`, small HTML-island vocabulary.
+- [`rosslevinsky/git-guide`](https://github.com/rosslevinsky/git-guide) — 28-page curriculum-style guide to Git and GitHub. Richer `style.css` (CSS-counter TOC numbering, exercise blocks with difficulty pills, separate `@page :first` at-rules) but no `transforms.py`.
 
 ---
 
