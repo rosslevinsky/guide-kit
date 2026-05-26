@@ -1,6 +1,6 @@
 This sentinel file marks the unrenamed template. While it exists, build.py's
 template-hygiene check (`_check_template_hygiene`) is suppressed so the
-template itself can build its own baseline.pdf with placeholders present in
+template itself can build its own guide-template.pdf with placeholders present in
 README.md and CLAUDE.md.
 
 `bootstrap.py` deletes this file (and itself) after substituting the fork's

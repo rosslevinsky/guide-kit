@@ -45,7 +45,7 @@ jobs:
         with:
           # pixi.lock pins exact versions per-platform for reproducible
           # rendering. Don't run `pixi update` from CI — let major-bound
-          # changes happen via local PRs that refresh `baseline.pdf` too.
+          # changes happen via local PRs that refresh the committed reference PDF too.
           cache: true
           frozen: true
 
