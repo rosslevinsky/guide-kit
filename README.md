@@ -1,8 +1,8 @@
 # {{GUIDE_NAME}}
 
-A single-document beginner-guide PDF, authored in Markdown (`guide.md`) and rendered to PDF via pandoc + WeasyPrint. Ships with a local `make verify` regression harness (page count + text content + zero-pixel diff against a committed `baseline.pdf`). CI runs build-smoke only on Ubuntu / macOS / Windows; local pre-push `make verify` is the real gate (see CLAUDE.md).
+A single-document beginner-guide PDF, authored in Markdown (`guide.md`) and rendered to PDF via pandoc + WeasyPrint. Ships with a local `make verify` regression harness (page count + text content + zero-pixel diff against a committed `{{GUIDE_SLUG}}.pdf`). CI runs build-smoke only on Ubuntu / macOS / Windows; local pre-push `make verify` is the real gate (see CLAUDE.md).
 
-The built PDF (`{{GUIDE_SLUG}}.pdf`) is regenerated locally by `make`. The committed `baseline.pdf` is the verified reference render — the harness fails any future build that diverges from it.
+The built PDF (`{{GUIDE_SLUG}}.pdf`) is regenerated locally by `make`. The committed `{{GUIDE_SLUG}}.pdf` is the verified reference render — the harness fails any future build that diverges from it.
 
 ## Files
 
@@ -12,8 +12,8 @@ The built PDF (`{{GUIDE_SLUG}}.pdf`) is regenerated locally by `make`. The commi
 | `style.css` | All visual styling (page layout, fonts, callouts, exercise boxes, tables, ASCII diagrams). |
 | `build.py` | The build script: pandoc → optional `transforms.post_pandoc_html` → WeasyPrint → `qpdf` canonicalize. Substitutes `__TITLE__` and `__VERSION__` placeholders in `style.css`. |
 | `verify_pdf.py` | Three-check harness (page count, text diff, per-page pixel diff at zero tolerance). |
-| `release.py` | Helper for `make release` — stages source files, commits, re-renders, copies to `baseline.pdf`, amends. |
-| `baseline.pdf` | Committed reference render. Regenerate via `make baseline` after intentional content changes (or `make release` to do source + baseline + amend in one shot). |
+| `release.py` | Helper for `make release` — stages source files, commits, re-renders, promotes the working render onto `{{GUIDE_SLUG}}.pdf`, amends. |
+| `{{GUIDE_SLUG}}.pdf` | Committed reference render at the repo root — readers download this directly from GitHub. Regenerate via `make baseline` (or `make release` to do source + reference + amend in one shot). |
 | `transforms.py.example` | Hook template. Rename to `transforms.py` to activate per-guide HTML transforms. |
 | `bootstrap.py` | One-shot rename-your-fork script. Run once after creating a repo from this template; deletes itself when done. |
 | `.template-uninitialized` | Sentinel that suppresses `build.py`'s template-hygiene check while the template is still in its un-substituted state. `bootstrap.py` removes it. |
@@ -56,13 +56,13 @@ Or, via the Makefile:
 ```
 make                            # PDF (default)
 make html                       # HTML preview
-make verify                     # confirm the fresh build matches baseline.pdf
-make baseline                   # overwrite baseline.pdf with the fresh build (USE DELIBERATELY)
+make verify                     # confirm the fresh build matches the committed {{GUIDE_SLUG}}.pdf
+make baseline                   # promote build/{{GUIDE_SLUG}}.pdf onto the committed {{GUIDE_SLUG}}.pdf (USE DELIBERATELY)
 make release MSG="..."          # stage source + render baseline + amend, in one commit (see Workflow below)
 make clean                      # remove rendered PDF, HTML preview, verify-diff/
 ```
 
-The PDF lands at `./{{GUIDE_SLUG}}.pdf` (regenerated; gitignored). The committed reference is `./baseline.pdf`. The HTML preview lands at `./{{GUIDE_SLUG}}.html` (gitignored).
+The working render lands at `./build/{{GUIDE_SLUG}}.pdf` (regenerated each build; gitignored). The committed reference is `./{{GUIDE_SLUG}}.pdf` at the repo root (downloadable directly from GitHub). The HTML preview lands at `./build/{{GUIDE_SLUG}}.html` (gitignored).
 
 ## Workflow: editing content
 
@@ -82,12 +82,12 @@ The manual equivalent of step 4, if you'd rather drive it yourself:
 ```
 git add <the source files you edited>
 git commit -m "Your message"     # COMMIT SOURCE FIRST — this is load-bearing
-make baseline                    # render again with a clean stamp; copy to baseline.pdf
-git add baseline.pdf
-git commit --amend --no-edit     # fold baseline.pdf into the source commit
+make baseline                    # render again with a clean stamp; copy to {{GUIDE_SLUG}}.pdf
+git add {{GUIDE_SLUG}}.pdf
+git commit --amend --no-edit     # fold {{GUIDE_SLUG}}.pdf into the source commit
 ```
 
-Why amend? The version stamp in the PDF footer is derived from `git log` and `git status`. Rendering `baseline.pdf` BEFORE the source commit produces a footer with ` · dirty` and the *previous* commit's date — which will never match a future post-commit `make verify`. Committing source first makes the stamp stable; amend keeps source + baseline in one logical commit. `make release` enforces the order; doing it by hand requires you to.
+Why amend? The version stamp in the PDF footer is derived from `git log` and `git status`. Rendering the reference PDF BEFORE the source commit produces a footer with ` · dirty` and the *previous* commit's date — which will never match a future post-commit `make verify`. Committing source first makes the stamp stable; amend keeps source + baseline in one logical commit. `make release` enforces the order; doing it by hand requires you to.
 
 For **doc-only changes** — anything outside the version-stamp input list (`SOURCE_FILES` in `build.py`: `guide.md` / `style.css` / `build.py` / `transforms.py`) — the rendered PDF is unaffected. Commit normally; no baseline refresh needed. This covers `README.md`, `CLAUDE.md`, `LICENSE*`, `Makefile`, `pixi.toml`, `pixi.lock`, `verify_pdf.py`, `release.py`, `bootstrap.py`, and `.github/workflows/`. `release.py` enforces this boundary — it refuses to run when modifications outside `SOURCE_FILES` are present, so a doc edit can never accidentally hitchhike into a release commit.
 
@@ -95,13 +95,13 @@ For **doc-only changes** — anything outside the version-stamp input list (`SOU
 
 ## Verify harness
 
-`make verify` runs `verify_pdf.py baseline.pdf {{GUIDE_SLUG}}.pdf`, which checks:
+`make verify` runs `verify_pdf.py {{GUIDE_SLUG}}.pdf build/{{GUIDE_SLUG}}.pdf`, which checks:
 
 1. **Page count** via `pdfinfo` — fails on mismatch.
 2. **Text content** via `pdftotext -layout` — fails with a first-50-lines unified-diff snippet.
 3. **Per-page pixel diff** via `pdftoppm` + Pillow `ImageChops.difference` at zero tolerance — fails if any channel of any pixel differs on any page. On failure, per-page diff PNGs land in `verify-diff/page-NN.png` for visual inspection.
 
-A green `make verify` is the contract that your latest build is content-identical to the committed baseline. A red `make verify` either means a real regression OR that you intentionally changed source without refreshing baseline (run the workflow above).
+A green `make verify` is the contract that your latest build is content-identical to the committed reference. A red `make verify` either means a real regression OR that you intentionally changed source without refreshing baseline (run the workflow above).
 
 ## Getting started from this template
 

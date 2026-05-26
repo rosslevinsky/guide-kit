@@ -6,7 +6,7 @@ This file documents the conventions of this project so you can make good edits.
 
 <DESCRIBE YOUR GUIDE>
 
-A single-document Markdown → PDF project for `{{GUIDE_NAME}}`. Source lives in `guide.md`; styling in `style.css`; build pipeline in `build.py`. The committed `baseline.pdf` is the verified reference render; `make verify` checks that any rebuild matches it to zero pixel tolerance.
+A single-document Markdown → PDF project for `{{GUIDE_NAME}}`. Source lives in `guide.md`; styling in `style.css`; build pipeline in `build.py`. The committed reference PDF `{{GUIDE_SLUG}}.pdf` is the verified reference render; `make verify` checks that any rebuild matches it to zero pixel tolerance.
 
 ## Build pipeline
 
@@ -16,7 +16,7 @@ guide.md  --pandoc-->  HTML body  --transforms.py?-->  HTML'  --wrap-->  styled 
                                                                             style.css
 ```
 
-Run `make` to build. Run `make html` for a fast HTML preview. Run `make verify` to check the fresh build matches `baseline.pdf`.
+Run `make` to build. Run `make html` for a fast HTML preview. Run `make verify` to check the fresh build matches `{{GUIDE_SLUG}}.pdf`.
 
 ### Determinism layer
 
@@ -53,7 +53,7 @@ The `transforms.py` file is included in the input list unconditionally; git sile
 
 ## The verify harness
 
-`make verify` runs `verify_pdf.py baseline.pdf {{GUIDE_SLUG}}.pdf`. Three checks:
+`make verify` runs `verify_pdf.py {{GUIDE_SLUG}}.pdf build/{{GUIDE_SLUG}}.pdf`. Three checks:
 
 1. **Page count** via `pdfinfo`.
 2. **Text content** via `pdftotext` (no `-layout`; first-50-lines unified-diff snippet on failure). Catches added / removed / reordered text, not visual position drift.
@@ -73,7 +73,7 @@ If `transforms.py` exists next to `build.py`, the build pipeline imports it and 
 
 Activate the hook by copying `transforms.py.example` → `transforms.py` and replacing the identity stub with your transform.
 
-**Version-stamp gotcha**: activating the hook (creating `transforms.py`) adds it to the version-stamp input list, so the footer hash changes even when `post_pandoc_html` is the identity function. After activating OR deactivating, refresh `baseline.pdf` via the *After editing* workflow.
+**Version-stamp gotcha**: activating the hook (creating `transforms.py`) adds it to the version-stamp input list, so the footer hash changes even when `post_pandoc_html` is the identity function. After activating OR deactivating, refresh `{{GUIDE_SLUG}}.pdf` via the *After editing* workflow.
 
 ## Critical gotchas
 
@@ -81,7 +81,7 @@ Activate the hook by copying `transforms.py.example` → `transforms.py` and rep
 
 2. **`make baseline` without inspection is a footgun**. It silently re-blesses whatever the current render is. If you ran `make` after a CSS edit that broke something and immediately ran `make baseline`, the broken state becomes the new reference and verify will pass forever against the broken baseline. Always eyeball the rendered PDF before `make baseline`.
 
-3. **Don't commit `{{GUIDE_SLUG}}.pdf`** (the working render). The `.gitignore` allow-list (`/*.pdf` + `!/baseline.pdf`) handles this — don't override with `git add -f`. Only `baseline.pdf` is tracked.
+3. **Two PDFs, two roles.** The committed reference PDF lives at the repo root as `{{GUIDE_SLUG}}.pdf` (downloadable directly from GitHub — that's its job). The working render goes to `build/{{GUIDE_SLUG}}.pdf` (gitignored — regenerated every `make`). `make verify` diffs the two. `make baseline` (or `make release`) promotes the working render to the root reference. Don't `git add` anything under `build/`.
 
 4. **Don't commit `transforms.py`** unless your guide actually uses a substantive transform. The file is intended to be present in working trees of guides that need it; the template ships only `transforms.py.example`.
 
@@ -109,9 +109,9 @@ The manual equivalent, if you ever need to drive the steps yourself:
 ```bash
 git add <the source files you edited>
 git commit -m "Your message"     # COMMIT SOURCE FIRST — clean stamp depends on it
-make baseline                    # render again; cp to baseline.pdf
-git add baseline.pdf
-git commit --amend --no-edit     # fold baseline.pdf into the source commit
+make baseline                    # render again; cp to {{GUIDE_SLUG}}.pdf
+git add {{GUIDE_SLUG}}.pdf
+git commit --amend --no-edit     # fold {{GUIDE_SLUG}}.pdf into the source commit
 ```
 
 ## What affects the rendered PDF

@@ -18,11 +18,12 @@ What it does (and refuses to do):
   4. Creates the source commit with the supplied message.
   5. Re-renders the PDF — the version stamp is now clean because the source
      files are committed.
-  6. Copies the fresh render to baseline.pdf.
-  7. Stages baseline.pdf and amends it into the source commit.
+  6. Promotes build/<slug>.pdf to <slug>.pdf at the repo root (the committed
+     reference that readers download from GitHub).
+  7. Stages <slug>.pdf and amends it into the source commit.
 
 If any post-commit step fails, the source commit is preserved; the operator
-can investigate, then `git commit --amend baseline.pdf` once fixed.
+can investigate, then `git commit --amend <slug>.pdf` once fixed.
 """
 from __future__ import annotations
 
@@ -116,18 +117,22 @@ def _build() -> None:
     subprocess.run(["pixi", "run", "build"], cwd=ROOT, check=True)
 
 
-def _copy_baseline(slug: str) -> None:
-    out_pdf = ROOT / f"{slug}.pdf"
-    baseline = ROOT / "baseline.pdf"
-    if not out_pdf.exists():
-        sys.exit(f"release.py: expected fresh render at {out_pdf} but it's missing.")
-    shutil.copyfile(out_pdf, baseline)
-    print(f"  baseline.pdf <- {out_pdf.name}")
+def _promote_to_reference(slug: str) -> str:
+    """Copy build/<slug>.pdf (fresh working render) onto <slug>.pdf at the
+    repo root (the committed reference that readers download from GitHub).
+    Returns the reference filename for the caller to `git add`."""
+    working = ROOT / "build" / f"{slug}.pdf"
+    reference = ROOT / f"{slug}.pdf"
+    if not working.exists():
+        sys.exit(f"release.py: expected fresh render at {working} but it's missing.")
+    shutil.copyfile(working, reference)
+    print(f"  reference <- {working.relative_to(ROOT)}")
+    return reference.name
 
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="Stage source + render baseline + amend, in one commit.",
+        description="Stage source + refresh reference PDF + amend, in one commit.",
     )
     p.add_argument("-m", "--message", required=True, help="Commit message")
     args = p.parse_args()
@@ -141,9 +146,9 @@ def main() -> int:
     print(f"  committed source: {args.message!r}")
 
     _build()
-    _copy_baseline(slug)
+    reference_name = _promote_to_reference(slug)
 
-    _git("add", "baseline.pdf")
+    _git("add", reference_name)
     _git("commit", "--amend", "--no-edit")
     short = _git("rev-parse", "--short", "HEAD", capture=True).stdout.strip()
     print(f"  amended into {short}.")

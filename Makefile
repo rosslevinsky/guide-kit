@@ -8,6 +8,14 @@ ifeq ($(OUTPUT_SLUG),)
 OUTPUT_SLUG := guide-template
 endif
 
+# Paths the workflow operates on. The WORKING render lands under build/
+# (gitignored). The COMMITTED REFERENCE is <slug>.pdf at the repo root —
+# named for the guide so readers can download it directly from GitHub
+# without a generic "baseline.pdf" filename. `make verify` compares the
+# two; `make baseline` promotes the working render to the reference.
+WORKING_PDF := build/$(OUTPUT_SLUG).pdf
+REFERENCE_PDF := $(OUTPUT_SLUG).pdf
+
 .PHONY: build help all install html verify baseline release clean
 
 # `build` is the FIRST non-.PHONY target, so bare `make` builds.
@@ -19,13 +27,13 @@ build:
 
 help:
 	@echo "Targets:"
-	@echo "  make                       Build the PDF (default; writes $(OUTPUT_SLUG).pdf at repo root)"
-	@echo "  make html                  Render a standalone HTML for browser preview"
-	@echo "  make verify                Check that the freshly-built PDF matches baseline.pdf"
-	@echo "  make baseline              Overwrite baseline.pdf with the freshly-built PDF (use deliberately)"
-	@echo "  make release MSG=\"...\"     Stage source + render baseline + amend, in one commit"
+	@echo "  make                       Build the PDF (default; writes $(WORKING_PDF))"
+	@echo "  make html                  Render a standalone HTML for browser preview (in build/)"
+	@echo "  make verify                Check that the freshly-built PDF matches the committed $(REFERENCE_PDF)"
+	@echo "  make baseline              Promote $(WORKING_PDF) onto $(REFERENCE_PDF) (use deliberately)"
+	@echo "  make release MSG=\"...\"     Stage source + refresh reference + amend, in one commit"
 	@echo "  make install               Install all dependencies via pixi"
-	@echo "  make clean                 Remove the rendered PDF and HTML preview"
+	@echo "  make clean                 Remove build/ and verify-diff/"
 	@echo ""
 	@echo "All targets delegate to pixi. Install pixi first: https://pixi.sh"
 
@@ -37,22 +45,22 @@ install:
 html:
 	pixi run html
 
-# verify depends on build so a fresh render is always compared to the baseline.
+# verify depends on build so a fresh render is always compared to the reference.
 verify: build
-	pixi run python verify_pdf.py baseline.pdf $(OUTPUT_SLUG).pdf
+	pixi run python verify_pdf.py $(REFERENCE_PDF) $(WORKING_PDF)
 
 # baseline overwrites the committed reference PDF with the fresh render. `cp`
-# (not `mv`) so the just-built PDF stays on disk for visual review. Use
-# deliberately, only after eyeballing the new PDF — this silently re-blesses
-# any rendering regression. After running, commit baseline.pdf together with
-# the source files that changed it via the amend workflow (see CLAUDE.md), or
-# use `make release MSG="..."` which does the whole dance in one shot.
+# (not `mv`) so the just-built PDF stays under build/ for visual review. Use
+# deliberately, only after eyeballing — this silently re-blesses any rendering
+# regression. After running, commit $(REFERENCE_PDF) together with the source
+# files that changed it via the amend workflow (see CLAUDE.md), or use
+# `make release MSG="..."` which does the whole dance in one shot.
 baseline: build
-	cp $(OUTPUT_SLUG).pdf baseline.pdf
-	@echo "  baseline -> baseline.pdf (commit it together with source changes)"
+	cp $(WORKING_PDF) $(REFERENCE_PDF)
+	@echo "  reference -> $(REFERENCE_PDF) (commit it together with source changes)"
 
 # release automates the after-editing dance: stage source files, commit with
-# MSG, re-render with a clean version stamp, copy to baseline.pdf, amend.
+# MSG, re-render with a clean version stamp, copy to $(REFERENCE_PDF), amend.
 # Refuses to run if the working tree has staged changes or modifications
 # outside the SOURCE_FILES set — handle those with plain `git commit` first.
 release:
@@ -60,5 +68,4 @@ release:
 	pixi run python release.py -m "$(MSG)"
 
 clean:
-	rm -f $(OUTPUT_SLUG).pdf $(OUTPUT_SLUG).html
-	rm -rf verify-diff/
+	rm -rf build/ verify-diff/
