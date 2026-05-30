@@ -18,7 +18,7 @@ A single-document beginner-guide PDF, authored in Markdown and rendered to PDF v
 
 - **A render pipeline:** `guide.md` → pandoc → (optional `transforms.py`) → wrap in HTML → WeasyPrint → qpdf canonicalize → `build/{{GUIDE_SLUG}}.pdf`.
 - **A reference PDF at the repo root** (`{{GUIDE_SLUG}}.pdf`) that readers can download from GitHub directly. The committed reference IS the deliverable.
-- **A deterministic version stamp in the footer** — `YYYY-MM-DD · <12-hex-sha256>` — derived from `git log` over your source files. Readers can see exactly which commit a PDF was built from.
+- **A deterministic version stamp in the footer** — `YYYY-MM-DD HH:MM:SS · <12-hex-sha256>` — derived from `git log` over your source files. Readers can see exactly which commit a PDF was built from.
 - **A `make verify` harness** that compares the freshly-built PDF against the committed reference (page count + text content + per-page pixel diff at zero tolerance), so accidental rendering regressions can't ship.
 - **A `make release` workflow** that bundles source commits + reference refresh into one atomic commit, eliminating an entire class of "I forgot to update the baseline" mistakes.
 - **A `transforms.py` hook** for per-guide HTML rewrites (custom code-block classification, link injection, table styling) without forking the build script.

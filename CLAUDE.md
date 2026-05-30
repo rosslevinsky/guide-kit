@@ -42,9 +42,9 @@ Do **not** add other HTML. Do **not** convert Markdown that already works into H
 
 ## The version stamp
 
-The PDF footer shows an auto-generated stamp in the form `YYYY-MM-DD · <12-hex-chars>`, derived from:
+The PDF footer shows an auto-generated stamp in the form `YYYY-MM-DD HH:MM:SS · <12-hex-chars>`, derived from:
 
-- **Date**: `git log -1 --format=%cd --date=short -- guide.md style.css build.py transforms.py` — the date of the most-recent commit touching any of those files.
+- **Date + time**: `git log -1 --format=%ad --date=format:'%Y-%m-%d %H:%M:%S' -- guide.md style.css build.py transforms.py` — the author date/time of the most-recent commit touching any of those files. `%ad` (author date), not `%cd` (committer date), because `git commit --amend` inside `release.py` updates the committer time by ~1s and would break the verify cycle.
 - **Hash**: first 12 hex chars of `sha256` over the concatenated bytes of every file in that list that exists on disk.
 
 When `git status --porcelain` reports uncommitted changes to any of those files, the stamp gains a trailing ` · dirty` segment so a reader can see the PDF was rendered from working-tree state, not committed source.
