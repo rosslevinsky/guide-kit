@@ -18,10 +18,10 @@ Determinism:
   doesn't care about those).
 
 Version stamp:
-  Footer carries "YYYY-MM-DD · <sha256[:12]>" of the most recent commit
-  touching the SOURCE_FILES list, plus " · dirty" when the working tree has
-  uncommitted changes to any of those files. Substituted into style.css via
-  the __VERSION__ placeholder.
+  Footer carries "YYYY-MM-DD HH:MM:SS · <sha256[:12]>" of the most recent
+  commit touching the SOURCE_FILES list, plus " · dirty" when the working
+  tree has uncommitted changes to any of those files. Substituted into
+  style.css via the __VERSION__ placeholder.
 
 Transforms hook:
   If `transforms.py` exists next to build.py, it's imported and
@@ -90,12 +90,15 @@ SOURCE_FILES = ["guide.md", "style.css", "build.py", "transforms.py"]
 # ---------------------------------------------------------------------------
 
 def _git_last_source_change_date() -> str:
-    """Return YYYY-MM-DD of the most recent commit touching any SOURCE_FILES
-    entry. Empty string when git is unavailable or the repo has no relevant
-    commits."""
+    """Return "YYYY-MM-DD HH:MM:SS" of the most recent commit touching any
+    SOURCE_FILES entry, in the author's local time at commit. Uses %ad
+    (author date), not %cd (committer date), so `git commit --amend`
+    inside release.py doesn't perturb the stamp by ~1s and break the
+    verify cycle. Empty string when git is unavailable or the repo has
+    no relevant commits."""
     try:
         result = subprocess.run(
-            ["git", "log", "-1", "--format=%cd", "--date=short", "--"]
+            ["git", "log", "-1", "--format=%ad", "--date=format:%Y-%m-%d %H:%M:%S", "--"]
             + SOURCE_FILES,
             cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
         )
@@ -133,8 +136,8 @@ def _is_dirty() -> bool:
 
 
 def _version_stamp() -> str:
-    """Compose 'YYYY-MM-DD · <hash>' (+ ' · dirty' when the working tree has
-    uncommitted source changes)."""
+    """Compose 'YYYY-MM-DD HH:MM:SS · <hash>' (+ ' · dirty' when the working
+    tree has uncommitted source changes)."""
     date = _git_last_source_change_date()
     h = _content_hash()
     stamp = f"{date} · {h}" if date else h

@@ -2,7 +2,7 @@
  *
  * Placeholders substituted at build time by build.py:
  *   __TITLE__      — document title
- *   __VERSION__    — auto version stamp: "YYYY-MM-DD · <sha256[:12]>" of the
+ *   __VERSION__    — auto version stamp: "YYYY-MM-DD HH:MM:SS · <sha256[:12]>" of the
  *                    most recent commit touching guide.md / style.css /
  *                    build.py / transforms.py, plus " · dirty" if the working
  *                    tree has uncommitted changes to any of those files
@@ -33,19 +33,19 @@
     content: "__TITLE__";
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 8.5pt; color: #555;
-    padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
+    padding-top: 6pt; border-top: 0.5pt solid #cccccc;
   }
   @bottom-center {
     content: "__VERSION__";
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 8.5pt; color: #555;
-    padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
+    padding-top: 6pt; border-top: 0.5pt solid #cccccc;
   }
   @bottom-right {
     content: "Page " counter(page);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     font-size: 8.5pt; color: #555;
-    padding-top: 6pt; border-top: 0.5pt solid #cccccc; width: 100%;
+    padding-top: 6pt; border-top: 0.5pt solid #cccccc;
   }
 }
 
