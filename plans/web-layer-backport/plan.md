@@ -1,105 +1,103 @@
-# Plan: web-layer backport into guide-template
+# Plan: Web-layer backport into guide-template (opt-in)
 
 ## Status
 
 | Field | Value |
 |---|---|
+| Phase | Not yet broken down |
 | State | Planning |
 | Branch | `web-layer-backport` |
-| Source of truth | `japan-guide` (the dual-output pattern proven there) |
+| Reference impl | `japan-guide` (proven dual-output) |
 | Last updated | 2026-05-31 |
 
 ## Goal
 
-Graduate the dual-output (website + PDF) machinery from `japan-guide` into
-`guide-template`, so a new fork can produce a Cloudflare-deployed website
-alongside its PDF — **without forcing the web layer on PDF-only guides**.
+Graduate japan-guide's dual-output (website + PDF) machinery into `guide-template`
+as an **opt-in web layer**, so a fork can produce a Cloudflare-deployed website
+alongside its PDF. PDF stays the default: a PDF-only fork remains pure pixi/Python
+with **no `app/`, no live deploy workflow, no Node/wrangler footprint** until it
+explicitly opts in via `bootstrap.py --with-web`.
 
-## The load-bearing design decision: web is OPT-IN
+## Settled design decisions (from interview)
 
-The template's identity is "the committed PDF at the repo root IS the
-deliverable," and it was extracted from three PDF-only guides. The web layer
-also drags in a new toolchain (Node ≥22 + npm + wrangler) that PDF-only forks
-must not inherit. Therefore:
+1. **`app/` scaffold ships opt-in via `bootstrap.py --with-web`** — not committed-inert,
+   not loose `.example` files the user hand-copies. PDF-only forks have no `app/` at
+   all; `--with-web` materializes `app/wrangler.jsonc`, `app/package.json` (+ lockfile),
+   `app/public/.gitkeep` with the slug substituted.
+2. **`deploy.yml` ships opt-in via the same `--with-web` flag** — as
+   `.github/workflows/deploy.yml.example` (inert; GitHub only runs `*.yml`), renamed to
+   `deploy.yml` by bootstrap. No PDF-only fork ever gets a live workflow that fails on
+   missing Cloudflare secrets.
+3. **No CONTRIBUTING.md** — the web deploy + secrets flow is documented in README's
+   "Website deploy" section and CLAUDE.md, mirroring japan-guide.
+4. **Full 5-phase backport** (not a partial slice).
 
-- **PDF stays the default.** `make`, `make verify`, `make release`, and the
-  whole existing flow are untouched for a fork that never touches web.
-- **Web activates by presence, not by default.** `build.py --web` exists in
-  the template but is inert until a fork opts in by copying the web assets into
-  place (screen CSS + `app/` scaffold). No `app/` dir, no `style-screen.css` →
-  `make web` prints a friendly "web layer not enabled" message and exits 0.
-- **`transforms.py` stays optional.** The two-entry contract
-  (`post_pandoc_html_for_pdf` / `_for_web`, with single-entry `post_pandoc_html`
-  fallback) is supported by `build.py`, but the template still ships only
-  `transforms.py.example`. A PDF-only fork needs no transforms at all.
-- **`deploy.yml` ships disabled-by-default.** It must not run (and fail) on a
-  fork that has no Cloudflare secrets. Options to decide in implementation:
-  ship it as `deploy.yml.example`, or gate it on a repo variable / the presence
-  of `app/`. Leaning toward `.example` (mirrors `transforms.py.example`).
+Storage form for the bootstrap-materialized assets: the `app/` scaffold and
+`style-screen.css` and `deploy.yml` ship as `.example` source files (or a
+`templates/web/` staging dir — settled in Phase 3) that `--with-web` copies into place
+with `{{GUIDE_SLUG}}` substituted. They are NOT live in an un-bootstrapped fork.
 
-This mirrors how `transforms.py` is already opt-in: the capability is present
-and documented; the fork chooses to turn it on.
+## Success Criteria
 
-## What graduates (from japan-guide)
+- [ ] On the un-bootstrapped template (and any PDF-only fork): `make` and `make verify` pass unchanged; no `app/` dir, no `deploy.yml`, no Node required.
+- [ ] `build.py` supports the two-entry transforms contract (`post_pandoc_html_for_pdf` / `_for_web`) with single-entry `post_pandoc_html` fallback and identity fallback — a PDF-only build with no `transforms.py` still renders correctly.
+- [ ] `python build.py --web` on the un-opted template exits 0 with a clear "web layer not enabled" message (no traceback, no partial `app/dist`).
+- [ ] After opt-in, `make web` produces nonzero `app/dist/index.html` + a copy of the reference PDF; `make dev`/`make deploy` invoke wrangler from `app/`.
+- [ ] `bootstrap.py --with-web my-slug` materializes `style-screen.css`, the `app/` scaffold (slug-substituted), and `deploy.yml`; without the flag none of those appear and the fork is PDF-only.
+- [ ] `bootstrap.py` (no flag) still works exactly as today; `--with-web` is purely additive and the `.template-uninitialized` hygiene flow is intact.
+- [ ] `make verify` passes after every phase; `guide-template.pdf` re-baselined where SOURCE_FILES changed.
+- [ ] `verify.yml` (Ubuntu-only, `make -n web`-guarded) stays green on the PDF-only template.
+- [ ] README + CLAUDE.md document the opt-in web layer, the embed vocabulary, and a **generalized** Cloudflare deploy-secrets walkthrough.
+- [ ] Grep-clean: no japan-specific value (`japan-guide`, `speedytuna`, `E01x6ClIiuc`, real secret names) leaks into the template.
 
-| Piece | Template form |
-|---|---|
-| Two-entry transforms contract in `build.py` | Always present (back-compatible: falls back to `post_pandoc_html`, then identity) |
-| `build.py --web` target + `render_web_html()` + `build_web()` | Present but inert without web assets |
-| `style-screen.css` | Ships as `style-screen.css.example` (per-guide content; generic convention) |
-| `Makefile` `web` / `dev` / `deploy` targets | Present; `web` no-ops without assets; `dev`/`deploy` require `app/` |
-| `pixi.toml` `web` task | Present |
-| `verify.yml` web smoke | Already guarded with `make -n web` (landed in the CI backport PR) |
-| `app/wrangler.jsonc`, `app/package.json` (+ lockfile), `app/public/` | Ship as an `app/` scaffold the fork copies/renames, OR documented in CONTRIBUTING; decide in impl |
-| `.github/workflows/deploy.yml` | Ships as `deploy.yml.example` (opt-in) |
-| `verify_web.py` | Ships as-is (no-op / skip when web not enabled) |
-| `.gitignore`: `app/dist/`, `node_modules/` | Always present (harmless on PDF-only forks) |
-| Embed vocabulary (`<div class="embed youtube">`) | Documented in CLAUDE.md as an optional island the web transform handles |
-| Docs: README "Website deploy", CLAUDE "The website", deploy-secrets walkthrough | Added, **generalized** with `{{GUIDE_SLUG}}` placeholders (no japan/speedytuna specifics) |
+## Technical Constraints
 
-## What must NOT leak from japan-guide
+- **PDF flow is sacrosanct.** `make`, `make verify`, `make release`, `make baseline` behave identically for PDF-only forks. Web code paths are inert/guarded when web assets are absent.
+- **SOURCE_FILES discipline.** `build.py`, `guide.md`, `style.css`, `transforms.py` are SOURCE_FILES (bump the PDF stamp → need `make release` re-baseline). `style-screen.css`/`.example`, `app/`, workflows, `bootstrap.py`, docs are NOT — plain commits. Phases touching SOURCE_FILES must re-baseline `guide-template.pdf`.
+- **Generalize, don't copy.** Port from japan-guide but replace every japan-specific value with the template placeholder convention (`{{GUIDE_NAME}}`/`{{GUIDE_SLUG}}`) or bootstrap substitution. Worker name = slug; the custom domain is dashboard-bound, never hardcoded.
+- **Node ≥22 + wrangler 4.x** enter only via the opt-in `app/package.json`; the template base toolchain stays pixi/Python-only.
+- **`bootstrap.py` self-deletes and removes `.template-uninitialized`** as its last steps; `--with-web` must run before that and fail safe (leave bootstrap in place on error).
+- **Don't regress the merged CI cost controls** (Ubuntu-only, paths-filtered, guarded web smoke) already on `main`.
+- **Reference fidelity:** the japan-guide implementation is the source of truth for `build.py` web functions (`_load_transforms`, `_apply_transforms`, `_pandoc_body`, `_wrap_html`, `render_web_html`, `build_web`), the Makefile `web`/`dev`/`deploy` targets, `app/wrangler.jsonc`, `app/package.json` (wrangler ^4.x), and `verify_web.py`.
 
-- The slug `japan-guide`, domain `japan.speedytuna.com`, the `speedytuna`
-  Cloudflare account/worker name, the `E01x6ClIiuc` embed id, the CI secrets.
-- All per-fork values use the template's existing placeholder convention
-  (`{{GUIDE_NAME}}` / `{{GUIDE_SLUG}}`) and/or are set by `bootstrap.py`.
+## Non-Goals
 
-## bootstrap.py
+- No Cloudflare deployment of the template itself (it ships PDF-only; web is exercised in forks).
+- No migration of existing PDF-only forks (mac-terminal-guide, git-guide, accounting-guide).
+- No new web features beyond what japan-guide proved (YouTube embed is the worked example; no maps/analytics/SPA/multi-page).
+- No change to the merged PDF colophon / footer-stamp / CI work.
+- No CONTRIBUTING.md.
 
-`bootstrap.py` should optionally enable the web layer — e.g. a `--with-web`
-flag that copies `style-screen.css.example` → `style-screen.css`, the `app/`
-scaffold into place, and `deploy.yml.example` → `deploy.yml`, substituting the
-slug. Without the flag, the fork is PDF-only and none of those files exist.
-(Exact mechanism TBD in implementation.)
+## Affected Areas
 
-## Proposed phasing (each independently committable, PDF flow never broken)
+**Will change (SOURCE_FILES — require `make release` re-baseline):**
+- `build.py` — add license/transforms two-entry contract (`_load_transforms`, `_apply_transforms(target)`, `_pandoc_body`, `_wrap_html`); `--web` arg; `render_web_html()` + `build_web()`; guarded no-op + message when `style-screen.css`/`app/` absent. Add `STYLE_SCREEN`/`WEB_DIR` path constants.
+- `transforms.py.example` — refactor to demonstrate the per-output split with the YouTube embed worked example (keep single-entry note for PDF-only forks).
 
-1. **Transforms contract + `--web` (inert).** Port the two-entry contract and
-   `build.py --web` so it runs but no-ops without web assets. `make`/`verify`
-   unchanged. Ship `style-screen.css.example`.
-2. **Makefile/pixi targets + `.gitignore`.** `web`/`dev`/`deploy` targets,
-   `web` pixi task, ignore `app/dist/` + `node_modules/`. `dev`/`deploy` error
-   clearly if `app/` absent.
-3. **`app/` scaffold + `deploy.yml.example` + `verify_web.py`.** The opt-in
-   files a fork copies in. Generalized, placeholdered.
-4. **bootstrap `--with-web`.** Wire the opt-in into initialization.
-5. **Docs.** README "Website deploy" (generalized secrets walkthrough),
-   CLAUDE "The website" + embed vocabulary, CONTRIBUTING note.
+**Will change (non-SOURCE_FILES — plain commits):**
+- `Makefile` — `web` / `dev` / `deploy` targets; `web` no-ops cleanly without assets, `dev`/`deploy` error clearly without `app/`. Help text updated.
+- `pixi.toml` — `web = "python build.py --web"` task.
+- `bootstrap.py` — `--with-web` flag: copy `style-screen.css.example` → `style-screen.css`, materialize `app/` scaffold (slug-substituted), rename `deploy.yml.example` → `deploy.yml`. Help/docstring updated.
+- `.gitignore` — `app/dist/`, `node_modules/`.
+- `README.md` — "Website deploy" section (generalized secrets walkthrough), opt-in framing, new make targets, files-table rows.
+- `CLAUDE.md` — "The website" section, `embed youtube` island in the allowed-HTML table, per-output transform contract, opt-in note.
 
-## Verification per phase
+**Will add:**
+- `style-screen.css.example` — screen stylesheet starter (generic), copied to `style-screen.css` by `--with-web`.
+- `app/` scaffold templates: `wrangler.jsonc(.example)`, `package.json(.example)`, `package-lock.json`, `public/.gitkeep` — stored inert; materialized by bootstrap. Exact storage layout settled in Phase 3.
+- `.github/workflows/deploy.yml.example` — inert deploy workflow, generalized (`fetch-depth: 0`, wrangler-action, PR-preview comment; secret names `CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ACCOUNT_ID`).
+- `verify_web.py` — per-output split assertion (iframe in web HTML, watch-link in print HTML); skips cleanly when web not enabled.
 
-- After every phase: `make` + `make verify` still pass on the (PDF-only)
-  template itself — the template ships PDF-only, so web stays inert here.
-- A manual end-to-end web test happens in a throwaway fork (or by temporarily
-  enabling web in the template), not in the committed template state.
+**Must stay consistent:**
+- `verify_pdf.py`, `release.py` — unchanged; PDF harness/flow intact.
+- `.github/workflows/verify.yml` — already has the guarded web smoke; keep green.
+- `guide-template.pdf` — re-baseline only via `make release` when SOURCE_FILES change.
 
-## Open questions (resolve before/while implementing)
-
-- `app/` scaffold: ship committed (inert) vs. `.example` vs. bootstrap-copied?
-- `deploy.yml`: `.example` vs. gated-in-place?
-- Does the template grow a `CONTRIBUTING.md` for the web deploy flow, or fold
-  it into README?
+**Tests / verification:**
+- After each phase: `make` + `make verify` on the PDF-only template.
+- `python build.py --web` graceful-no-op check on the un-opted template.
+- Manual (throwaway `--with-web` fork or temporary opt-in): `make web` → playable-embed site; `verify_web.py` passes; `make dev` serves locally.
 
 ---
 
-_This is the starting plan for #3 (web-layer backport). Implementation not yet begun._
+_Phases: not yet broken down — run `/plan-phase plans/web-layer-backport/plan.md` to generate phase documents._
