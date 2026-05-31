@@ -10,6 +10,8 @@ run this from the new repo's root:
         --author "Author Name" \\
         --description "Short description for PDF metadata + pixi.toml" \\
         --keywords "kw1, kw2, kw3"
+    # opt into the website output (PDF + Cloudflare-deployed site):
+    pixi run python bootstrap.py "My Guide Title" my-guide-slug --with-web
 
 What it does:
   * build.py:   sets TITLE, OUTPUT_SLUG, and (when provided) AUTHOR /
@@ -20,6 +22,12 @@ What it does:
                 longer applies to an initialized fork).
   * CLAUDE.md:  substitutes {{GUIDE_NAME}} / {{GUIDE_SLUG}} and
                 <DESCRIBE YOUR GUIDE>.
+  * --with-web: materializes the opt-in web layer — copies
+                style-screen.css.example → style-screen.css, the templates/web/
+                scaffold → app/ (with {{GUIDE_SLUG}} substituted in
+                wrangler.jsonc), and activates .github/workflows/deploy.yml.example
+                → deploy.yml. WITHOUT the flag the fork stays PDF-only: no app/,
+                no deploy.yml, no Node footprint.
   * Deletes `.template-uninitialized` so build.py's template-hygiene check
     starts catching un-substituted placeholders going forward.
   * Deletes itself.
@@ -30,11 +38,19 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent.resolve()
 SENTINEL = ROOT / ".template-uninitialized"
+
+# Opt-in web layer staging sources (materialized only by --with-web). The
+# un-bootstrapped template ships these inert; a PDF-only fork never copies them
+# into place. See plans/web-layer-backport/.
+STYLE_SCREEN_EXAMPLE = ROOT / "style-screen.css.example"
+TEMPLATES_WEB = ROOT / "templates" / "web"
+DEPLOY_EXAMPLE = ROOT / ".github" / "workflows" / "deploy.yml.example"
 
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
@@ -131,6 +147,57 @@ def _sub_claude(title: str, slug: str) -> None:
     print("  CLAUDE.md       updated")
 
 
+def _materialize_web(slug: str) -> None:
+    """Materialize the opt-in web layer (only for --with-web).
+
+    Called BEFORE the sentinel removal / self-delete in main(), so any failure
+    here leaves bootstrap.py and `.template-uninitialized` in place for a retry.
+    Turns the inert staging assets into a live web layer:
+      * style-screen.css.example          → style-screen.css
+      * templates/web/ (slug-substituted)  → app/
+      * .github/workflows/deploy.yml.example → deploy.yml (GitHub runs *.yml)
+    The templates/web/ staging dir is removed afterward — its job is done once
+    copied into app/."""
+    app_dir = ROOT / "app"
+
+    # 1. Screen stylesheet (drives `make web`; its presence is the web-enabled
+    #    signal build.py / the Makefile / CI all key on). Idempotent.
+    shutil.copyfile(STYLE_SCREEN_EXAMPLE, ROOT / "style-screen.css")
+
+    # 2-4. Copy the staging scaffold into app/, substitute the slug, activate the
+    #      deploy workflow, then remove the staging dir. The whole block is
+    #      gated on the staging dir's presence (rmtree is its last step), which
+    #      makes the fail-safe retry path correct in every reachable state:
+    #        * staging present  → a fresh run or a retry after partial failure;
+    #                             dirs_exist_ok lets copytree merge onto a
+    #                             half-copied app/, the rename is guarded, and
+    #                             rmtree finishes the cleanup.
+    #        * staging gone, app/ present → a completed run; clean no-op.
+    #        * staging gone, app/ absent  → a genuinely broken template; error.
+    if TEMPLATES_WEB.exists():
+        shutil.copytree(TEMPLATES_WEB, app_dir, dirs_exist_ok=True)
+        wrangler = app_dir / "wrangler.jsonc"
+        wrangler.write_text(
+            wrangler.read_text(encoding="utf-8").replace("{{GUIDE_SLUG}}", slug),
+            encoding="utf-8",
+        )
+        if DEPLOY_EXAMPLE.exists():
+            DEPLOY_EXAMPLE.rename(DEPLOY_EXAMPLE.with_name("deploy.yml"))
+        shutil.rmtree(TEMPLATES_WEB)
+        try:
+            TEMPLATES_WEB.parent.rmdir()  # remove templates/ if now empty
+        except OSError:
+            pass
+    elif not (app_dir / "wrangler.jsonc").exists():
+        sys.exit(
+            "bootstrap.py: web staging dir templates/web/ is missing and app/ "
+            "is not materialized — cannot enable the web layer. Restore "
+            "templates/web/ (or drop --with-web)."
+        )
+
+    print("  web layer       materialized (style-screen.css, app/, deploy.yml)")
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description="Initialize a fork of guide-template with your own title, slug, and metadata.",
@@ -141,6 +208,9 @@ def main() -> int:
     p.add_argument("--author", help="Author name (overrides build.py AUTHOR).")
     p.add_argument("--description", help="Short description (build.py DESCRIPTION + pixi.toml description).")
     p.add_argument("--keywords", help='Comma-separated keywords (build.py KEYWORDS).')
+    p.add_argument("--with-web", action="store_true",
+                   help="Also materialize the opt-in web layer (style-screen.css, app/ scaffold, deploy.yml). "
+                        "Without it the fork is PDF-only.")
     args = p.parse_args()
 
     _validate(args.title, args.slug)
@@ -150,6 +220,11 @@ def main() -> int:
     _sub_pixi_toml(args.slug, args.description)
     _sub_readme(args.title, args.slug)
     _sub_claude(args.title, args.slug)
+
+    # Web materialization runs BEFORE the sentinel removal / self-delete below,
+    # so a failure here leaves bootstrap.py in place for a retry.
+    if args.with_web:
+        _materialize_web(args.slug)
 
     SENTINEL.unlink()
     print("  .template-uninitialized  removed")
@@ -165,6 +240,10 @@ def main() -> int:
     print(f"  2. `make` to render, eyeball `{args.slug}.pdf`.")
     print(f"  3. `make release MSG=\"Initial content\"` to commit source + baseline.")
     print(f"  4. `git push` to publish.")
+    if args.with_web:
+        print("  5. Web layer enabled: `cd app && npm install`, then `make dev` to preview.")
+        print("     For deploys, add CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID repo")
+        print("     secrets (see README \"Website deploy\"). `make deploy` for a manual push.")
     return 0
 
 
