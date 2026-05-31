@@ -15,7 +15,7 @@ _Execution tracker for [`plan.md`](./plan.md)_
 
 - [ ] [Phase 1: Transforms Contract + Inert `--web`](./phase-01-transforms-contract-inert-web.md)
 - [ ] [Phase 2: Make/Pixi Targets + CI Re-gate + Gitignore](./phase-02-make-pixi-ci-gitignore.md)
-- [ ] [Phase 3: Opt-in Assets (app/ scaffold, deploy.yml.example, verify_web.py)](./phase-03-opt-in-assets.md)
+- [ ] [Phase 3: Opt-in Assets (templates/web scaffold, deploy.yml.example, verify_web.py)](./phase-03-opt-in-assets.md)
 - [ ] [Phase 4: bootstrap `--with-web`](./phase-04-bootstrap-with-web.md)
 - [ ] [Phase 5: Docs](./phase-05-docs.md)
 - [ ] [Phase 6: End-to-End Verification Gate](./phase-06-e2e-verification-gate.md)

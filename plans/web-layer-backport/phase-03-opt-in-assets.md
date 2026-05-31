@@ -1,4 +1,4 @@
-# Phase 3: Opt-in Assets (app/ scaffold, deploy.yml.example, verify_web.py)
+# Phase 3: Opt-in Assets (templates/web scaffold, deploy.yml.example, verify_web.py)
 
 _Status: pending_
 
