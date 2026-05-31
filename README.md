@@ -190,10 +190,10 @@ Two cost controls keep Actions minutes low: CI is **Ubuntu only** (macOS runners
 The website is an **opt-in** second output. The PDF is the default; a PDF-only fork needs none of this. To enable the web layer, pass `--with-web` when you bootstrap:
 
 ```bash
-pixi run python bootstrap.py "My Guide Title" {{GUIDE_SLUG}} --with-web
+pixi run python bootstrap.py "My Guide Title" my-guide-slug --with-web
 ```
 
-That materializes `style-screen.css`, the `app/` Cloudflare scaffold (with your slug as the worker name), and a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css`, `templates/web/` → `app/` with `{{GUIDE_SLUG}}` replaced by your slug in `app/wrangler.jsonc`, and `.github/workflows/deploy.yml.example` → `deploy.yml`.)
+That materializes `style-screen.css`, the `app/` Cloudflare scaffold (with your slug as the worker name), and a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css` and `templates/web/` → `app/`, set the `name` field in `app/wrangler.jsonc` to your slug, and rename `.github/workflows/deploy.yml.example` → `deploy.yml`.)
 
 Once enabled, the site builds with `make web` (→ `app/dist/`) and deploys to Cloudflare Workers Static Assets. `make dev` serves it locally (requires **Node ≥22**; run `npm install` in `app/` first — wrangler is pinned in `app/package.json`). `.github/workflows/deploy.yml` deploys automatically (push to `main` → production; PR → preview URL posted as a comment). `make deploy` is the manual one-off.
 
@@ -249,7 +249,7 @@ interactive login (`wrangler login`), not these secrets.
 
 ### 4. Bind a custom domain (optional, one-time, manual)
 
-By default the site is reachable at `<{{GUIDE_SLUG}}>.<your-subdomain>.workers.dev`. To put it on your own domain, bind it in the Cloudflare dashboard (NOT in `wrangler.jsonc`): **Workers & Pages → {{GUIDE_SLUG}} → Settings → Domains & Routes → Add → Custom Domain**. The domain's zone must be in the same Cloudflare account.
+By default the site is reachable at `{{GUIDE_SLUG}}.<your-subdomain>.workers.dev`. To put it on your own domain, bind it in the Cloudflare dashboard (NOT in `wrangler.jsonc`): **Workers & Pages → {{GUIDE_SLUG}} → Settings → Domains & Routes → Add → Custom Domain**. The domain's zone must be in the same Cloudflare account.
 
 ## Conventions
 

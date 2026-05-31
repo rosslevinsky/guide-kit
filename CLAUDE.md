@@ -83,7 +83,7 @@ Activate the hook by copying `transforms.py.example` → `transforms.py` (it shi
 
 ## The website (opt-in)
 
-The PDF is the default output. A fork can **opt in** to a second output — a website deployed to Cloudflare Workers Static Assets — by bootstrapping with `--with-web` (`pixi run python bootstrap.py "Title" {{GUIDE_SLUG}} --with-web`). Without it, the fork is PDF-only: no `app/`, no `style-screen.css`, no `deploy.yml`, no Node footprint.
+The PDF is the default output. A fork can **opt in** to a second output — a website deployed to Cloudflare Workers Static Assets — by bootstrapping with `--with-web` (`pixi run python bootstrap.py "Title" my-guide-slug --with-web`). Without it, the fork is PDF-only: no `app/`, no `style-screen.css`, no `deploy.yml`, no Node footprint.
 
 When enabled:
 
