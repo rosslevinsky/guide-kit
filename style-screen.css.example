@@ -1,0 +1,221 @@
+/* style-screen.css.example — screen stylesheet starter for the WEBSITE output.
+ *
+ * This is the OPT-IN web layer's stylesheet template. It is inert until
+ * `bootstrap.py --with-web` copies it to `style-screen.css`, which is what the
+ * web build (`build.py --web`) loads. The presence of `style-screen.css` is
+ * also the signal that the web layer is enabled — without it, `make web`
+ * no-ops. The PDF always uses `style.css`, never this file.
+ *
+ * Deliberately NOT in build.py's SOURCE_FILES: editing the screen stylesheet
+ * changes only the website, never the rendered PDF, so it must not bump the
+ * PDF version stamp or break `make verify`. Plain `git commit`.
+ *
+ * Placeholders substituted at build time by build.py (same as style.css):
+ *   __TITLE__    — document title
+ *   __VERSION__  — version stamp (shown in the footer)
+ *
+ * Single static page: a long readable column. The same HTML islands the PDF
+ * uses (callouts, title-block, page-break) are restyled here for screen; the
+ * .embed rules handle responsive YouTube iframes (see transforms.py.example).
+ */
+
+:root {
+  --ink: #1a1a1a;
+  --muted: #555;
+  --accent: #0b5394;
+  --rule: #e2e2e6;
+  --max-width: 46rem;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  font-size: 17px;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The BODY is the centered readable column. Constraining the body itself
+   (rather than auto-centering each child) means every element aligns to the
+   same left edge regardless of its own margin shorthand — the h1/h2/p/ul
+   rules below all use `margin: X 0 Y`, which would otherwise zero out a
+   per-child auto-centering margin and shove content to the padding edge.
+   The +2.5rem keeps the inner text measure ≈ --max-width after padding. */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  line-height: 1.65;
+  color: var(--ink);
+  max-width: calc(var(--max-width) + 2.5rem);
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+  background: #fff;
+}
+
+/* ---- Title block ---- */
+.title-block { margin-bottom: 2.5rem; }
+.title-block h1 {
+  font-size: 2.4rem;
+  line-height: 1.15;
+  font-weight: 800;
+  margin: 0 0 0.4rem;
+  border: none;
+}
+.title-block p {
+  font-size: 1.2rem;
+  font-style: italic;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ---- Headings ---- */
+h1 {
+  font-size: 1.7rem;
+  color: var(--accent);
+  font-weight: 800;
+  margin: 2.4rem 0 0.6rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+.title-block h1 { padding-top: 0; border-top: none; }
+h2 { font-size: 1.3rem; font-weight: 700; margin: 1.8rem 0 0.5rem; }
+h3 { font-size: 1.1rem; font-weight: 700; color: #333; margin: 1.4rem 0 0.4rem; }
+
+p { margin: 0.6rem 0 0.9rem; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- Contents block (the manual TOC under "# Contents") ---- */
+/* The first h1 is "Contents"; its following list is the nav. Give it a card
+ * look so it reads as a table of contents rather than body text. */
+#contents + ul {
+  background: #f6f8fb;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1rem 2rem;
+  list-style: none;
+  margin: 0.5rem 0 1.5rem;
+}
+#contents + ul ul { list-style: none; }
+#contents + ul a { color: var(--ink); }
+#contents + ul a:hover { color: var(--accent); }
+
+/* ---- Lists ---- */
+ul, ol { margin: 0.5rem 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.3rem; }
+
+/* ---- Code ---- */
+code {
+  font-family: ui-monospace, "SF Mono", "Menlo", "Consolas", "Liberation Mono", "Courier New", monospace;
+  font-size: 0.9em;
+  background: #f4f4f6;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+pre {
+  background: #f4f4f6;
+  padding: 0.9rem 1.1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+pre code { background: transparent; padding: 0; }
+
+/* ---- Callouts (shared islands with the PDF) ---- */
+.callout {
+  padding: 0.85rem 1.1rem;
+  margin: 1.2rem 0;
+  border-radius: 6px;
+}
+.callout p { margin: 0.4rem 0; }
+.callout p:first-child { margin-top: 0; }
+.callout p:last-child { margin-bottom: 0; }
+.callout.warn { background: #fff4e5; border: 1px solid #cc7a00; }
+.callout.warn p:first-child strong:first-child { color: #cc7a00; }
+.callout.tip { background: #eaf4ef; border-left: 4px solid #2a8a5f; }
+.callout.tip p:first-child strong:first-child { color: #2a8a5f; }
+.callout.accent { background: #e8eef7; border-left: 3px solid var(--accent); }
+
+/* ---- Exercise boxes ---- */
+.exercise {
+  border: 1px solid #2e7d32;
+  background: #f0f5f0;
+  border-radius: 6px;
+  margin: 1.2rem 0;
+}
+.exercise p { margin: 0.4rem 0; padding: 0 1.1rem; }
+.exercise p:first-child {
+  font-weight: 700; color: #2e7d32;
+  border-bottom: 1px solid #2e7d32;
+  margin: 0; padding: 0.6rem 1.1rem;
+}
+
+/* ---- Tables ---- */
+table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+th { background: var(--accent); color: #fff; text-align: left; padding: 0.5rem 0.75rem; }
+td { padding: 0.5rem 0.75rem; border: 1px solid var(--rule); vertical-align: top; }
+tr:nth-child(even) td { background: #f7f7f9; }
+
+/* ---- Blockquotes ---- */
+blockquote {
+  border-left: 3px solid #ccc;
+  padding: 0.4rem 1rem;
+  margin: 1rem 0;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ---- ASCII diagrams ---- */
+pre.diagram {
+  background: #faf8f4;
+  border: 1px solid #d9d3c5;
+  border-radius: 6px;
+}
+
+/* ---- Embeds (responsive 16:9 iframes; see transforms.py.example) ---- */
+.embed {
+  margin: 1.4rem 0;
+}
+.embed iframe {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border: 0;
+  border-radius: 8px;
+}
+
+/* The print-only page-break island has no meaning on screen. */
+.page-break { display: none; }
+
+/* ---- Footer (PDF download link, license, version stamp) ---- */
+.site-footer {
+  margin-top: 3rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.site-footer p { margin: 0.4rem 0; }
+.site-footer .download {
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+}
+.site-footer .download a {
+  display: inline-block;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+}
+.site-footer .download a:hover {
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+}
+.site-footer .stamp { color: #888; }
+
+/* ---- Small screens ---- */
+@media (max-width: 34rem) {
+  html { font-size: 16px; }
+  body { padding: 1.5rem 1rem 3rem; }
+  .title-block h1 { font-size: 1.9rem; }
+}
