@@ -34,6 +34,9 @@ qpdf = ">=11,<13"
 [tasks]
 build = "python build.py"
 html = "python build.py --html-preview"
+# web builds the opt-in website into app/dist/. No-ops cleanly (exit 0) on a
+# PDF-only fork that has no style-screen.css — see build.py build_web().
+web = "python build.py --web"
 # release.py is invoked via `make release MSG="..."` (not a pixi task,
 # because the Makefile target enforces the required MSG argument with a
 # clear usage message).

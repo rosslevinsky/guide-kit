@@ -16,7 +16,7 @@ endif
 WORKING_PDF := build/$(OUTPUT_SLUG).pdf
 REFERENCE_PDF := $(OUTPUT_SLUG).pdf
 
-.PHONY: build help all install html verify baseline release clean
+.PHONY: build help all install html web dev deploy verify baseline release clean
 
 # `build` is the FIRST non-.PHONY target, so bare `make` builds.
 # Intentional divergence from mac-terminal-guide / git-guide, which default to `help`.
@@ -29,6 +29,9 @@ help:
 	@echo "Targets:"
 	@echo "  make                       Build the PDF (default; writes $(WORKING_PDF))"
 	@echo "  make html                  Render a standalone HTML for browser preview (in build/)"
+	@echo "  make web                   Build the deployable website into app/dist/ (opt-in web layer)"
+	@echo "  make dev                   Build the site and serve it locally (wrangler dev; needs app/)"
+	@echo "  make deploy                Build and deploy the site to Cloudflare (manual; needs app/)"
 	@echo "  make verify                Check that the freshly-built PDF matches the committed $(REFERENCE_PDF)"
 	@echo "  make baseline              Promote $(WORKING_PDF) onto $(REFERENCE_PDF) (use deliberately)"
 	@echo "  make release MSG=\"...\"     Stage source + refresh reference + amend, in one commit"
@@ -44,6 +47,30 @@ install:
 
 html:
 	pixi run html
+
+# web builds the deployable website into app/dist/ (index.html with inlined
+# screen CSS + a copy of the committed reference PDF). Served by Cloudflare
+# Workers Static Assets. Does NOT touch the PDF pipeline or the reference PDF.
+# On a PDF-only fork (no style-screen.css) `build.py --web` no-ops cleanly.
+web:
+	pixi run web
+
+# dev serves the site locally via wrangler. The app/ scaffold (package.json +
+# wrangler config) only exists after `bootstrap.py --with-web`, so guard on it
+# and error clearly on PDF-only forks before building or invoking wrangler.
+# Requires Node >=22 and `npm install` in app/ (wrangler is pinned there).
+dev:
+	@test -d app || { echo "web layer not enabled; run bootstrap.py --with-web"; exit 1; }
+	pixi run web
+	cd app && npx wrangler dev
+
+# deploy pushes the current build to Cloudflare (manual one-off; CI deploy is
+# handled by .github/workflows/deploy.yml on web-enabled forks). Same app/
+# guard as dev.
+deploy:
+	@test -d app || { echo "web layer not enabled; run bootstrap.py --with-web"; exit 1; }
+	pixi run web
+	cd app && npx wrangler deploy
 
 # verify depends on build so a fresh render is always compared to the reference.
 verify: build

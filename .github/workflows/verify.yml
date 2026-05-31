@@ -83,14 +83,18 @@ jobs:
         run: make
 
       # Web build smoke — confirm `make web` produces a nonzero index.html.
-      # (Guarded: skips cleanly on PDF-only forks that haven't enabled the web
-      # layer, where the `web` target / app/ scaffold don't exist yet.)
+      # Gated on web *enablement* (presence of style-screen.css), NOT on the
+      # `web` target's existence: the shared Makefile now defines `web` on every
+      # fork, so a `make -n web` guard would pass even on a PDF-only fork — and
+      # there `make web` deliberately no-ops, so `test -s app/dist/index.html`
+      # would then fail. `style-screen.css` only exists after
+      # `bootstrap.py --with-web`, so it's the true web-enabled signal.
       - name: make web (web build smoke)
         run: |
-          if make -n web >/dev/null 2>&1; then
+          if [ -f style-screen.css ]; then
             make web
             test -s app/dist/index.html || { echo "app/dist/index.html missing or empty"; exit 1; }
             echo "web build smoke OK"
           else
-            echo "no 'web' target — PDF-only fork; skipping web smoke"
+            echo "web layer not enabled (no style-screen.css); skipping web smoke"
           fi

@@ -1,0 +1,24 @@
+{
+  // Cloudflare Workers Static Assets config for the website output.
+  //
+  // This file is a TEMPLATE: it ships under templates/web/ and is inert until
+  // `bootstrap.py --with-web` copies it to app/wrangler.jsonc with the guide
+  // slug substituted for {{GUIDE_SLUG}}. The un-bootstrapped template has no
+  // app/ dir at all.
+  //
+  // `make web` builds the site into ./dist (index.html + a copy of the
+  // committed reference PDF); wrangler serves that directory. Single static
+  // page, so NO not_found_handling (the default 404 handling is correct) and
+  // NO SPA routing.
+  //
+  // A custom domain is NOT configured here — bind it separately via the
+  // Cloudflare dashboard (Workers > Custom Domains) if you want one. The
+  // worker name below doubles as the *.workers.dev subdomain.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "{{GUIDE_SLUG}}",
+  "compatibility_date": "2026-04-23",
+  "assets": {
+    "directory": "./dist"
+  },
+  "preview_urls": true
+}

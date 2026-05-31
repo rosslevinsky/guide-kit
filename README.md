@@ -21,7 +21,7 @@ A single-document beginner-guide PDF, authored in Markdown and rendered to PDF v
 - **A deterministic version stamp in the footer** — `YYYY-MM-DD HH:MM:SS · <12-hex-sha256>` — derived from `git log` over your source files. Readers can see exactly which commit a PDF was built from.
 - **A `make verify` harness** that compares the freshly-built PDF against the committed reference (page count + text content + per-page pixel diff at zero tolerance), so accidental rendering regressions can't ship.
 - **A `make release` workflow** that bundles source commits + reference refresh into one atomic commit, eliminating an entire class of "I forgot to update the baseline" mistakes.
-- **A `transforms.py` hook** for per-guide HTML rewrites (custom code-block classification, link injection, table styling) without forking the build script.
+- **A per-output `transforms.py` hook** for per-guide HTML rewrites (code-block classification, link injection, table styling) — with separate PDF and web entry points (`post_pandoc_html_for_pdf` / `_for_web`) that drive the opt-in website's play-on-screen / link-in-print media split — without forking the build script.
 - **Pixi-managed deps + Apache 2.0 / CC BY 4.0 dual licensing + a bundled CI workflow** so each new guide starts with reproducible builds, clean licensing for both code and content, and Ubuntu CI smoke (paths-filtered, to keep Actions minutes low) from day one.
 
 ### Why this exists
@@ -33,7 +33,7 @@ The template was extracted in 2026 from three guides (`mac-terminal-guide`, `git
 - **Pixi**, not `pip` + `venv` + `brew`. Pandoc, WeasyPrint, poppler, qpdf, and pillow are all installed into a project-local conda env from `conda-forge`. No `brew install pango`. No system-wide state. `pixi install` from a fresh clone is sufficient on macOS / Linux / Windows.
 - **WeasyPrint**, not LaTeX. Trades aesthetic ceiling for "you can debug it in a browser." `make html` writes a standalone HTML preview to `build/{{GUIDE_SLUG}}.html` for fast iteration before the slower PDF render.
 - **pandoc** for Markdown → HTML, not a custom parser. Smart-quote conversion is **disabled** (`-smart`) so the literal characters in your source land in the PDF — important for ASCII diagrams and copy-pasteable command snippets.
-- **A `transforms.py` hook**, not config files. If a fork needs to rewrite the HTML pandoc produces (turn `Debit / Credit` code blocks into ruled tables, inject TOC anchors, classify numeric vs. prose tables), it provides a single function `post_pandoc_html(html: str) -> str`. The template ships `transforms.py.example`; activate by copying to `transforms.py` and the build picks it up automatically.
+- **A `transforms.py` hook**, not config files. If a fork needs to rewrite the HTML pandoc produces (turn `Debit / Credit` code blocks into ruled tables, inject TOC anchors, classify numeric vs. prose tables), it provides per-output `post_pandoc_html_for_pdf` / `post_pandoc_html_for_web` functions (or a single-entry `post_pandoc_html` fallback for PDF-only forks). The template ships `transforms.py.example` demonstrating the per-output YouTube-embed split (iframe on the site, watch-link in print); activate by copying to `transforms.py` and the build picks it up automatically. See [Website deploy](#website-deploy-cloudflare).
 - **Content-identicalness, not byte-identicalness.** The verify harness checks page count + text + per-page pixels. Two consecutive builds of the same committed source produce content-identical PDFs even though the raw bytes can differ slightly (font subset prefixes, etc.). `SOURCE_DATE_EPOCH` is pinned from the most recent source commit and the output is run through `qpdf --deterministic-id` to make this hold.
 - **CI is build-smoke only**, not verify, and **Ubuntu only**. Strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). CI's job is to confirm `make` runs without crashing; local pre-push `make verify` is the real regression gate. macOS/Windows smoke was dropped to save Actions minutes (macOS bills 10x, Windows 2x the Linux rate), and the trigger is paths-filtered so doc-only pushes skip CI.
 - **Dual licensing.** Code (build scripts, CSS, configuration) is Apache 2.0. Content (your `guide.md` and the rendered PDF) is CC BY 4.0. Both live as explicit `LICENSE*` files so GitHub auto-detects them correctly and downstream re-users see clear, separate terms.
@@ -99,9 +99,16 @@ make verify                     # check the fresh build matches the committed {{
 make baseline                   # promote build/{{GUIDE_SLUG}}.pdf onto {{GUIDE_SLUG}}.pdf (use deliberately)
 make release MSG="..."          # stage source + refresh reference + amend, in one commit
 make clean                      # remove build/ and verify-diff/
+
+# Opt-in web layer (only after `bootstrap.py --with-web` — see "Website deploy"):
+make web                        # build the website into app/dist/
+make dev                        # build + serve locally via wrangler (needs Node ≥22)
+make deploy                     # build + deploy to Cloudflare (manual one-off)
 ```
 
 The working render (regenerated each build) lands at `./build/{{GUIDE_SLUG}}.pdf` (gitignored). The committed reference is `./{{GUIDE_SLUG}}.pdf` at the repo root — downloadable directly from GitHub.
+
+The PDF is the default deliverable; the website is **opt-in**. On a PDF-only fork `make web` no-ops cleanly and `make dev`/`make deploy` exit with a "web layer not enabled" message — nothing under `app/` exists until you opt in. See [Website deploy (Cloudflare)](#website-deploy-cloudflare).
 
 ## Files
 
@@ -122,6 +129,12 @@ The working render (regenerated each build) lands at `./build/{{GUIDE_SLUG}}.pdf
 | `CLAUDE.md` | Project conventions, gotchas, and per-guide notes. Read before editing content. |
 | `LICENSE` / `LICENSE-CONTENT` | Apache 2.0 for code, CC BY 4.0 for content. |
 | `.github/workflows/verify.yml` | CI: build-smoke on Ubuntu only, paths-filtered. (Strict `make verify` runs only locally — see CLAUDE.md's "CI policy".) |
+| `style-screen.css.example` | Opt-in web layer: screen stylesheet starter. `bootstrap.py --with-web` copies it to `style-screen.css` (NOT a SOURCE_FILE — web-only, doesn't bump the PDF stamp). |
+| `templates/web/` | Opt-in web layer: the `app/` scaffold staging dir (`wrangler.jsonc`, `package.json` + lockfile, `public/.gitkeep`). `--with-web` copies it to `app/` with the slug substituted, then removes the staging copy. |
+| `.github/workflows/deploy.yml.example` | Opt-in web layer: inert deploy workflow (GitHub only runs `*.yml`). `--with-web` activates it as `deploy.yml`. |
+| `verify_web.py` | Opt-in web layer: asserts the per-output embed split (iframe on the site, watch-link in print). Skips cleanly when the web layer isn't enabled. |
+
+(The web-layer files above ship inert. A PDF-only fork has no `app/`, no `style-screen.css`, and no live `deploy.yml`. See [Website deploy (Cloudflare)](#website-deploy-cloudflare).)
 
 ## Workflow: editing content
 
@@ -171,6 +184,72 @@ A green `make verify` is the contract that your latest build is content-identica
 CI (GitHub Actions) runs `make` build-smoke on `ubuntu-latest` only. It does **not** run `make verify`. Why: strict pixel-exact rendering doesn't reproduce across machines (HarfBuzz/Cairo/FreeType drift across OSes, and even between macOS minor versions ship different fonts). CI's job is to confirm the pipeline doesn't crash; local pre-push `make verify` is what catches rendering regressions.
 
 Two cost controls keep Actions minutes low: CI is **Ubuntu only** (macOS runners bill at 10x and Windows at 2x the Linux rate, and the cross-platform smoke rarely caught anything Ubuntu didn't), and the workflow is **paths-filtered** — pushes that only touch docs (`README.md`, `CLAUDE.md`, `LICENSE*`), `plans/`, or other non-build files skip CI entirely. Trigger a run manually from the Actions tab (`workflow_dispatch`) if you ever need one outside those paths.
+
+## Website deploy (Cloudflare)
+
+The website is an **opt-in** second output. The PDF is the default; a PDF-only fork needs none of this. To enable the web layer, pass `--with-web` when you bootstrap:
+
+```bash
+pixi run python bootstrap.py "My Guide Title" my-guide-slug --with-web
+```
+
+That materializes `style-screen.css`, activates `transforms.py` (the per-output YouTube embed split, so embeds work on the site and degrade to links in the PDF), copies the `app/` Cloudflare scaffold (with your slug as the worker name), and activates a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css` and `transforms.py.example` → `transforms.py`, copy `templates/web/` → `app/` and set the `name` field in `app/wrangler.jsonc` to your slug, and rename `.github/workflows/deploy.yml.example` → `deploy.yml`. Note `transforms.py` is a SOURCE_FILE — re-baseline with `make release` afterward.)
+
+Once enabled, the site builds with `make web` (→ `app/dist/`) and deploys to Cloudflare Workers Static Assets. `make dev` serves it locally (requires **Node ≥22**; run `npm install` in `app/` first — wrangler is pinned in `app/package.json`). `.github/workflows/deploy.yml` deploys automatically (push to `main` → production; PR → preview URL posted as a comment). `make deploy` is the manual one-off.
+
+CI deploys need two **GitHub Actions secrets**. Local `wrangler` auth on your machine does **not** carry into GitHub Actions — you must store these in the repo.
+
+### 1. Get a Cloudflare API token
+
+1. Go to the [Cloudflare dashboard](https://dash.cloudflare.com/) → **My Profile**
+   (top-right avatar) → **API Tokens** → **Create Token**
+   (direct link: <https://dash.cloudflare.com/profile/api-tokens>).
+2. Use the **"Edit Cloudflare Workers"** template (or a Custom Token with, at
+   minimum, **Account → Workers Scripts → Edit**). For a custom token, scope
+   *Account Resources* to your account; if you'll bind a custom domain, also
+   scope *Zone Resources* to that domain's zone.
+3. Click **Continue to summary → Create Token**, then **copy the token value
+   now** — Cloudflare shows it only once. Treat it like a password.
+
+### 2. Get your Cloudflare account ID
+
+- Dashboard → **Workers & Pages** → the **Account ID** is in the right-hand
+  sidebar (also on any domain's overview page), **or**
+- run `cd app && npx wrangler whoami` (after `npm install` in `app/`).
+
+### 3. Store both as GitHub Actions secrets
+
+Repo → **Settings → Secrets and variables → Actions → New repository secret**.
+Create exactly these two names (the workflow references them verbatim):
+
+| Secret name | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | the token from step 1 |
+| `CLOUDFLARE_ACCOUNT_ID` | the account ID from step 2 |
+
+Or from the CLI (prompts for the value; never put a token in your shell history
+or a committed file):
+
+```bash
+gh secret set CLOUDFLARE_API_TOKEN   --repo <owner>/<repo>   # paste token at prompt
+gh secret set CLOUDFLARE_ACCOUNT_ID  --repo <owner>/<repo>   # paste account ID at prompt
+```
+
+Verify they exist (names only; values are write-only and never shown):
+
+```bash
+gh secret list --repo <owner>/<repo>
+```
+
+**Security notes.** These are repository secrets — never commit them to
+`wrangler.jsonc`, `.env`, or any tracked file. Rotate the API token if it's ever
+exposed (dashboard → API Tokens → Roll). Scope the token to Workers-edit only;
+do not use a Global API Key. For local `make deploy`, `wrangler` uses your own
+interactive login (`wrangler login`), not these secrets.
+
+### 4. Bind a custom domain (optional, one-time, manual)
+
+By default the site is reachable at `{{GUIDE_SLUG}}.<your-subdomain>.workers.dev`. To put it on your own domain, bind it in the Cloudflare dashboard (NOT in `wrangler.jsonc`): **Workers & Pages → {{GUIDE_SLUG}} → Settings → Domains & Routes → Add → Custom Domain**. The domain's zone must be in the same Cloudflare account.
 
 ## Conventions
 

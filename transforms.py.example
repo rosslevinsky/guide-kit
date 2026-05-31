@@ -1,56 +1,103 @@
-"""Optional HTML transforms hook for the guide.
+"""Optional per-output HTML transforms hook for the guide.
 
-To activate: rename or copy this file to `transforms.py` in the same
-directory. `build.py` will discover it, import it, and call
-`post_pandoc_html(html_body) -> str` exactly once between the pandoc step
-and WeasyPrint. The hook receives the raw HTML body emitted by pandoc and
-returns a transformed HTML body.
+To activate: copy or rename this file to `transforms.py` in the same directory.
+`build.py` discovers it, imports it, and calls ONE entry point between the
+pandoc step and the renderer, depending on which output is being built:
+
+    post_pandoc_html_for_pdf(html: str) -> str   # PDF pipeline (WeasyPrint)
+    post_pandoc_html_for_web(html: str) -> str    # website pipeline (app/dist)
+
+Each receives the raw HTML body emitted by pandoc and returns a transformed
+body. Keep the PDF-side and web-side logic in SEPARATE functions — rich media
+that plays on the website (a YouTube iframe) must degrade to a plain link in
+print, where nothing can play.
+
+PDF-only forks that don't need a website can define just the single-entry
+fallback instead — build.py prefers `post_pandoc_html_for_<target>` but falls
+back to `post_pandoc_html` for both targets, and to the identity transform when
+no hook is present at all:
+
+    post_pandoc_html(html: str) -> str            # used for both targets
 
 # Gotcha: version stamp invalidation
 
-Activating this hook (creating `transforms.py`) also adds it to the
-version-stamp input list, so the rendered PDF footer will change even
-when `post_pandoc_html` is the identity function — the hash changes
-because the input file list grew. After activating OR deactivating the
-hook, follow the amend workflow in CLAUDE.md's "After editing" section:
-commit `transforms.py` first, then `make baseline`, then `git commit
---amend --no-edit` to fold the refreshed baseline into the same commit.
-Doing it in the other order produces a dirty-stamp baseline that
-subsequent `make verify` runs will reject.
+`transforms.py` is in build.py's SOURCE_FILES list, so activating the hook
+(creating the file) — and every later edit to it — bumps the PDF footer version
+stamp, even for a web-only change and even when the hook is the identity
+transform (the file's bytes join the content hash). After activating OR
+deactivating the hook, follow the amend workflow in CLAUDE.md's "After editing"
+section: commit `transforms.py` first, then `make baseline`, then
+`git commit --amend --no-edit`. Doing it in the other order produces a
+dirty-stamp baseline that subsequent `make verify` runs will reject.
 
-# Hook contract
+# The embed vocabulary (worked example)
 
-def post_pandoc_html(html: str) -> str: ...
+`guide.md` may contain YouTube embed islands:
 
-Called once per build. Errors propagate.
+    <div class="embed youtube" data-id="VIDEO_ID">Link label</div>
+
+- Web output: rewritten to a responsive 16:9 <iframe> (styled by .embed in
+  style-screen.css), so the video plays inline on the site.
+- PDF output: rewritten to a plain paragraph link to youtube.com/watch?v=ID,
+  so the printed guide stays useful.
+
+The functions below implement exactly that. Delete or adapt them for your own
+transforms.
 """
+from __future__ import annotations
+
+import html as _html
+import re
+
+# Matches a YouTube embed island as pandoc emits it (the div passes through
+# raw, attributes preserved, inner text on its own line). Tolerant of
+# surrounding whitespace. The data-id and the inner label are captured.
+_YT_EMBED = re.compile(
+    r'<div class="embed youtube" data-id="(?P<id>[^"]+)">\s*'
+    r'(?P<label>.*?)\s*</div>',
+    re.DOTALL,
+)
+
+
+def _yt_iframe(match: re.Match) -> str:
+    """Web replacement: a responsive iframe wrapped in a .embed container."""
+    vid = match.group("id")
+    label = match.group("label").strip() or "YouTube video"
+    title = _html.escape(label, quote=True)
+    return (
+        '<div class="embed youtube">'
+        f'<iframe src="https://www.youtube.com/embed/{vid}" '
+        f'title="{title}" loading="lazy" '
+        'allow="accelerometer; autoplay; clipboard-write; encrypted-media; '
+        'gyroscope; picture-in-picture; web-share" '
+        'referrerpolicy="strict-origin-when-cross-origin" '
+        'allowfullscreen></iframe>'
+        '</div>'
+    )
+
+
+def _yt_link(match: re.Match) -> str:
+    """PDF replacement: a plain paragraph link to the watch URL."""
+    vid = match.group("id")
+    label = match.group("label").strip() or "Watch on YouTube"
+    return (
+        f'<p><a href="https://www.youtube.com/watch?v={vid}">{label}</a></p>'
+    )
+
+
+def post_pandoc_html_for_pdf(html: str) -> str:
+    """PDF-side transforms: YouTube embeds → plain watch-URL links."""
+    return _YT_EMBED.sub(_yt_link, html)
+
+
+def post_pandoc_html_for_web(html: str) -> str:
+    """Web-side transforms: YouTube embeds → responsive iframes."""
+    return _YT_EMBED.sub(_yt_iframe, html)
 
 
 def post_pandoc_html(html: str) -> str:
-    """Default identity implementation — returns the HTML unchanged.
+    """Single-entry fallback for PDF-only forks that don't differentiate.
 
-    Replace the body of this function with your transform. See the
-    commented example below for a working pattern.
-    """
-    return html
-
-
-# ---------------------------------------------------------------------------
-# Example: uppercase every <h2> heading.
-#
-# To enable it, replace the identity body above with this implementation:
-#
-# import re
-#
-# def post_pandoc_html(html: str) -> str:
-#     return re.sub(
-#         r"(<h2[^>]*>)([^<]+)(</h2>)",
-#         lambda m: m.group(1) + m.group(2).upper() + m.group(3),
-#         html,
-#     )
-#
-# Real guides will reach for richer patterns (rewriting fenced code blocks
-# into styled tables, auto-classifying tables as numeric vs. prose, etc.).
-# See accounting-guide/build_pdf.py for examples of substantive transforms
-# that could live in a forked guide's transforms.py.
-# ---------------------------------------------------------------------------
+    Delegates to the PDF entry point so a fork that only defines/uses this
+    function still gets the print-safe behavior."""
+    return post_pandoc_html_for_pdf(html)
