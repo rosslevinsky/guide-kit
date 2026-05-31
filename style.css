@@ -221,5 +221,18 @@ pre.diagram {
   page-break-after: always;
 }
 
+/* ---- Colophon (license + copyright at the end of the PDF) ---- */
+.colophon {
+  margin-top: 2.5em;
+  padding-top: 0.9em;
+  border-top: 0.5pt solid #cccccc;
+  font-size: 8.5pt;
+  color: #555;
+  page-break-inside: avoid;
+}
+.colophon p { margin: 0.25em 0; }
+.colophon .colophon-title { font-weight: 700; color: #1a1a1a; }
+.colophon a { color: #0b5394; }
+
 strong { color: inherit; font-weight: 700; }
 a { color: #0b5394; text-decoration: none; }

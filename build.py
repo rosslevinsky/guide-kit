@@ -59,6 +59,18 @@ DESCRIPTION = (
 )
 KEYWORDS = "guide, template, pandoc, weasyprint, CC-BY-4.0"
 
+# ----- Licensing shown in the rendered output -----
+# The guide CONTENT is CC BY 4.0; the build tooling (code, CSS, config) is
+# Apache 2.0. The PDF colophon (last page) surfaces this so a reader of the
+# PDF sees the terms, not just someone browsing the repo. Forks: update
+# COPYRIGHT's year/holder to your own. The year is a constant (not derived
+# from the clock) so renders stay deterministic and `make verify` is stable.
+COPYRIGHT = f"© 2026 {AUTHOR}"
+LICENSE_CONTENT_NAME = "Creative Commons Attribution 4.0 International (CC BY 4.0)"
+LICENSE_CONTENT_URL = "https://creativecommons.org/licenses/by/4.0/"
+LICENSE_CODE_NAME = "Apache License 2.0"
+LICENSE_CODE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
+
 # ----- Paths -----
 ROOT = Path(__file__).parent.resolve()
 SRC = ROOT / "guide.md"
@@ -201,14 +213,29 @@ def _apply_transforms_hook(html_body: str) -> str:
     return module.post_pandoc_html(html_body)
 
 
+def _pdf_colophon() -> str:
+    """License/copyright block appended to the end of the PDF (the last page).
+    Styled by the `.colophon` rules in style.css."""
+    return (
+        '<div class="colophon">'
+        f'<p class="colophon-title">{TITLE}</p>'
+        f'<p>{COPYRIGHT}</p>'
+        '<p>This guide is licensed under '
+        f'<a href="{LICENSE_CONTENT_URL}">{LICENSE_CONTENT_NAME}</a>. '
+        'The build tooling is licensed under '
+        f'<a href="{LICENSE_CODE_URL}">{LICENSE_CODE_NAME}</a>.</p>'
+        '</div>'
+    )
+
+
 def render_html() -> str:
-    """Run pandoc, optionally pipe through the transforms hook, wrap in
-    <html>, substitute placeholder values into the CSS."""
+    """Run pandoc, optionally pipe through the transforms hook, append the
+    license colophon, wrap in <html>, substitute placeholder values in the CSS."""
     pandoc = subprocess.run(
         ["pandoc", str(SRC), "-f", "markdown+raw_html-smart", "-t", "html5"],
         capture_output=True, text=True, encoding="utf-8", check=True,
     )
-    body = _apply_transforms_hook(pandoc.stdout)
+    body = _apply_transforms_hook(pandoc.stdout) + _pdf_colophon()
     css = STYLE.read_text(encoding="utf-8")
     css = css.replace("__TITLE__", TITLE).replace("__VERSION__", _version_stamp())
     return (
