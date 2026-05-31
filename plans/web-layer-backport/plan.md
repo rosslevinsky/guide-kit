@@ -98,6 +98,16 @@ with `{{GUIDE_SLUG}}` substituted. They are NOT live in an un-bootstrapped fork.
 - `python build.py --web` graceful-no-op check on the un-opted template.
 - Manual (throwaway `--with-web` fork or temporary opt-in): `make web` → playable-embed site; `verify_web.py` passes; `make dev` serves locally.
 
+## Proposed phasing
+
+A starting proposal for `/plan-phase` (it may refine the split). Each phase keeps the PDF-only flow green and is independently committable. The "Phase N" references elsewhere in this doc point here.
+
+1. **Transforms contract + inert `--web`.** Port the two-entry transforms contract and `build.py --web` so it runs but gracefully no-ops without web assets; ship `style-screen.css.example`; refactor `transforms.py.example`. Touches SOURCE_FILES → `make release` re-baseline.
+2. **Makefile/pixi targets + CI re-gate + `.gitignore`.** Add `web`/`dev`/`deploy` targets and the `web` pixi task; ignore `app/dist/` + `node_modules/`. **Re-gate `verify.yml`'s web smoke on web *enablement* in this same phase** — adding the shared `web` target is exactly what breaks the old `make -n web` guard, so the two must land together or CI goes red.
+3. **`app/` scaffold + `deploy.yml.example` + `verify_web.py`.** The opt-in assets, stored inert and generalized/placeholdered. Settles the storage-layout question.
+4. **`bootstrap.py --with-web`.** Wire the opt-in into initialization (materialize the scaffold, screen CSS, and `deploy.yml` with slug substituted).
+5. **Docs.** README "Website deploy" (generalized secrets walkthrough), CLAUDE "The website" + embed vocabulary.
+
 ---
 
 _Phases: not yet broken down — run `/plan-phase plans/web-layer-backport/plan.md` to generate phase documents._
