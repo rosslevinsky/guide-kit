@@ -61,7 +61,7 @@ The `transforms.py` file is included in the input list unconditionally; git sile
 
 Both PDFs are canonicalized through `qpdf --deterministic-id --normalize-content=y` first so accidental non-determinism in the inputs doesn't masquerade as a real diff.
 
-**CI policy:** `.github/workflows/verify.yml` runs `make` (build smoke) on Ubuntu / macOS / Windows. It does **not** run `make verify` — strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). Local pre-push `make verify` is the sole real regression gate. See the pixi.toml comment block for the longer story.
+**CI policy:** `.github/workflows/verify.yml` runs `make` (build smoke) on **Ubuntu only**, and only when source/build files change (paths-filtered — doc-only and `plans/` pushes skip CI). It does **not** run `make verify` — strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). Local pre-push `make verify` is the sole real regression gate. (macOS/Windows smoke was dropped to save Actions minutes — macOS bills 10x and Windows 2x the Linux rate. Re-add a matrix in `verify.yml` if cross-platform breakage becomes a real risk.) See the pixi.toml comment block for the longer story.
 
 ### When to run `make baseline`
 
