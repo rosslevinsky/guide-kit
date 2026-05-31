@@ -15,7 +15,7 @@ Before starting this phase, confirm:
 ## Tasks
 
 - [ ] **PDF-only path (in-repo, safe):** confirm the un-opted template is clean — `make`, `make verify` pass; `python build.py --web` no-ops; **no `app/` dir exists** (`! test -e app`); `git status` clean.
-- [ ] **Web path (throwaway clone only — bootstrap self-deletes):** `git archive HEAD` → tmp dir; in the copy run `bootstrap.py "Test" test-guide --with-web`, then `cd app && npm install`, `make web` (from copy root), confirm `app/dist/index.html` is nonzero and contains an `<iframe>` once a YouTube embed is added to that copy's `guide.md`; run `python verify_web.py` (passes); `make dev` serves locally (manual, optional).
+- [ ] **Web path (throwaway clone only — bootstrap self-deletes):** `git archive HEAD` → tmp dir; in the copy: run `bootstrap.py "Test" test-guide --with-web` (copies `templates/web/`→`app/`), **add a YouTube embed to `guide.md`**, then `make web` and confirm `app/dist/index.html` is nonzero with an `<iframe>`; run `python verify_web.py` (must PASS, not skip). `npm install` in `app/` + `make dev` (browser serve) is a separate, optional manual check — needed only for wrangler, not for the `make web` / `verify_web.py` assertion path.
 - [ ] Walk all 10 success criteria from `plan.md` and record pass/fail for each.
 - [ ] Final grep-clean across the whole template for japan leakage.
 
@@ -31,13 +31,14 @@ Before starting this phase, confirm:
 make && make verify && python build.py --web && git status --porcelain
 echo "--- success criteria walk ---"   # tick each item from plan.md by hand
 
-# Web path in a throwaway copy:
+# Web path in a throwaway copy (make web / verify_web need NO npm — that's only for wrangler):
 tmp=$(mktemp -d); git archive HEAD | tar -x -C "$tmp"
 ( cd "$tmp" && python bootstrap.py "Test" test-guide --with-web \
     # Add a YouTube embed so verify_web.py actually ASSERTS the split (else it skips):
     && printf '\n<div class="embed youtube" data-id="dQw4w9WgXcQ">demo</div>\n' >> guide.md \
-    && cd app && npm install && cd .. && make web \
+    && make web \
     && test -s app/dist/index.html && python verify_web.py )   # must PASS, not skip
+# Optional browser check (needs Node): ( cd "$tmp/app" && npm install && cd .. && make dev )
 
 # Whole-template leak check:
 grep -rE "japan-guide|speedytuna|E01x6ClIiuc" --include='*.py' --include='*.md' \
