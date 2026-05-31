@@ -7,6 +7,8 @@ Default output (`python build.py`):
 Pipeline:
   pandoc → HTML body → wrap in <html> template → WeasyPrint → qpdf canonicalize
   Pass --html-preview to emit a standalone HTML for fast browser iteration.
+  Pass --web to build the deployable website into app/dist/ (opt-in web layer;
+  no-ops cleanly when the web layer is not enabled — see build_web).
 
 Determinism:
   SOURCE_DATE_EPOCH is set from the most-recent source commit so WeasyPrint's
@@ -23,14 +25,17 @@ Version stamp:
   tree has uncommitted changes to any of those files. Substituted into
   style.css via the __VERSION__ placeholder.
 
-Transforms hook:
-  If `transforms.py` exists next to build.py, it's imported and
-  `transforms.post_pandoc_html(html: str) -> str` is called exactly once,
-  between the pandoc step and WeasyPrint. The hook receives the raw HTML body
-  emitted by pandoc and returns a transformed HTML body. Activating the hook
-  also adds transforms.py to the version-stamp input list, so the rendered
-  footer changes — refresh the committed reference PDF (`make baseline`) after activating
-  or deactivating.
+Transforms hook (per-output):
+  If `transforms.py` exists next to build.py, it's imported and called once
+  between the pandoc step and the renderer. The contract has two entry points,
+  one per output target:
+    post_pandoc_html_for_pdf(html: str) -> str   # PDF pipeline (WeasyPrint)
+    post_pandoc_html_for_web(html: str) -> str    # website pipeline (app/dist)
+  A single-entry `post_pandoc_html(html)` is accepted as a fallback for forks
+  that don't differentiate; when neither is defined the body passes through
+  unchanged. Activating the hook also adds transforms.py to the version-stamp
+  input list, so the rendered footer changes — refresh the committed reference
+  PDF (`make baseline`) after activating or deactivating.
 
 Pandoc options:
   markdown+raw_html  -- inline HTML islands (callouts, exercises, page
@@ -42,6 +47,7 @@ import argparse
 import hashlib
 import importlib.util
 import os
+import shutil
 import subprocess
 import tempfile
 from datetime import datetime
@@ -75,6 +81,12 @@ LICENSE_CODE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
 ROOT = Path(__file__).parent.resolve()
 SRC = ROOT / "guide.md"
 STYLE = ROOT / "style.css"
+# Screen-only stylesheet for the website output. NOT in SOURCE_FILES — it
+# affects only the web build, never the PDF, so editing it must not bump the
+# PDF version stamp or break `make verify`. Ships opt-in: the template has only
+# `style-screen.css.example`; `bootstrap.py --with-web` copies it into place.
+# Its presence is also the signal that the web layer is enabled (see build_web).
+STYLE_SCREEN = ROOT / "style-screen.css"
 # The build/ directory holds the WORKING render (gitignored). `make` writes
 # here; `make verify` compares this to the committed reference at the repo
 # root. `make baseline` (and `make release`) copies build/<slug>.pdf onto
@@ -82,6 +94,9 @@ STYLE = ROOT / "style.css"
 BUILD_DIR = ROOT / "build"
 OUT_PDF = BUILD_DIR / f"{OUTPUT_SLUG}.pdf"
 OUT_HTML = BUILD_DIR / f"{OUTPUT_SLUG}.html"
+# The website build output (gitignored). `make web` writes the deployable
+# site here; Cloudflare Workers Static Assets serves this directory.
+WEB_DIR = ROOT / "app" / "dist"
 # The committed reference PDF at the repo root. Named for the guide so it
 # downloads cleanly from GitHub (no anonymous "baseline.pdf"). Override
 # REFERENCE_PDF if you want the old `baseline.pdf` convention.
@@ -199,18 +214,61 @@ def _qpdf_canonicalize(pdf_path: Path) -> None:
 # Render
 # ---------------------------------------------------------------------------
 
-def _apply_transforms_hook(html_body: str) -> str:
-    """If `transforms.py` exists next to build.py, import it and call
-    `post_pandoc_html`. Otherwise return the body unchanged."""
+def _load_transforms():
+    """Import `transforms.py` if it exists next to build.py, else return None."""
     hook_path = ROOT / "transforms.py"
     if not hook_path.exists():
-        return html_body
+        return None
     spec = importlib.util.spec_from_file_location("transforms", hook_path)
     if spec is None or spec.loader is None:
-        return html_body
+        return None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.post_pandoc_html(html_body)
+    return module
+
+
+def _apply_transforms(html_body: str, target: str) -> str:
+    """Pipe `html_body` through the transforms hook for the given target
+    ("pdf" or "web"). Prefers the per-output entry point
+    (`post_pandoc_html_for_<target>`); falls back to the single-entry
+    `post_pandoc_html` for forks that don't differentiate; returns the body
+    unchanged when no hook is present."""
+    module = _load_transforms()
+    if module is None:
+        return html_body
+    per_output = getattr(module, f"post_pandoc_html_for_{target}", None)
+    if callable(per_output):
+        return per_output(html_body)
+    single = getattr(module, "post_pandoc_html", None)
+    if callable(single):
+        return single(html_body)
+    return html_body
+
+
+def _pandoc_body() -> str:
+    """Run pandoc on guide.md and return the raw HTML body (pre-transform)."""
+    pandoc = subprocess.run(
+        ["pandoc", str(SRC), "-f", "markdown+raw_html-smart", "-t", "html5"],
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    return pandoc.stdout
+
+
+def _wrap_html(body: str, css: str) -> str:
+    """Wrap a transformed HTML body in the document shell with inlined CSS."""
+    return (
+        '<!DOCTYPE html><html lang="en"><head>'
+        '<meta charset="UTF-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f'<title>{TITLE}</title>'
+        f'<meta name="author" content="{AUTHOR}">'
+        f'<meta name="description" content="{DESCRIPTION}">'
+        f'<meta name="keywords" content="{KEYWORDS}">'
+        f'<style>{css}</style>'
+        '</head><body>'
+        f'{body}'
+        '</body></html>'
+    )
 
 
 def _pdf_colophon() -> str:
@@ -229,27 +287,32 @@ def _pdf_colophon() -> str:
 
 
 def render_html() -> str:
-    """Run pandoc, optionally pipe through the transforms hook, append the
-    license colophon, wrap in <html>, substitute placeholder values in the CSS."""
-    pandoc = subprocess.run(
-        ["pandoc", str(SRC), "-f", "markdown+raw_html-smart", "-t", "html5"],
-        capture_output=True, text=True, encoding="utf-8", check=True,
-    )
-    body = _apply_transforms_hook(pandoc.stdout) + _pdf_colophon()
+    """Render the PRINT HTML: pandoc → PDF transforms → colophon → wrap with style.css."""
+    body = _apply_transforms(_pandoc_body(), "pdf") + _pdf_colophon()
     css = STYLE.read_text(encoding="utf-8")
     css = css.replace("__TITLE__", TITLE).replace("__VERSION__", _version_stamp())
-    return (
-        '<!DOCTYPE html><html lang="en"><head>'
-        '<meta charset="UTF-8">'
-        f'<title>{TITLE}</title>'
-        f'<meta name="author" content="{AUTHOR}">'
-        f'<meta name="description" content="{DESCRIPTION}">'
-        f'<meta name="keywords" content="{KEYWORDS}">'
-        f'<style>{css}</style>'
-        '</head><body>'
-        f'{body}'
-        '</body></html>'
+    return _wrap_html(body, css)
+
+
+def render_web_html() -> str:
+    """Render the SCREEN HTML: pandoc → web transforms → wrap with
+    style-screen.css. Used for the website output only."""
+    body = _apply_transforms(_pandoc_body(), "web")
+    # Footer chrome: a prominent PDF download link, the license/copyright (so
+    # the website carries the same terms as the PDF), and the git-derived
+    # version stamp (which commit the live site was built from).
+    body += (
+        '<footer class="site-footer">'
+        f'<p class="download"><a href="{OUTPUT_SLUG}.pdf">⬇&nbsp;Download as PDF</a></p>'
+        f'<p>{COPYRIGHT} · Licensed under '
+        f'<a href="{LICENSE_CONTENT_URL}">{LICENSE_CONTENT_NAME}</a>; '
+        f'build tooling under <a href="{LICENSE_CODE_URL}">{LICENSE_CODE_NAME}</a>.</p>'
+        f'<p class="stamp">{TITLE} · {_version_stamp()}</p>'
+        '</footer>'
     )
+    css = STYLE_SCREEN.read_text(encoding="utf-8")
+    css = css.replace("__TITLE__", TITLE).replace("__VERSION__", _version_stamp())
+    return _wrap_html(body, css)
 
 
 def build(want_pdf: bool, want_html: bool) -> None:
@@ -266,6 +329,32 @@ def build(want_pdf: bool, want_html: bool) -> None:
         HTML(string=full_html, base_url=str(ROOT)).write_pdf(str(OUT_PDF))
         _qpdf_canonicalize(OUT_PDF)
         print(f"  PDF   ->  {OUT_PDF}")
+
+
+def build_web() -> None:
+    """Build the website into app/dist/: the screen HTML as index.html and a
+    copy of the committed reference PDF for download.
+
+    The web layer is opt-in. When `style-screen.css` is absent (a PDF-only
+    template or fork that never ran `bootstrap.py --with-web`), this no-ops
+    cleanly — it prints a hint, creates nothing, and exits 0 so `make web` is
+    safe on every fork."""
+    if not STYLE_SCREEN.exists():
+        print("  web layer not enabled — run `bootstrap.py --with-web` to enable it")
+        return
+
+    WEB_DIR.mkdir(parents=True, exist_ok=True)
+    out_index = WEB_DIR / "index.html"
+    out_index.write_text(render_web_html(), encoding="utf-8")
+    print(f"  WEB   ->  {out_index}")
+
+    # Copy the committed reference PDF (what readers download) — NOT a fresh
+    # render — so the site links to the verified-by-baseline file.
+    if REFERENCE_PDF.exists():
+        shutil.copyfile(REFERENCE_PDF, WEB_DIR / REFERENCE_PDF.name)
+        print(f"  WEB   ->  {WEB_DIR / REFERENCE_PDF.name}")
+    else:
+        print(f"  WARN  reference PDF {REFERENCE_PDF.name} missing; site will 404 the download link")
 
 
 # ---------------------------------------------------------------------------
@@ -316,11 +405,16 @@ def _check_template_hygiene() -> None:
 
 def main():
     p = argparse.ArgumentParser(description=f"Build {TITLE}.")
-    p.add_argument("--html-preview", action="store_true",
-                   help="Render only the standalone HTML for fast browser preview.")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--html-preview", action="store_true",
+                       help="Render only the standalone print HTML for fast browser preview.")
+    group.add_argument("--web", action="store_true",
+                       help="Build the deployable website into app/dist/ (opt-in web layer).")
     args = p.parse_args()
     _check_template_hygiene()
-    if args.html_preview:
+    if args.web:
+        build_web()
+    elif args.html_preview:
         build(want_pdf=False, want_html=True)
     else:
         build(want_pdf=True, want_html=False)
