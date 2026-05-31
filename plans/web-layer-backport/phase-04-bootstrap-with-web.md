@@ -10,7 +10,7 @@ Wire the opt-in into initialization: `bootstrap.py --with-web` materializes the 
 
 Before starting this phase, confirm:
 - [ ] Phase 3 committed, pushed, `make verify` green.
-- [ ] The opt-in assets exist (`style-screen.css.example`, `app/` scaffold, `deploy.yml.example`).
+- [ ] The opt-in assets exist (`style-screen.css.example`, `templates/web/` scaffold, `deploy.yml.example`).
 
 ## Tasks
 
@@ -18,10 +18,11 @@ Before starting this phase, confirm:
 - [ ] Add `--with-web` flag to `bootstrap.py`'s argparse.
 - [ ] Implement web materialization, run BEFORE the self-delete / sentinel-removal block, fail-safe (leave bootstrap in place on error):
   - copy `style-screen.css.example` → `style-screen.css`;
-  - materialize the `app/` scaffold with `{{GUIDE_SLUG}}` → slug substituted in `app/wrangler.jsonc` (+ `app/package.json` name if templated);
-  - rename `.github/workflows/deploy.yml.example` → `deploy.yml`.
+  - copy `templates/web/` → `app/` (i.e. `app/wrangler.jsonc`, `app/package.json`, `app/package-lock.json`, `app/public/.gitkeep`), substituting `{{GUIDE_SLUG}}` → slug in `app/wrangler.jsonc` (+ `app/package.json` name if templated);
+  - copy `.github/workflows/deploy.yml.example` → `.github/workflows/deploy.yml`.
 - [ ] Keep the no-flag path byte-for-byte as today (PDF-only: none of the above appear).
 - [ ] Update `bootstrap.py` docstring + `--help` to document `--with-web`.
+- [ ] NOTE: `templates/web/` is the staging source — after `--with-web` copies it into `app/`, decide whether to also remove `templates/web/` from the materialized fork (optional cleanup; not required for correctness since it's harmless and `app/dist/` is what gets served).
 
 ## Tests
 
@@ -45,7 +46,7 @@ tmp=$(mktemp -d); git archive HEAD | tar -x -C "$tmp"
 tmp2=$(mktemp -d); git archive HEAD | tar -x -C "$tmp2"
 ( cd "$tmp2" && python bootstrap.py "Test Guide" test-guide \
     && ! test -e app && ! test -e style-screen.css \
-    && ! test -e .github/workflows/deploy.yml && echo "no-flag stays PDF-only OK" )
+    && ! test -e .github/workflows/deploy.yml && echo "no-flag stays PDF-only OK (no app/)" )
 
 # repo untouched:
 test -f bootstrap.py && test -f .template-uninitialized && echo "template repo intact"

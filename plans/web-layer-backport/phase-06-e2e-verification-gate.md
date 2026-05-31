@@ -14,7 +14,7 @@ Before starting this phase, confirm:
 
 ## Tasks
 
-- [ ] **PDF-only path (in-repo, safe):** confirm the un-opted template is clean — `make`, `make verify` pass; `python build.py --web` no-ops; no `app/`-driven behavior; `git status` clean.
+- [ ] **PDF-only path (in-repo, safe):** confirm the un-opted template is clean — `make`, `make verify` pass; `python build.py --web` no-ops; **no `app/` dir exists** (`! test -e app`); `git status` clean.
 - [ ] **Web path (throwaway clone only — bootstrap self-deletes):** `git archive HEAD` → tmp dir; in the copy run `bootstrap.py "Test" test-guide --with-web`, then `cd app && npm install`, `make web` (from copy root), confirm `app/dist/index.html` is nonzero and contains an `<iframe>` once a YouTube embed is added to that copy's `guide.md`; run `python verify_web.py` (passes); `make dev` serves locally (manual, optional).
 - [ ] Walk all 10 success criteria from `plan.md` and record pass/fail for each.
 - [ ] Final grep-clean across the whole template for japan leakage.
