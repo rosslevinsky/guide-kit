@@ -34,8 +34,10 @@ echo "--- success criteria walk ---"   # tick each item from plan.md by hand
 # Web path in a throwaway copy:
 tmp=$(mktemp -d); git archive HEAD | tar -x -C "$tmp"
 ( cd "$tmp" && python bootstrap.py "Test" test-guide --with-web \
+    # Add a YouTube embed so verify_web.py actually ASSERTS the split (else it skips):
+    && printf '\n<div class="embed youtube" data-id="dQw4w9WgXcQ">demo</div>\n' >> guide.md \
     && cd app && npm install && cd .. && make web \
-    && test -s app/dist/index.html && python verify_web.py )
+    && test -s app/dist/index.html && python verify_web.py )   # must PASS, not skip
 
 # Whole-template leak check:
 grep -rE "japan-guide|speedytuna|E01x6ClIiuc" --include='*.py' --include='*.md' \
