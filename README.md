@@ -99,9 +99,16 @@ make verify                     # check the fresh build matches the committed {{
 make baseline                   # promote build/{{GUIDE_SLUG}}.pdf onto {{GUIDE_SLUG}}.pdf (use deliberately)
 make release MSG="..."          # stage source + refresh reference + amend, in one commit
 make clean                      # remove build/ and verify-diff/
+
+# Opt-in web layer (only after `bootstrap.py --with-web` — see "Website deploy"):
+make web                        # build the website into app/dist/
+make dev                        # build + serve locally via wrangler (needs Node ≥22)
+make deploy                     # build + deploy to Cloudflare (manual one-off)
 ```
 
 The working render (regenerated each build) lands at `./build/{{GUIDE_SLUG}}.pdf` (gitignored). The committed reference is `./{{GUIDE_SLUG}}.pdf` at the repo root — downloadable directly from GitHub.
+
+The PDF is the default deliverable; the website is **opt-in**. On a PDF-only fork `make web` no-ops cleanly and `make dev`/`make deploy` exit with a "web layer not enabled" message — nothing under `app/` exists until you opt in. See [Website deploy (Cloudflare)](#website-deploy-cloudflare).
 
 ## Files
 
@@ -122,6 +129,12 @@ The working render (regenerated each build) lands at `./build/{{GUIDE_SLUG}}.pdf
 | `CLAUDE.md` | Project conventions, gotchas, and per-guide notes. Read before editing content. |
 | `LICENSE` / `LICENSE-CONTENT` | Apache 2.0 for code, CC BY 4.0 for content. |
 | `.github/workflows/verify.yml` | CI: build-smoke on Ubuntu only, paths-filtered. (Strict `make verify` runs only locally — see CLAUDE.md's "CI policy".) |
+| `style-screen.css.example` | Opt-in web layer: screen stylesheet starter. `bootstrap.py --with-web` copies it to `style-screen.css` (NOT a SOURCE_FILE — web-only, doesn't bump the PDF stamp). |
+| `templates/web/` | Opt-in web layer: the `app/` scaffold staging dir (`wrangler.jsonc`, `package.json` + lockfile, `public/.gitkeep`). `--with-web` copies it to `app/` with the slug substituted, then removes the staging copy. |
+| `.github/workflows/deploy.yml.example` | Opt-in web layer: inert deploy workflow (GitHub only runs `*.yml`). `--with-web` activates it as `deploy.yml`. |
+| `verify_web.py` | Opt-in web layer: asserts the per-output embed split (iframe on the site, watch-link in print). Skips cleanly when the web layer isn't enabled. |
+
+(The web-layer files above ship inert. A PDF-only fork has no `app/`, no `style-screen.css`, and no live `deploy.yml`. See [Website deploy (Cloudflare)](#website-deploy-cloudflare).)
 
 ## Workflow: editing content
 
@@ -171,6 +184,72 @@ A green `make verify` is the contract that your latest build is content-identica
 CI (GitHub Actions) runs `make` build-smoke on `ubuntu-latest` only. It does **not** run `make verify`. Why: strict pixel-exact rendering doesn't reproduce across machines (HarfBuzz/Cairo/FreeType drift across OSes, and even between macOS minor versions ship different fonts). CI's job is to confirm the pipeline doesn't crash; local pre-push `make verify` is what catches rendering regressions.
 
 Two cost controls keep Actions minutes low: CI is **Ubuntu only** (macOS runners bill at 10x and Windows at 2x the Linux rate, and the cross-platform smoke rarely caught anything Ubuntu didn't), and the workflow is **paths-filtered** — pushes that only touch docs (`README.md`, `CLAUDE.md`, `LICENSE*`), `plans/`, or other non-build files skip CI entirely. Trigger a run manually from the Actions tab (`workflow_dispatch`) if you ever need one outside those paths.
+
+## Website deploy (Cloudflare)
+
+The website is an **opt-in** second output. The PDF is the default; a PDF-only fork needs none of this. To enable the web layer, pass `--with-web` when you bootstrap:
+
+```bash
+pixi run python bootstrap.py "My Guide Title" {{GUIDE_SLUG}} --with-web
+```
+
+That materializes `style-screen.css`, the `app/` Cloudflare scaffold (with your slug as the worker name), and a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css`, `templates/web/` → `app/` with `{{GUIDE_SLUG}}` replaced by your slug in `app/wrangler.jsonc`, and `.github/workflows/deploy.yml.example` → `deploy.yml`.)
+
+Once enabled, the site builds with `make web` (→ `app/dist/`) and deploys to Cloudflare Workers Static Assets. `make dev` serves it locally (requires **Node ≥22**; run `npm install` in `app/` first — wrangler is pinned in `app/package.json`). `.github/workflows/deploy.yml` deploys automatically (push to `main` → production; PR → preview URL posted as a comment). `make deploy` is the manual one-off.
+
+CI deploys need two **GitHub Actions secrets**. Local `wrangler` auth on your machine does **not** carry into GitHub Actions — you must store these in the repo.
+
+### 1. Get a Cloudflare API token
+
+1. Go to the [Cloudflare dashboard](https://dash.cloudflare.com/) → **My Profile**
+   (top-right avatar) → **API Tokens** → **Create Token**
+   (direct link: <https://dash.cloudflare.com/profile/api-tokens>).
+2. Use the **"Edit Cloudflare Workers"** template (or a Custom Token with, at
+   minimum, **Account → Workers Scripts → Edit**). For a custom token, scope
+   *Account Resources* to your account; if you'll bind a custom domain, also
+   scope *Zone Resources* to that domain's zone.
+3. Click **Continue to summary → Create Token**, then **copy the token value
+   now** — Cloudflare shows it only once. Treat it like a password.
+
+### 2. Get your Cloudflare account ID
+
+- Dashboard → **Workers & Pages** → the **Account ID** is in the right-hand
+  sidebar (also on any domain's overview page), **or**
+- run `cd app && npx wrangler whoami` (after `npm install` in `app/`).
+
+### 3. Store both as GitHub Actions secrets
+
+Repo → **Settings → Secrets and variables → Actions → New repository secret**.
+Create exactly these two names (the workflow references them verbatim):
+
+| Secret name | Value |
+|---|---|
+| `CLOUDFLARE_API_TOKEN` | the token from step 1 |
+| `CLOUDFLARE_ACCOUNT_ID` | the account ID from step 2 |
+
+Or from the CLI (prompts for the value; never put a token in your shell history
+or a committed file):
+
+```bash
+gh secret set CLOUDFLARE_API_TOKEN   --repo <owner>/<repo>   # paste token at prompt
+gh secret set CLOUDFLARE_ACCOUNT_ID  --repo <owner>/<repo>   # paste account ID at prompt
+```
+
+Verify they exist (names only; values are write-only and never shown):
+
+```bash
+gh secret list --repo <owner>/<repo>
+```
+
+**Security notes.** These are repository secrets — never commit them to
+`wrangler.jsonc`, `.env`, or any tracked file. Rotate the API token if it's ever
+exposed (dashboard → API Tokens → Roll). Scope the token to Workers-edit only;
+do not use a Global API Key. For local `make deploy`, `wrangler` uses your own
+interactive login (`wrangler login`), not these secrets.
+
+### 4. Bind a custom domain (optional, one-time, manual)
+
+By default the site is reachable at `<{{GUIDE_SLUG}}>.<your-subdomain>.workers.dev`. To put it on your own domain, bind it in the Cloudflare dashboard (NOT in `wrangler.jsonc`): **Workers & Pages → {{GUIDE_SLUG}} → Settings → Domains & Routes → Add → Custom Domain**. The domain's zone must be in the same Cloudflare account.
 
 ## Conventions
 

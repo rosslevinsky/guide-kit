@@ -37,6 +37,7 @@ Inline HTML is reserved for elements Markdown cannot express. The full list of a
 | `<div class="exercise">` | Green-bordered exercise box. The first paragraph (e.g. `**Exercise 1**`) becomes the title strip. |
 | `<pre class="diagram">…</pre>` | Monospace ASCII-diagram panel. `<pre>` is required because pandoc collapses whitespace inside a plain `<div>`. |
 | `<div class="page-break"></div>` | Forces a page break. |
+| `<div class="embed youtube" data-id="VIDEO_ID">label</div>` | (Opt-in web layer) A YouTube embed. `transforms.py` rewrites it **per output**: a responsive `<iframe>` on the website, a plain `youtube.com/watch?v=VIDEO_ID` link in the PDF. The inner text is the PDF link label / iframe title. Requires an active `transforms.py` (see "The transforms hook"); inert without one. |
 
 Do **not** add other HTML. Do **not** convert Markdown that already works into HTML.
 
@@ -67,13 +68,30 @@ Both PDFs are canonicalized through `qpdf --deterministic-id --normalize-content
 
 After any **intentional** change to `guide.md`, `style.css`, `build.py`, or activating/deactivating `transforms.py`. Follow the amend workflow in *After editing* — running `make baseline` BEFORE `git commit` of the source produces a dirty-stamp baseline that future verify runs won't match.
 
-## The transforms hook
+## The transforms hook (per-output)
 
-If `transforms.py` exists next to `build.py`, the build pipeline imports it and calls `transforms.post_pandoc_html(html: str) -> str` exactly once, between the pandoc step and WeasyPrint. The hook receives the raw HTML body emitted by pandoc and returns a transformed HTML body.
+If `transforms.py` exists next to `build.py`, the build pipeline imports it and calls ONE entry point between the pandoc step and the renderer, chosen by the output target:
 
-Activate the hook by copying `transforms.py.example` → `transforms.py` and replacing the identity stub with your transform.
+- `post_pandoc_html_for_pdf(html: str) -> str` — PDF build (WeasyPrint)
+- `post_pandoc_html_for_web(html: str) -> str` — web build (`build.py --web`)
 
-**Version-stamp gotcha**: activating the hook (creating `transforms.py`) adds it to the version-stamp input list, so the footer hash changes even when `post_pandoc_html` is the identity function. After activating OR deactivating, refresh `{{GUIDE_SLUG}}.pdf` via the *After editing* workflow.
+`build.py` resolves per target as: prefer `post_pandoc_html_for_<target>`, else the single-entry `post_pandoc_html`, else identity. A **PDF-only fork** can define just `post_pandoc_html` (or no hook at all); a fork with the opt-in website keeps the PDF and web logic in **separate functions** so rich media that plays on the site (a YouTube iframe) degrades to a plain link in print. The worked example is the `embed youtube` island → iframe (web) / link (PDF).
+
+Activate the hook by copying `transforms.py.example` → `transforms.py` (it ships the per-output split with the YouTube embed as the worked example) and adapting it.
+
+**Version-stamp gotcha**: activating the hook (creating `transforms.py`) adds it to the version-stamp input list, so the footer hash changes even when the hook is the identity transform — and editing it later bumps the stamp too, **even for a web-only transform change**. After activating OR deactivating, refresh `{{GUIDE_SLUG}}.pdf` via the *After editing* workflow.
+
+## The website (opt-in)
+
+The PDF is the default output. A fork can **opt in** to a second output — a website deployed to Cloudflare Workers Static Assets — by bootstrapping with `--with-web` (`pixi run python bootstrap.py "Title" {{GUIDE_SLUG}} --with-web`). Without it, the fork is PDF-only: no `app/`, no `style-screen.css`, no `deploy.yml`, no Node footprint.
+
+When enabled:
+
+- **Build**: `make web` runs `build.py --web` → pandoc → `post_pandoc_html_for_web` → wrap with `style-screen.css` → `app/dist/index.html`, plus a copy of the committed `{{GUIDE_SLUG}}.pdf` for the download link. `app/dist/` is gitignored. On a PDF-only fork `make web` no-ops cleanly (it prints "web layer not enabled" and creates nothing).
+- **Local preview**: `make dev` (builds, then `wrangler dev` from `app/`). Requires **Node ≥22** — the only non-pixi/Python dependency; `wrangler` is pinned in `app/package.json`. `make dev`/`make deploy` error clearly when `app/` is absent.
+- **Deploy**: `.github/workflows/deploy.yml` deploys on push to `main` (production) and posts a preview URL on PRs. Needs repo secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` (see README "Website deploy"). `make deploy` is the manual one-off. A custom domain is bound in the Cloudflare dashboard, not in `app/wrangler.jsonc`.
+- **`style-screen.css` is NOT a `SOURCE_FILE`** — it affects only the website, so editing it does not bump the PDF stamp or require `make release`. Plain `git commit`. (But `transforms.py` IS a SOURCE_FILE, so a web-only embed-transform change still triggers a re-baseline — see the hook's version-stamp gotcha above.)
+- **`verify_web.py`** asserts the per-output embed split (iframe in the web HTML, watch-link in the print HTML); it skips cleanly when the web layer isn't enabled or `guide.md` has no embed.
 
 ## Critical gotchas
 
@@ -125,6 +143,7 @@ The version stamp (`_content_hash` + `_git_last_source_change_date` + `_is_dirty
 | `Makefile` / `pixi.toml` / `pixi.lock` | no | no — but watch verify: a lock change can drift rendering |
 | `verify_pdf.py` / `release.py` / `bootstrap.py` | no | no — but a stricter `verify_pdf.py` can fail an existing baseline |
 | `.github/workflows/` / `.gitignore` / `.template-uninitialized` | no | no |
+| `style-screen.css` / `app/` / `verify_web.py` / `*.example` (opt-in web layer) | no | no — web-only; never affects the PDF |
 
 `release.py` enforces this boundary: it refuses to run if the working tree has modifications outside `SOURCE_FILES`, so a doc edit can never accidentally hitchhike into a release commit. Commit doc-only changes with plain `git commit -m "..."`.
 
