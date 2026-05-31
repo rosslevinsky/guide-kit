@@ -42,9 +42,9 @@ Do **not** add other HTML. Do **not** convert Markdown that already works into H
 
 ## The version stamp
 
-The PDF footer shows an auto-generated stamp in the form `YYYY-MM-DD · <12-hex-chars>`, derived from:
+The PDF footer shows an auto-generated stamp in the form `YYYY-MM-DD HH:MM:SS · <12-hex-chars>`, derived from:
 
-- **Date**: `git log -1 --format=%cd --date=short -- guide.md style.css build.py transforms.py` — the date of the most-recent commit touching any of those files.
+- **Date + time**: `git log -1 --format=%ad --date=format:'%Y-%m-%d %H:%M:%S' -- guide.md style.css build.py transforms.py` — the author date/time of the most-recent commit touching any of those files. `%ad` (author date), not `%cd` (committer date), because `git commit --amend` inside `release.py` updates the committer time by ~1s and would break the verify cycle.
 - **Hash**: first 12 hex chars of `sha256` over the concatenated bytes of every file in that list that exists on disk.
 
 When `git status --porcelain` reports uncommitted changes to any of those files, the stamp gains a trailing ` · dirty` segment so a reader can see the PDF was rendered from working-tree state, not committed source.
@@ -61,7 +61,7 @@ The `transforms.py` file is included in the input list unconditionally; git sile
 
 Both PDFs are canonicalized through `qpdf --deterministic-id --normalize-content=y` first so accidental non-determinism in the inputs doesn't masquerade as a real diff.
 
-**CI policy:** `.github/workflows/verify.yml` runs `make` (build smoke) on Ubuntu / macOS / Windows. It does **not** run `make verify` — strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). Local pre-push `make verify` is the sole real regression gate. See the pixi.toml comment block for the longer story.
+**CI policy:** `.github/workflows/verify.yml` runs `make` (build smoke) on **Ubuntu only**, and only when source/build files change (paths-filtered — doc-only and `plans/` pushes skip CI). It does **not** run `make verify` — strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). Local pre-push `make verify` is the sole real regression gate. (macOS/Windows smoke was dropped to save Actions minutes — macOS bills 10x and Windows 2x the Linux rate. Re-add a matrix in `verify.yml` if cross-platform breakage becomes a real risk.) See the pixi.toml comment block for the longer story.
 
 ### When to run `make baseline`
 

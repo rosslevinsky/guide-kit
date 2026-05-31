@@ -18,11 +18,11 @@ A single-document beginner-guide PDF, authored in Markdown and rendered to PDF v
 
 - **A render pipeline:** `guide.md` → pandoc → (optional `transforms.py`) → wrap in HTML → WeasyPrint → qpdf canonicalize → `build/{{GUIDE_SLUG}}.pdf`.
 - **A reference PDF at the repo root** (`{{GUIDE_SLUG}}.pdf`) that readers can download from GitHub directly. The committed reference IS the deliverable.
-- **A deterministic version stamp in the footer** — `YYYY-MM-DD · <12-hex-sha256>` — derived from `git log` over your source files. Readers can see exactly which commit a PDF was built from.
+- **A deterministic version stamp in the footer** — `YYYY-MM-DD HH:MM:SS · <12-hex-sha256>` — derived from `git log` over your source files. Readers can see exactly which commit a PDF was built from.
 - **A `make verify` harness** that compares the freshly-built PDF against the committed reference (page count + text content + per-page pixel diff at zero tolerance), so accidental rendering regressions can't ship.
 - **A `make release` workflow** that bundles source commits + reference refresh into one atomic commit, eliminating an entire class of "I forgot to update the baseline" mistakes.
 - **A `transforms.py` hook** for per-guide HTML rewrites (custom code-block classification, link injection, table styling) without forking the build script.
-- **Pixi-managed deps + Apache 2.0 / CC BY 4.0 dual licensing + a bundled CI workflow** so each new guide starts with reproducible builds, clean licensing for both code and content, and CI smoke on Ubuntu / macOS / Windows from day one.
+- **Pixi-managed deps + Apache 2.0 / CC BY 4.0 dual licensing + a bundled CI workflow** so each new guide starts with reproducible builds, clean licensing for both code and content, and Ubuntu CI smoke (paths-filtered, to keep Actions minutes low) from day one.
 
 ### Why this exists
 
@@ -35,7 +35,7 @@ The template was extracted in 2026 from three guides (`mac-terminal-guide`, `git
 - **pandoc** for Markdown → HTML, not a custom parser. Smart-quote conversion is **disabled** (`-smart`) so the literal characters in your source land in the PDF — important for ASCII diagrams and copy-pasteable command snippets.
 - **A `transforms.py` hook**, not config files. If a fork needs to rewrite the HTML pandoc produces (turn `Debit / Credit` code blocks into ruled tables, inject TOC anchors, classify numeric vs. prose tables), it provides a single function `post_pandoc_html(html: str) -> str`. The template ships `transforms.py.example`; activate by copying to `transforms.py` and the build picks it up automatically.
 - **Content-identicalness, not byte-identicalness.** The verify harness checks page count + text + per-page pixels. Two consecutive builds of the same committed source produce content-identical PDFs even though the raw bytes can differ slightly (font subset prefixes, etc.). `SOURCE_DATE_EPOCH` is pinned from the most recent source commit and the output is run through `qpdf --deterministic-id` to make this hold.
-- **CI is build-smoke only**, not verify. Strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). CI's job is to confirm `make` runs without crashing on Ubuntu / macOS / Windows; local pre-push `make verify` is the real regression gate.
+- **CI is build-smoke only**, not verify, and **Ubuntu only**. Strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). CI's job is to confirm `make` runs without crashing; local pre-push `make verify` is the real regression gate. macOS/Windows smoke was dropped to save Actions minutes (macOS bills 10x, Windows 2x the Linux rate), and the trigger is paths-filtered so doc-only pushes skip CI.
 - **Dual licensing.** Code (build scripts, CSS, configuration) is Apache 2.0. Content (your `guide.md` and the rendered PDF) is CC BY 4.0. Both live as explicit `LICENSE*` files so GitHub auto-detects them correctly and downstream re-users see clear, separate terms.
 
 ### How to fork
@@ -121,7 +121,7 @@ The working render (regenerated each build) lands at `./build/{{GUIDE_SLUG}}.pdf
 | `pixi.toml` / `pixi.lock` | Dependency manifest + locked versions for reproducible builds. |
 | `CLAUDE.md` | Project conventions, gotchas, and per-guide notes. Read before editing content. |
 | `LICENSE` / `LICENSE-CONTENT` | Apache 2.0 for code, CC BY 4.0 for content. |
-| `.github/workflows/verify.yml` | CI: build-smoke on Ubuntu / macOS / Windows. (Strict `make verify` runs only locally — see CLAUDE.md's "CI policy".) |
+| `.github/workflows/verify.yml` | CI: build-smoke on Ubuntu only, paths-filtered. (Strict `make verify` runs only locally — see CLAUDE.md's "CI policy".) |
 
 ## Workflow: editing content
 
@@ -168,7 +168,9 @@ A green `make verify` is the contract that your latest build is content-identica
 
 ## CI policy
 
-CI (GitHub Actions, on push to `main` and on every PR) runs `make` on `ubuntu-latest` / `macos-latest` / `windows-latest`. It does **not** run `make verify`. Why: strict pixel-exact rendering doesn't reproduce across machines (HarfBuzz/Cairo/FreeType drift across OSes, and even between macOS minor versions ship different fonts). CI's job is to confirm the pipeline doesn't crash; local pre-push `make verify` is what catches rendering regressions.
+CI (GitHub Actions) runs `make` build-smoke on `ubuntu-latest` only. It does **not** run `make verify`. Why: strict pixel-exact rendering doesn't reproduce across machines (HarfBuzz/Cairo/FreeType drift across OSes, and even between macOS minor versions ship different fonts). CI's job is to confirm the pipeline doesn't crash; local pre-push `make verify` is what catches rendering regressions.
+
+Two cost controls keep Actions minutes low: CI is **Ubuntu only** (macOS runners bill at 10x and Windows at 2x the Linux rate, and the cross-platform smoke rarely caught anything Ubuntu didn't), and the workflow is **paths-filtered** — pushes that only touch docs (`README.md`, `CLAUDE.md`, `LICENSE*`), `plans/`, or other non-build files skip CI entirely. Trigger a run manually from the Actions tab (`workflow_dispatch`) if you ever need one outside those paths.
 
 ## Conventions
 

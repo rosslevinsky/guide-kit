@@ -10,9 +10,9 @@ channels = ["conda-forge"]
 # macOS minor versions with different bundled font versions) shift glyph
 # positions enough to fail the zero-tolerance pixel diff. The repo
 # ships system-font stacks (no bundled fonts), and CI is build-smoke
-# only (`make` on all 3 OSes). Local pre-push `make verify` against the
-# committed reference PDF (`<slug>.pdf` at the repo root) is the sole real
-# gate for regressions.
+# only (Ubuntu only, to save Actions minutes — see CLAUDE.md "CI policy").
+# Local pre-push `make verify` against the committed reference PDF
+# (`<slug>.pdf` at the repo root) is the sole real gate for regressions.
 platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 
 [dependencies]

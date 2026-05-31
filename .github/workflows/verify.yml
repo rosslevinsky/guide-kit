@@ -1,10 +1,46 @@
 name: verify
 
+# Build-smoke CI. Runs `make` (PDF) + `make web` (site) to catch
+# "the pipeline crashes" regressions. Does NOT run `make verify` — the strict
+# pixel-exact harness only reproduces on one canonical machine, so local
+# pre-push `make verify` is the real regression gate (see CLAUDE.md "CI policy").
+#
+# Cost controls (deliberate):
+#   * Ubuntu only. macOS runners bill at 10x and Windows at 2x the Linux rate;
+#     the cross-platform smoke rarely caught anything the Ubuntu run didn't.
+#     Re-add a matrix here if cross-platform breakage ever becomes a real risk.
+#   * paths filters. Doc-only / plan-only pushes (README, CLAUDE.md, LICENSE,
+#     plans/, .gitignore) don't change either rendered output, so they skip CI.
+
 on:
   push:
     branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'build.py'
+      - 'transforms.py'
+      - 'verify_pdf.py'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - '.github/workflows/verify.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'build.py'
+      - 'transforms.py'
+      - 'verify_pdf.py'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - '.github/workflows/verify.yml'
   workflow_dispatch:
 
 # Cancel in-flight runs on the same ref when a new commit comes in. Keeps PR
@@ -15,19 +51,12 @@ concurrency:
 
 jobs:
   verify:
-    name: verify (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: verify
+    runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      # Don't cancel sibling jobs when one platform fails — the diff PNGs
-      # from each are useful even if e.g. windows blows up while macos passes.
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
     defaults:
       run:
-        # Bash everywhere (incl. windows via git-bash) so the Makefile's
-        # awk-based OUTPUT_SLUG scrape works on every runner.
+        # Bash so the Makefile's awk-based OUTPUT_SLUG scrape works.
         shell: bash
     steps:
       - name: Check out repo
@@ -49,14 +78,19 @@ jobs:
           cache: true
           frozen: true
 
-      # Build smoke only — catches "the pipeline crashes" regressions on
-      # every platform. We deliberately do NOT run `make verify` in CI:
-      # the strict pixel-exact harness depends on rendering reproducing
-      # to zero-pixel tolerance, and cross-machine font/rasterization
-      # drift breaks that even between two macOS hosts (different OS
-      # minor version → different bundled font version → different
-      # glyph metrics). Local pre-push `make verify` is the sole real
-      # gate for rendering regressions; CI confirms the pipeline at
-      # least *runs* on Ubuntu / macOS / Windows.
-      - name: make (build smoke)
+      # PDF build smoke — catches "the pipeline crashes" regressions.
+      - name: make (PDF build smoke)
         run: make
+
+      # Web build smoke — confirm `make web` produces a nonzero index.html.
+      # (Guarded: skips cleanly on PDF-only forks that haven't enabled the web
+      # layer, where the `web` target / app/ scaffold don't exist yet.)
+      - name: make web (web build smoke)
+        run: |
+          if make -n web >/dev/null 2>&1; then
+            make web
+            test -s app/dist/index.html || { echo "app/dist/index.html missing or empty"; exit 1; }
+            echo "web build smoke OK"
+          else
+            echo "no 'web' target — PDF-only fork; skipping web smoke"
+          fi
