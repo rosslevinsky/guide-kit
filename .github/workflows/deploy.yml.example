@@ -1,0 +1,173 @@
+name: deploy
+
+# OPT-IN deploy workflow for the website output.
+#
+# This file is INERT in the template: GitHub only runs workflows named `*.yml`,
+# and this is `*.yml.example`. `bootstrap.py --with-web` renames it to
+# deploy.yml to activate it. A PDF-only fork never gets a live deploy workflow
+# that would fail on missing Cloudflare secrets.
+#
+# Behavior once active:
+#   Push to main      → production deploy via `wrangler deploy`.
+#   Pull request      → per-version preview via `wrangler versions upload`,
+#                       with the preview URL posted back as a PR comment.
+#
+# The site is built by `make web` (pixi/Python → app/dist/), then wrangler
+# serves app/dist/ as Workers Static Assets. The worker name comes from
+# app/wrangler.jsonc (set by bootstrap to the guide slug) — it is NOT hardcoded
+# here. Requires repo secrets CLOUDFLARE_API_TOKEN (Workers Scripts edit) and
+# CLOUDFLARE_ACCOUNT_ID — see README "Website deploy".
+
+on:
+  # paths filters: only deploy when something that changes the served site
+  # actually changed. Doc-only / plan-only pushes (README, CLAUDE.md, LICENSE,
+  # plans/, .gitignore) skip the deploy and don't burn Actions minutes.
+  push:
+    branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'build.py'
+      - 'transforms.py'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'build.py'
+      - 'transforms.py'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# Don't let concurrent deploys against the same ref clobber each other.
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history: build.py's version stamp + SOURCE_DATE_EPOCH derive
+          # from `git log` over the source files. A shallow clone would stamp
+          # the site with the wrong date (same reason verify.yml needs it).
+          fetch-depth: 0
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          frozen: true
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          # Wrangler 4.x requires Node >=22. Node 20 silently breaks Workers
+          # Static Assets (cloudflare/wrangler-action falls back to wrangler 3).
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install app deps (wrangler)
+        run: npm ci
+        working-directory: ./app
+
+      - name: Build website (make web)
+        run: make web
+
+      # ── Production: push to main ──────────────────────────────────────────
+      - name: Wrangler deploy (production)
+        id: deploy_prod
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ./app
+          command: deploy
+
+      # ── Preview: pull request ─────────────────────────────────────────────
+      - name: Wrangler versions upload (preview)
+        id: deploy_preview
+        if: github.event_name == 'pull_request'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: ./app
+          command: versions upload
+
+      - name: Resolve deployed URL
+        id: url
+        # Outputs are passed via env: (not ${{ }} interpolation into the shell
+        # body) as hardening against script injection from upstream output.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          PROD_URL: ${{ steps.deploy_prod.outputs.deployment-url }}
+          PREVIEW_OUTPUT: ${{ steps.deploy_preview.outputs.command-output }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "push" && "$GIT_REF" == "refs/heads/main" ]]; then
+            URL="$PROD_URL"
+            ENV_NAME='production'
+          else
+            # versions upload prints a line like:
+            #   Worker Version Preview URL: https://<hash>-<worker>.<acct>.workers.dev
+            URL=$(printf '%s\n' "$PREVIEW_OUTPUT" \
+              | grep -oE 'https://[^[:space:]]+\.workers\.dev[^[:space:]]*' \
+              | head -n1 \
+              || true)
+            ENV_NAME='preview'
+          fi
+          echo "DEPLOY_URL=$URL" >> "$GITHUB_ENV"
+          echo "DEPLOY_ENV=$ENV_NAME" >> "$GITHUB_ENV"
+          echo "Deployed to $ENV_NAME: $URL"
+
+      - name: Comment preview URL on PR
+        if: github.event_name == 'pull_request' && env.DEPLOY_URL != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const url = process.env.DEPLOY_URL;
+            const body = `🚀 Preview deploy ready: ${url}`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const marker = '🚀 Preview deploy ready:';
+            const existing = comments.find(c => c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
