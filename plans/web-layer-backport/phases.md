@@ -6,8 +6,8 @@ _Execution tracker for [`plan.md`](./plan.md)_
 
 | Field | Value |
 |---|---|
-| Phase | Phase 6 of 6 — End-to-End Verification Gate |
-| State | Ready to execute |
+| Phase | All phases complete |
+| State | Complete |
 | Blocker | None |
 | Last updated | 2026-05-31 |
 
@@ -18,7 +18,7 @@ _Execution tracker for [`plan.md`](./plan.md)_
 - [x] [Phase 3: Opt-in Assets (templates/web scaffold, deploy.yml.example, verify_web.py)](./phase-03-opt-in-assets.md)
 - [x] [Phase 4: bootstrap `--with-web`](./phase-04-bootstrap-with-web.md)
 - [x] [Phase 5: Docs](./phase-05-docs.md)
-- [ ] [Phase 6: End-to-End Verification Gate](./phase-06-e2e-verification-gate.md)
+- [x] [Phase 6: End-to-End Verification Gate](./phase-06-e2e-verification-gate.md)
 
 ## Notes
 
