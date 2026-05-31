@@ -1,6 +1,6 @@
 # Phase 1: Transforms Contract + Inert `--web`
 
-_Status: pending_
+_Status: complete_
 
 ## Goal
 
@@ -9,28 +9,28 @@ Port japan-guide's two-entry transforms contract and a `build.py --web` target t
 ## Entry Criteria
 
 Before starting this phase, confirm:
-- [ ] On branch `web-layer-backport`, working tree clean, `make verify` green.
-- [ ] `build.py` already has the merged license/colophon constants (`COPYRIGHT`, `LICENSE_*`, `_pdf_colophon()`) — this phase REUSES them, does not re-add.
+- [x] On branch `web-layer-backport`, working tree clean, `make verify` green.
+- [x] `build.py` already has the merged license/colophon constants (`COPYRIGHT`, `LICENSE_*`, `_pdf_colophon()`) — this phase REUSES them, does not re-add.
 
 ## Tasks
 
-- [ ] Replace `_apply_transforms_hook(html_body)` with the per-output pair from japan-guide:
+- [x] Replace `_apply_transforms_hook(html_body)` with the per-output pair from japan-guide:
   - `_load_transforms()` — import `transforms.py` if present, else return None.
   - `_apply_transforms(html_body, target)` — prefer `post_pandoc_html_for_<target>`, fall back to single-entry `post_pandoc_html`, else identity.
-- [ ] **Update the `render_html()` call site (currently build.py:238) to `body = _apply_transforms(_pandoc_body(), "pdf") + _pdf_colophon()`** — PRESERVE the `+ _pdf_colophon()` so the merged colophon is not regressed.
-- [ ] Add helpers `_pandoc_body()` and `_wrap_html(body, css)` (factor the pandoc call + HTML shell out of `render_html`, matching japan-guide).
-- [ ] Add `render_web_html()` and `build_web()` + path constants `STYLE_SCREEN = ROOT / "style-screen.css"` and `WEB_DIR = ROOT / "app" / "dist"`.
-- [ ] **Add the no-asset guard** (japan-guide's `build_web` lacks one): at the top of `build_web()`, if `STYLE_SCREEN` does not exist, print a clear "web layer not enabled — run `bootstrap.py --with-web` to enable it" message and `return` (exit 0, create nothing).
-- [ ] Add `--web` to `main()`'s argparse as a mutually-exclusive option alongside `--html-preview`; dispatch to `build_web()`.
-- [ ] Create `style-screen.css.example` — the generic screen stylesheet starter (port japan-guide's `style-screen.css`, keep `__TITLE__`/`__VERSION__` placeholders, no japan-specific content).
-- [ ] Refactor `transforms.py.example` to demonstrate the per-output split (`post_pandoc_html_for_pdf` / `_for_web`) with the YouTube embed as the worked example, plus a note that PDF-only forks can keep the single-entry `post_pandoc_html`.
+- [x] **Update the `render_html()` call site (currently build.py:238) to `body = _apply_transforms(_pandoc_body(), "pdf") + _pdf_colophon()`** — PRESERVE the `+ _pdf_colophon()` so the merged colophon is not regressed.
+- [x] Add helpers `_pandoc_body()` and `_wrap_html(body, css)` (factor the pandoc call + HTML shell out of `render_html`, matching japan-guide).
+- [x] Add `render_web_html()` and `build_web()` + path constants `STYLE_SCREEN = ROOT / "style-screen.css"` and `WEB_DIR = ROOT / "app" / "dist"`.
+- [x] **Add the no-asset guard** (japan-guide's `build_web` lacks one): at the top of `build_web()`, if `STYLE_SCREEN` does not exist, print a clear "web layer not enabled — run `bootstrap.py --with-web` to enable it" message and `return` (exit 0, create nothing).
+- [x] Add `--web` to `main()`'s argparse as a mutually-exclusive option alongside `--html-preview`; dispatch to `build_web()`.
+- [x] Create `style-screen.css.example` — the generic screen stylesheet starter (port japan-guide's `style-screen.css`, keep `__TITLE__`/`__VERSION__` placeholders, no japan-specific content).
+- [x] Refactor `transforms.py.example` to demonstrate the per-output split (`post_pandoc_html_for_pdf` / `_for_web`) with the YouTube embed as the worked example, plus a note that PDF-only forks can keep the single-entry `post_pandoc_html`.
 
 ## Tests
 
 _No pytest suite; verification is command-based (project convention)._
 
-- [ ] `python build.py --web` on the un-opted template (no `style-screen.css`) exits 0 with the "web layer not enabled" message and creates no `app/dist`.
-- [ ] `make` + `make verify` still produce the PDF and pass (colophon intact, page count unchanged).
+- [x] `python build.py --web` on the un-opted template (no `style-screen.css`) exits 0 with the "web layer not enabled" message and creates no `app/dist`.
+- [x] `make` + `make verify` still produce the PDF and pass (colophon intact, page count unchanged).
 
 ## Verification
 
@@ -54,12 +54,12 @@ Also verify manually:
 ## Exit Criteria
 
 This phase is complete only when ALL of the following are true:
-- [ ] Every task above is checked off.
-- [ ] `python build.py --web` no-ops cleanly (exit 0, no `app/dist`) on the un-opted template.
-- [ ] `make verify` passes against the re-baselined `guide-template.pdf`; colophon intact.
-- [ ] Bare `make` still builds the PDF as before.
-- [ ] Run the `cyw` skill — finds zero issues.
-- [ ] phases.md phase checkbox updated to `[x]`.
+- [x] Every task above is checked off.
+- [x] `python build.py --web` no-ops cleanly (exit 0, no `app/dist`) on the un-opted template.
+- [x] `make verify` passes against the re-baselined `guide-template.pdf`; colophon intact.
+- [x] Bare `make` still builds the PDF as before.
+- [x] Run the `cyw` skill — finds zero issues.
+- [x] phases.md phase checkbox updated to `[x]`.
 
 ## Commit
 
