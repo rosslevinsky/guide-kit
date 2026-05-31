@@ -23,11 +23,13 @@ What it does:
   * CLAUDE.md:  substitutes {{GUIDE_NAME}} / {{GUIDE_SLUG}} and
                 <DESCRIBE YOUR GUIDE>.
   * --with-web: materializes the opt-in web layer — copies
-                style-screen.css.example → style-screen.css, the templates/web/
-                scaffold → app/ (with {{GUIDE_SLUG}} substituted in
-                wrangler.jsonc), and activates .github/workflows/deploy.yml.example
-                → deploy.yml. WITHOUT the flag the fork stays PDF-only: no app/,
-                no deploy.yml, no Node footprint.
+                style-screen.css.example → style-screen.css, activates
+                transforms.py.example → transforms.py (the per-output YouTube
+                embed split), copies the templates/web/ scaffold → app/ (with the
+                slug substituted in wrangler.jsonc), and activates
+                .github/workflows/deploy.yml.example → deploy.yml. WITHOUT the
+                flag the fork stays PDF-only: no app/, no deploy.yml, no
+                transforms.py, no Node footprint.
   * Deletes `.template-uninitialized` so build.py's template-hygiene check
     starts catching un-substituted placeholders going forward.
   * Deletes itself.
@@ -49,6 +51,7 @@ SENTINEL = ROOT / ".template-uninitialized"
 # un-bootstrapped template ships these inert; a PDF-only fork never copies them
 # into place. See plans/web-layer-backport/.
 STYLE_SCREEN_EXAMPLE = ROOT / "style-screen.css.example"
+TRANSFORMS_EXAMPLE = ROOT / "transforms.py.example"
 TEMPLATES_WEB = ROOT / "templates" / "web"
 DEPLOY_EXAMPLE = ROOT / ".github" / "workflows" / "deploy.yml.example"
 
@@ -154,6 +157,7 @@ def _materialize_web(slug: str) -> None:
     here leaves bootstrap.py and `.template-uninitialized` in place for a retry.
     Turns the inert staging assets into a live web layer:
       * style-screen.css.example          → style-screen.css
+      * transforms.py.example              → transforms.py (per-output embed split)
       * templates/web/ (slug-substituted)  → app/
       * .github/workflows/deploy.yml.example → deploy.yml (GitHub runs *.yml)
     The templates/web/ staging dir is removed afterward — its job is done once
@@ -163,6 +167,17 @@ def _materialize_web(slug: str) -> None:
     # 1. Screen stylesheet (drives `make web`; its presence is the web-enabled
     #    signal build.py / the Makefile / CI all key on). Idempotent.
     shutil.copyfile(STYLE_SCREEN_EXAMPLE, ROOT / "style-screen.css")
+
+    # 1b. Activate the per-output transforms hook. transforms.py.example ships
+    #     the YouTube embed worked example (iframe on the web, watch-link in
+    #     print) — the web layer's headline rich-media feature — so a --with-web
+    #     fork gets working embeds out of the box. transforms.py is a SOURCE_FILE
+    #     (it bumps the PDF stamp), which is fine: a fresh fork baselines on its
+    #     first `make release`. Guarded so we never clobber a hook the user may
+    #     have already written.
+    transforms = ROOT / "transforms.py"
+    if not transforms.exists():
+        shutil.copyfile(TRANSFORMS_EXAMPLE, transforms)
 
     # 2-4. Copy the staging scaffold into app/, substitute the slug, activate the
     #      deploy workflow, then remove the staging dir. The whole block is
@@ -195,7 +210,7 @@ def _materialize_web(slug: str) -> None:
             "templates/web/ (or drop --with-web)."
         )
 
-    print("  web layer       materialized (style-screen.css, app/, deploy.yml)")
+    print("  web layer       materialized (style-screen.css, transforms.py, app/, deploy.yml)")
 
 
 def main() -> int:

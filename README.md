@@ -193,7 +193,7 @@ The website is an **opt-in** second output. The PDF is the default; a PDF-only f
 pixi run python bootstrap.py "My Guide Title" my-guide-slug --with-web
 ```
 
-That materializes `style-screen.css`, the `app/` Cloudflare scaffold (with your slug as the worker name), and a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css` and `templates/web/` → `app/`, set the `name` field in `app/wrangler.jsonc` to your slug, and rename `.github/workflows/deploy.yml.example` → `deploy.yml`.)
+That materializes `style-screen.css`, activates `transforms.py` (the per-output YouTube embed split, so embeds work on the site and degrade to links in the PDF), copies the `app/` Cloudflare scaffold (with your slug as the worker name), and activates a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css` and `transforms.py.example` → `transforms.py`, copy `templates/web/` → `app/` and set the `name` field in `app/wrangler.jsonc` to your slug, and rename `.github/workflows/deploy.yml.example` → `deploy.yml`. Note `transforms.py` is a SOURCE_FILE — re-baseline with `make release` afterward.)
 
 Once enabled, the site builds with `make web` (→ `app/dist/`) and deploys to Cloudflare Workers Static Assets. `make dev` serves it locally (requires **Node ≥22**; run `npm install` in `app/` first — wrangler is pinned in `app/package.json`). `.github/workflows/deploy.yml` deploys automatically (push to `main` → production; PR → preview URL posted as a comment). `make deploy` is the manual one-off.
 
