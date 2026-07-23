@@ -1,0 +1,24 @@
+# Per-guide constants — the single place a fork edits to rename itself.
+#
+# Everything here was previously a hardcoded literal in build.py's constants
+# block. kitconfig.py is the ONLY reader of this file; it validates every value
+# before any consumer sees it. The four LICENSE_* values deliberately stay in
+# build.py as identical-tier constants and are NOT moved here (plan.md:55) —
+# licensing is fixed for this family, and they are overwrite-managed by sync.
+#
+# COPYRIGHT is DERIVED in build.py as f"© {COPYRIGHT_YEAR} {AUTHOR}"; the stored
+# value is the year (an integer constant, never a clock read) so renders stay
+# deterministic and `make verify` is stable.
+
+TITLE = "Guide Template"
+OUTPUT_SLUG = "guide-template"
+AUTHOR = "Ross Levinsky"
+DESCRIPTION = "Template repository for single-document beginner-guide PDF projects. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/"
+KEYWORDS = "guide, template, pandoc, weasyprint, CC-BY-4.0"
+COPYRIGHT_YEAR = 2026
+
+# The host the reference PDF is rendered on. `make baseline` / `make release`
+# refuse when sys.platform differs from this, unless explicitly overridden
+# (plan.md:102). All five existing guides record "darwin". Valid values:
+# "darwin", "linux", "win32".
+baseline_platform = "darwin"

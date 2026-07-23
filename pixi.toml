@@ -22,7 +22,10 @@ platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 # Major-bounded ranges let minor + patch updates through (typically safe)
 # but prevent the kind of cross-major jump that would force a baseline
 # refresh nobody planned. pixi.lock pins the actual installed versions.
-python = ">=3.10,<3.15"
+# Floor raised from >=3.10 to >=3.11 so stdlib `tomllib` (the only reader of
+# guide.toml, via kitconfig.py) is always available — no `tomli` shim needed
+# (plan.md:57). Still major-bounded below 3.15 by family convention.
+python = ">=3.11,<3.15"
 pandoc = ">=3,<4"
 weasyprint = ">=60,<70"
 # Harness toolchain: poppler provides pdfinfo / pdftotext / pdftoppm;
@@ -40,3 +43,23 @@ web = "python build.py --web"
 # release.py is invoked via `make release MSG="..."` (not a pixi task,
 # because the Makefile target enforces the required MSG argument with a
 # clear usage message).
+
+# ----- Kit-only test environment -----
+# pytest and the `test` task deliberately live in a KIT-ONLY feature, NOT in
+# root [dependencies]/[tasks]. Root deps must stay byte-identical across the
+# guide family — they template into every target's pixi.toml — so a target
+# receives neither pytest nor a `test` task and never regenerates its lockfile
+# merely because the kit gained a test runner (plan.md:89, :90). Only
+# guide-template's own `kit` environment carries the suite. The target-shape
+# renderer (Phase 5) drops kit-only features; test_kit_only_test_dependency
+# asserts the placement that guarantee relies on.
+[feature.kit.dependencies]
+pytest = ">=8,<9"
+
+[feature.kit.tasks]
+test = "pytest tests/ -q"
+
+# The default environment (root feature) is implicit and unchanged; `kit` layers
+# the test feature on top of it so the suite has python + the kit modules.
+[environments]
+kit = ["kit"]

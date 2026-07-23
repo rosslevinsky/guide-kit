@@ -26,6 +26,9 @@ on:
       - 'pixi.toml'
       - 'pixi.lock'
       - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - 'tests/**'
       - '.github/workflows/verify.yml'
   pull_request:
     branches: [main]
@@ -40,6 +43,9 @@ on:
       - 'pixi.toml'
       - 'pixi.lock'
       - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - 'tests/**'
       - '.github/workflows/verify.yml'
   workflow_dispatch:
 
@@ -77,6 +83,14 @@ jobs:
           # changes happen via local PRs that refresh the committed reference PDF too.
           cache: true
           frozen: true
+
+      # Kit test suite — fast, dependency-light unit tests for the kit tooling
+      # (guide.toml loader, SOURCE_FILES, and later sync/manifest). Runs in the
+      # kit-only pixi environment; targets never run it. Phase 3 reshapes this
+      # into the guarded, templated form the seven targets receive — here it
+      # only needs to serve guide-template itself.
+      - name: kit test suite
+        run: pixi run -e kit test
 
       # PDF build smoke — catches "the pipeline crashes" regressions.
       - name: make (PDF build smoke)
