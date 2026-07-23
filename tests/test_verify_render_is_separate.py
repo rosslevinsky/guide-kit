@@ -10,7 +10,16 @@ from pathlib import Path
 
 import yaml
 
+import verify_pdf
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_strip_stamp_removes_dated_footer_but_preserves_body_lookalike():
+    text = "body with example · deadbeefcafe\n2026-01-02 03:04:05 · abcdef123456\ntail"
+    stripped = verify_pdf.strip_stamp(text)
+    assert "abcdef123456" not in stripped   # dated footer stamp removed
+    assert "deadbeefcafe" in stripped        # undated body lookalike preserved
 
 
 def _make_n(target: str) -> str:

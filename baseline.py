@@ -38,8 +38,13 @@ def _dirty_source_files() -> list[str]:
             ["git", "status", "--porcelain", "--", *kitconfig.SOURCE_FILES],
             cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
         ).stdout
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return []
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        # Fail CLOSED: baseline overwrites the reference PDF, so if we cannot
+        # confirm the tree is clean we must refuse, not proceed.
+        sys.exit(
+            f"make baseline refused: cannot determine SOURCE_FILES cleanliness "
+            f"(git error: {exc}). Aborting rather than risk blessing a dirty render."
+        )
     return [line[3:] for line in out.splitlines() if line.strip()]
 
 
@@ -78,11 +83,22 @@ def main() -> int:
     if not working.exists():
         sys.exit(f"make baseline: expected fresh render at {working} but it's missing.")
 
-    # Assert the rendered stamp is clean. The dirty-tree guard above already makes
-    # this true; this is the belt-and-suspenders confirmation the plan asks for.
+    # Do not promote a render that isn't demonstrably fresh and clean. The
+    # dirty-tree guard makes this true in the happy path; these checks catch a
+    # build that produced no stamp, a dirty stamp, or a stamp that doesn't match
+    # current source (e.g. a stale render left in build/) — any of which would
+    # make the new reference fail `make verify` immediately.
     stamp, is_dirty = verify_pdf.read_stamp(working)
+    expected = kitconfig.content_hash(ROOT)
+    if stamp is None:
+        sys.exit("make baseline refused: fresh render has no readable version stamp — not promoting.")
     if is_dirty:
         sys.exit("make baseline refused: rendered stamp carries a `· dirty` segment.")
+    if stamp != expected:
+        sys.exit(
+            f"make baseline refused: fresh render's stamp {stamp} != source hash {expected} "
+            "— the build did not reflect current source; not promoting."
+        )
 
     reference = ROOT / f"{slug}.pdf"
     shutil.copyfile(working, reference)

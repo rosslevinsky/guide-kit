@@ -25,6 +25,8 @@ on:
       - 'build.py'
       - 'transforms.py'
       - 'verify_pdf.py'
+      - 'baseline.py'
+      - 'release.py'
       - 'Makefile'
       - 'pixi.toml'
       - 'pixi.lock'
@@ -43,6 +45,8 @@ on:
       - 'build.py'
       - 'transforms.py'
       - 'verify_pdf.py'
+      - 'baseline.py'
+      - 'release.py'
       - 'Makefile'
       - 'pixi.toml'
       - 'pixi.lock'
@@ -122,7 +126,12 @@ jobs:
         if: hashFiles('tests/**') != ''
         run: |
           if [ -f .template-version ]; then
-            pixi run --manifest-path _kit/pixi.toml -e kit pytest tests/ -q
+            # pixi runs from the manifest's workspace root (_kit), so a bare
+            # `tests/` would resolve to _kit/tests (the KIT's suite). Use the
+            # absolute path to THIS repo's tests so the TARGET's own tests run in
+            # the borrowed kit env; the target's tests/conftest.py puts the target
+            # root on sys.path, so its modules import correctly.
+            pixi run --manifest-path _kit/pixi.toml -e kit pytest "$GITHUB_WORKSPACE/tests" -q
           else
             pixi run -e kit test
           fi
@@ -139,10 +148,11 @@ jobs:
       # would be red across that whole pre-first-release window. Skip with a notice.
       - name: make web (web build smoke)
         run: |
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
           if [ ! -f style-screen.css ]; then
             echo "web layer not enabled (no style-screen.css); skipping web smoke"
-          elif ! ls -1 *.pdf >/dev/null 2>&1; then
-            echo "pre-first-release — no reference PDF yet; web smoke skipped"
+          elif [ ! -f "$SLUG.pdf" ]; then
+            echo "pre-first-release — no reference PDF ($SLUG.pdf) yet; web smoke skipped"
           else
             make web
             test -s app/dist/index.html || { echo "app/dist/index.html missing or empty"; exit 1; }

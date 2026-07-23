@@ -47,12 +47,15 @@ import kitconfig
 
 HERE = Path(__file__).parent.resolve()
 
-# The version stamp rendered into the footer: "YYYY-MM-DD HH:MM:SS · <12 hex>"
-# (+ " · dirty"). Only the 12-hex content hash is needed to answer staleness.
-_STAMP_HASH_RE = re.compile(r"·\s*([0-9a-f]{12})\b")
-# A whole stamp line, for the render canary's stamp-exclusion and the dirty check.
-_STAMP_LINE_RE = re.compile(
-    r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\s*·\s*[0-9a-f]{12}(?:\s*·\s*dirty)?"
+# The full version stamp rendered into the footer:
+#   "YYYY-MM-DD HH:MM:SS · <12 hex>" (+ " · dirty").
+# The DATE PREFIX is REQUIRED (\s* absorbs any pdftotext line break between the
+# date and the hash), so a `· <12-hex>`-shaped fragment in the guide BODY can
+# never be mistaken for the footer stamp. Group 1 is the content hash; group 2
+# is the literal "dirty" when present. This one regex serves staleness, the
+# render canary's stamp-exclusion, and the baseline dirty check.
+_STAMP_RE = re.compile(
+    r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\s*·\s*([0-9a-f]{12})(?:\s*·\s*(dirty))?"
 )
 
 
@@ -80,29 +83,33 @@ def _pdftotext(pdf: Path) -> str:
 # ---------------------------------------------------------------------------
 
 def parse_stamp_hash(text: str) -> str | None:
-    """Return the first 12-hex content hash from a version stamp in `text`, or
+    """Return the content hash from a full dated version stamp in `text`, or
     None. Pure function over already-extracted text — no PDF, no tools — so the
-    comparison logic is testable without a renderer."""
-    m = _STAMP_HASH_RE.search(text)
+    comparison logic is testable without a renderer. Requires the date prefix,
+    so a `· <hash>`-shaped fragment in the guide body is never mistaken for it."""
+    m = _STAMP_RE.search(text)
     return m.group(1) if m else None
 
 
 def extract_stamp_hash(pdf: Path) -> str | None:
-    """The 12-hex content hash embedded in the PDF's footer stamp, or None."""
+    """The content hash embedded in the PDF's footer stamp, or None."""
     return parse_stamp_hash(_pdftotext(pdf))
 
 
 def read_stamp(pdf: Path) -> tuple[str | None, bool]:
     """Return (content_hash, is_dirty) from the PDF's footer stamp in one
-    pdftotext call. hash is None when no stamp is present; is_dirty reflects a
-    trailing `· dirty` segment. Used by `make baseline` to confirm a promoted
-    render is not dirty-stamped."""
-    text = _pdftotext(pdf)
-    line = _STAMP_LINE_RE.search(text)
-    return parse_stamp_hash(text), bool(line and "dirty" in line.group(0))
+    pdftotext call. hash is None when no dated stamp is present; is_dirty
+    reflects a trailing `· dirty` segment. Used by `make baseline` to confirm a
+    promoted render is fresh and clean."""
+    m = _STAMP_RE.search(_pdftotext(pdf))
+    if m is None:
+        return None, False
+    return m.group(1), m.group(2) == "dirty"
 
 
 def _git(root: Path, *args: str) -> str:
+    """Lenient git — returns "" on any error. For DIAGNOSTIC use only (naming
+    stale files); never for a decision that must fail closed."""
     try:
         return subprocess.run(
             ["git", *args], cwd=root, capture_output=True, text=True,
@@ -112,25 +119,41 @@ def _git(root: Path, *args: str) -> str:
         return ""
 
 
+def _git_strict(root: Path, *args: str) -> str:
+    """Strict git — raises on failure. For decisions that must NOT fail open."""
+    return subprocess.run(
+        ["git", *args], cwd=root, capture_output=True, text=True,
+        encoding="utf-8", check=True,
+    ).stdout
+
+
 def _was_ever_released(root: Path, reference: Path) -> bool:
     """True if the reference PDF path has any commit history — i.e. it was
-    released at least once and is now missing (deleted), vs. never released."""
-    return bool(_git(root, "log", "-1", "--format=%H", "--", reference.name).strip())
+    released at least once and is now missing (deleted), vs. never released.
+    Strict: raises on git failure so the caller can fail CLOSED rather than
+    treat a deleted deliverable as pre-first-release (CI checks out full
+    history, so a real query never comes back empty by accident)."""
+    return bool(_git_strict(root, "log", "-1", "--format=%H", "--", reference.name).strip())
 
 
 def _changed_source_files(root: Path, reference: Path) -> list[str]:
-    """Best-effort: the SOURCE_FILES entries that changed since the reference
-    PDF's last commit (committed-since or in the working tree). Names the stale
-    file(s) for the operator. Falls back to files with working-tree changes."""
+    """Best-effort diagnostic: the SOURCE_FILES entries that changed since the
+    reference PDF's last commit — the union of committed-since / working-tree
+    modifications AND untracked new source files. Names the stale file(s)."""
+    changed: list[str] = []
     ref_commit = _git(root, "log", "-1", "--format=%H", "--", reference.name).strip()
     if ref_commit:
         diff = _git(root, "diff", "--name-only", ref_commit, "--", *kitconfig.SOURCE_FILES)
-        changed = [line for line in diff.splitlines() if line.strip()]
-        if changed:
-            return changed
-    # Fallback: uncommitted SOURCE_FILES modifications.
+        changed += [line for line in diff.splitlines() if line.strip()]
+    # `git diff` does not report untracked files — union in porcelain status so a
+    # newly created source file (e.g. an added transforms.py) is named too.
     status = _git(root, "status", "--porcelain", "--", *kitconfig.SOURCE_FILES)
-    return [line[3:] for line in status.splitlines() if line.strip()]
+    changed += [line[3:] for line in status.splitlines() if line.strip()]
+    # De-dupe, preserving order.
+    seen: dict[str, None] = {}
+    for f in changed:
+        seen.setdefault(f, None)
+    return list(seen)
 
 
 def staleness_check(root: Path = HERE) -> int:
@@ -139,7 +162,18 @@ def staleness_check(root: Path = HERE) -> int:
     reference = root / f"{slug}.pdf"
 
     if not reference.exists():
-        if _was_ever_released(root, reference):
+        try:
+            released = _was_ever_released(root, reference)
+        except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+            # Fail CLOSED: if git history can't be queried we cannot tell a
+            # deleted deliverable from a never-released one, so error rather than
+            # silently pass a missing reference PDF.
+            sys.stderr.write(
+                f"ERROR cannot query git history for {reference.name} "
+                f"(is git available with full history?): {exc}\n"
+            )
+            return 2
+        if released:
             sys.stderr.write(
                 f"FAIL  reference PDF {reference.name} was released and is now missing "
                 "— restore it or re-release.\n"
@@ -197,10 +231,11 @@ def _page_count(pdf: Path) -> int:
 
 
 def strip_stamp(text: str) -> str:
-    """Drop version-stamp fragments so the canary's text comparison carries
+    """Drop full dated version stamps so the canary's text comparison carries
     signal. The stamp moves on every edit (and can gain ` · dirty`), so leaving
-    it in would make verify-render red after every change (plan.md:95)."""
-    return _STAMP_LINE_RE.sub("", text)
+    it in would make verify-render red after every change (plan.md:95). The date
+    prefix is required, so a `· <hash>`-shaped example in the body is preserved."""
+    return _STAMP_RE.sub("", text)
 
 
 def render_canary(reference: Path, candidate: Path) -> int:

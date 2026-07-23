@@ -82,11 +82,15 @@ jobs:
       - name: Check for a reference PDF
         id: check
         run: |
-          if ls -1 *.pdf >/dev/null 2>&1; then
+          # Check the EXACT reference filename (<OUTPUT_SLUG>.pdf), not any root
+          # *.pdf — an unrelated appendix.pdf must not fool the guard into the
+          # build/deploy path where build_web() would then hard-fail.
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          if [ -f "$SLUG.pdf" ]; then
             echo "has_pdf=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_pdf=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::pre-first-release — no reference PDF yet; skipping build + deploy"
+            echo "::notice::pre-first-release — no reference PDF ($SLUG.pdf) yet; skipping build + deploy"
           fi
 
   deploy:

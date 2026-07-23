@@ -31,8 +31,10 @@ def _git(repo, *args):
 
 def _mkrepo(tmp_path, with_pdf=True):
     (tmp_path / "guide.toml").write_text(GUIDE_TOML, encoding="utf-8")
+    # Seed every SOURCE_FILES entry except transforms.py (left absent so the
+    # untracked-naming case has a real source file to create).
     for name in kitconfig.SOURCE_FILES:
-        if name != "guide.toml":
+        if name not in ("guide.toml", "transforms.py"):
             (tmp_path / name).write_text(f"seed-{name}\n", encoding="utf-8")
     if with_pdf:
         (tmp_path / f"{SLUG}.pdf").write_bytes(b"%PDF-fake")
@@ -85,7 +87,27 @@ def test_no_readable_stamp_fails(tmp_path, monkeypatch, capsys):
     assert "no readable version stamp" in capsys.readouterr().err
 
 
-def test_parse_stamp_hash_pure_function():
+def test_names_untracked_source_file(tmp_path, monkeypatch, capsys):
+    # A newly created (untracked) source file changes the hash and must be NAMED
+    # too — `git diff` alone omits untracked files (regression guard for the
+    # early-return that only reported tracked changes).
+    repo = _mkrepo(tmp_path)  # transforms.py absent
+    baseline_hash = kitconfig.content_hash(repo)
+    monkeypatch.setattr(verify_pdf, "extract_stamp_hash", lambda pdf: baseline_hash)
+    (repo / "transforms.py").write_text("# newly added source\n", encoding="utf-8")
+    assert kitconfig.content_hash(repo) != baseline_hash
+    assert verify_pdf.staleness_check(repo) == 1
+    assert "transforms.py" in capsys.readouterr().err
+
+
+def test_parse_stamp_hash_requires_date_prefix():
+    # A dated footer stamp parses (with or without a dirty segment)...
     assert verify_pdf.parse_stamp_hash("2026-01-02 03:04:05 · abcdef123456") == "abcdef123456"
     assert verify_pdf.parse_stamp_hash("2026-01-02 03:04:05 · abcdef123456 · dirty") == "abcdef123456"
     assert verify_pdf.parse_stamp_hash("no stamp here") is None
+    # ...but a `· <12hex>` fragment WITHOUT a date (e.g. a body example) is not
+    # mistaken for the stamp, and a real dated stamp after it still wins.
+    assert verify_pdf.parse_stamp_hash("see example · deadbeefcafe here") is None
+    assert verify_pdf.parse_stamp_hash(
+        "example · deadbeefcafe\n2026-01-02 03:04:05 · abcdef123456"
+    ) == "abcdef123456"
