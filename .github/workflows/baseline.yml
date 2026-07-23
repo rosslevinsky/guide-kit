@@ -1,0 +1,101 @@
+name: baseline
+
+# Generate the committed reference PDF on a macOS runner and commit it — the
+# automated replacement for the "go to your Mac" handoff.
+#
+# The reference PDF is the reader-facing deliverable; the family renders on macOS
+# so the downloadable PDFs share typography (Helvetica Neue / Menlo / Georgia /
+# Hiragino / Andale Mono). This runs `make baseline` on a genuine macOS host, so
+# guide.toml's `baseline_platform = "darwin"` guard passes NATIVELY (no override),
+# then proves the result is fresh with `make verify` and commits it.
+#
+# Manual only (workflow_dispatch): baselining is a deliberate act and macOS
+# runners bill at ~10x, so this never runs automatically. It is IDEMPOTENT — if
+# the reference PDF is already up to date it does nothing.
+#
+# Trigger: Actions -> baseline -> Run workflow (or `gh workflow run baseline.yml`).
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Commit message for the refreshed reference PDF"
+        required: false
+        default: "baseline: refresh reference PDF (macOS runner)"
+
+permissions:
+  contents: write   # push the reference-PDF commit
+  actions: write    # dispatch verify.yml afterwards so its status reflects the fresh tree
+
+concurrency:
+  group: baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    # A genuine macOS host: sys.platform == "darwin", so `make baseline`'s platform
+    # guard passes without an override and the render uses macOS fonts.
+    runs-on: macos-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          # Full history so the version stamp (git log / status over SOURCE_FILES)
+          # matches a local build, and so the PDF commit can be pushed.
+          fetch-depth: 0
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          frozen: true
+
+      - name: Skip if the reference PDF is already fresh
+        id: fresh
+        run: |
+          if make verify; then
+            echo "already_fresh=true" >> "$GITHUB_OUTPUT"
+            echo "Reference PDF is already up to date — nothing to baseline."
+          else
+            echo "already_fresh=false" >> "$GITHUB_OUTPUT"
+            echo "Reference PDF is stale — rendering a fresh macOS baseline."
+          fi
+
+      - name: Render the baseline (macOS)
+        if: steps.fresh.outputs.already_fresh == 'false'
+        run: make baseline
+
+      - name: Verify the fresh baseline
+        if: steps.fresh.outputs.already_fresh == 'false'
+        run: make verify
+
+      - name: Commit and push the reference PDF
+        if: steps.fresh.outputs.already_fresh == 'false'
+        env:
+          # Passed via env (not ${{ }} interpolation into the shell body) to harden
+          # against script injection from the dispatch input.
+          COMMIT_MSG: ${{ inputs.message }}
+        run: |
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$SLUG.pdf"
+          if git diff --staged --quiet; then
+            echo "Render produced no change to $SLUG.pdf — nothing to commit."
+          else
+            git commit -m "$COMMIT_MSG"
+            git push
+            echo "Committed and pushed a refreshed $SLUG.pdf."
+          fi
+
+      - name: Refresh verify.yml status on the fresh tree
+        if: steps.fresh.outputs.already_fresh == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # A GITHUB_TOKEN push does not itself re-trigger workflows, so kick verify.yml
+        # once so its status reflects the now-fresh reference PDF. Best-effort.
+        run: gh workflow run verify.yml --ref "${{ github.ref_name }}" || echo "could not dispatch verify.yml (non-fatal)"
