@@ -92,6 +92,16 @@ def extract_stamp_hash(pdf: Path) -> str | None:
     return parse_stamp_hash(_pdftotext(pdf))
 
 
+def read_stamp(pdf: Path) -> tuple[str | None, bool]:
+    """Return (content_hash, is_dirty) from the PDF's footer stamp in one
+    pdftotext call. hash is None when no stamp is present; is_dirty reflects a
+    trailing `· dirty` segment. Used by `make baseline` to confirm a promoted
+    render is not dirty-stamped."""
+    text = _pdftotext(pdf)
+    line = _STAMP_LINE_RE.search(text)
+    return parse_stamp_hash(text), bool(line and "dirty" in line.group(0))
+
+
 def _git(root: Path, *args: str) -> str:
     try:
         return subprocess.run(

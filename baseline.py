@@ -80,10 +80,9 @@ def main() -> int:
 
     # Assert the rendered stamp is clean. The dirty-tree guard above already makes
     # this true; this is the belt-and-suspenders confirmation the plan asks for.
-    stamp = verify_pdf.parse_stamp_hash(verify_pdf._pdftotext(working))  # noqa: SLF001
-    line_match = verify_pdf._STAMP_LINE_RE.search(verify_pdf._pdftotext(working))  # noqa: SLF001
-    if line_match and "dirty" in line_match.group(0):
-        sys.exit(f"make baseline refused: rendered stamp is dirty ({line_match.group(0)!r}).")
+    stamp, is_dirty = verify_pdf.read_stamp(working)
+    if is_dirty:
+        sys.exit("make baseline refused: rendered stamp carries a `· dirty` segment.")
 
     reference = ROOT / f"{slug}.pdf"
     shutil.copyfile(working, reference)
