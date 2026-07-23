@@ -44,7 +44,6 @@ Pandoc options:
                         exact characters in the source land in the PDF.
 """
 import argparse
-import hashlib
 import importlib.util
 import os
 import shutil
@@ -52,33 +51,41 @@ import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
+
 from weasyprint import HTML
 
-# ----- Document constants (edit these to rename your fork) -----
-TITLE = "Guide Template"
-OUTPUT_SLUG = "guide-template"
-AUTHOR = "Ross Levinsky"
-DESCRIPTION = (
-    "Template repository for single-document beginner-guide PDF projects. "
-    "Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): "
-    "https://creativecommons.org/licenses/by/4.0/"
-)
-KEYWORDS = "guide, template, pandoc, weasyprint, CC-BY-4.0"
+import kitconfig
+
+# ----- Repo root + per-guide constants -----
+# ROOT is established first so kitconfig's strict loader reads THIS repo's
+# guide.toml. The seven guide-specific values now live in guide.toml and are
+# read through kitconfig — build.py holds no guide-specific literal (that
+# property is asserted by tests/test_guide_toml_complete.py). The four LICENSE_*
+# values below are family-fixed, identical-tier constants and deliberately stay
+# here (plan.md:55).
+ROOT = Path(__file__).parent.resolve()
+_cfg = kitconfig.load(ROOT)
+TITLE = _cfg.TITLE
+OUTPUT_SLUG = _cfg.OUTPUT_SLUG
+AUTHOR = _cfg.AUTHOR
+DESCRIPTION = _cfg.DESCRIPTION
+KEYWORDS = _cfg.KEYWORDS
+COPYRIGHT_YEAR = _cfg.COPYRIGHT_YEAR
+BASELINE_PLATFORM = _cfg.baseline_platform
 
 # ----- Licensing shown in the rendered output -----
 # The guide CONTENT is CC BY 4.0; the build tooling (code, CSS, config) is
 # Apache 2.0. The PDF colophon (last page) surfaces this so a reader of the
-# PDF sees the terms, not just someone browsing the repo. Forks: update
-# COPYRIGHT's year/holder to your own. The year is a constant (not derived
-# from the clock) so renders stay deterministic and `make verify` is stable.
-COPYRIGHT = f"© 2026 {AUTHOR}"
+# PDF sees the terms, not just someone browsing the repo. COPYRIGHT is DERIVED
+# from guide.toml's year + author — the year is a stored constant (never a clock
+# read) so renders stay deterministic and `make verify` is stable.
+COPYRIGHT = f"© {COPYRIGHT_YEAR} {AUTHOR}"
 LICENSE_CONTENT_NAME = "Creative Commons Attribution 4.0 International (CC BY 4.0)"
 LICENSE_CONTENT_URL = "https://creativecommons.org/licenses/by/4.0/"
 LICENSE_CODE_NAME = "Apache License 2.0"
 LICENSE_CODE_URL = "https://www.apache.org/licenses/LICENSE-2.0"
 
 # ----- Paths -----
-ROOT = Path(__file__).parent.resolve()
 SRC = ROOT / "guide.md"
 STYLE = ROOT / "style.css"
 # Screen-only stylesheet for the website output. NOT in SOURCE_FILES — it
@@ -109,7 +116,7 @@ REFERENCE_PDF = ROOT / f"{OUTPUT_SLUG}.pdf"
 # activated. (Activating the hook does still bump the footer hash, because
 # the new file's bytes become part of the content. That gotcha is intrinsic
 # to a content-derived stamp and is called out in CLAUDE.md.)
-SOURCE_FILES = ["guide.md", "style.css", "build.py", "transforms.py"]
+SOURCE_FILES = kitconfig.SOURCE_FILES  # canonical list (adds guide.toml, kitconfig.py) lives in kitconfig
 
 
 # ---------------------------------------------------------------------------
@@ -134,18 +141,6 @@ def _git_last_source_change_date() -> str:
         return ""
 
 
-def _content_hash() -> str:
-    """Return the 12-char prefix of the sha256 over the concatenated bytes of
-    every SOURCE_FILES entry that exists on disk, taken in the fixed
-    SOURCE_FILES order."""
-    h = hashlib.sha256()
-    for name in SOURCE_FILES:
-        p = ROOT / name
-        if p.exists():
-            h.update(p.read_bytes())
-    return h.hexdigest()[:12]
-
-
 def _is_dirty() -> bool:
     """Return True if `git status --porcelain` reports any modified or
     untracked file in SOURCE_FILES. The `--` scope is load-bearing: it
@@ -166,7 +161,7 @@ def _version_stamp() -> str:
     """Compose 'YYYY-MM-DD HH:MM:SS · <hash>' (+ ' · dirty' when the working
     tree has uncommitted source changes)."""
     date = _git_last_source_change_date()
-    h = _content_hash()
+    h = kitconfig.content_hash(ROOT)
     stamp = f"{date} · {h}" if date else h
     if _is_dirty():
         stamp += " · dirty"
@@ -371,8 +366,6 @@ TEMPLATE_SENTINEL = ROOT / ".template-uninitialized"
 # If a forked guide still contains any of these, the fork forgot to
 # initialize. The hygiene check refuses to build until they're gone.
 PLACEHOLDERS = ("{{GUIDE_NAME}}", "{{GUIDE_SLUG}}", "<DESCRIBE YOUR GUIDE>")
-DEFAULT_TITLE = "Guide Template"
-DEFAULT_SLUG = "guide-template"
 
 
 def _check_template_hygiene() -> None:
@@ -387,10 +380,13 @@ def _check_template_hygiene() -> None:
         for ph in PLACEHOLDERS:
             if ph in body:
                 issues.append(f"{name}: still contains '{ph}'")
-    if TITLE == DEFAULT_TITLE:
-        issues.append("build.py: TITLE is still the template default 'Guide Template'")
-    if OUTPUT_SLUG == DEFAULT_SLUG:
-        issues.append("build.py: OUTPUT_SLUG is still the template default 'guide-template'")
+    # The uninitialized-template signal is the sentinel (handled above) plus the
+    # doc placeholders. The former TITLE/OUTPUT_SLUG == default comparisons were
+    # dropped: they required a module-level literal equal to guide.toml's values,
+    # which this phase forbids (the constants now live only in guide.toml). The
+    # slug/title-default backstop is intentionally not reconstructed here; once
+    # bootstrap writes guide.toml directly (Phase 7 — it does not yet), an
+    # initialized fork's guide.toml no longer carries the template defaults.
     if not issues:
         return
     bullet = "\n  ".join(issues)

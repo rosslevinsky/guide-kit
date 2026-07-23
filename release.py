@@ -9,7 +9,8 @@ Replaces the 5-step "After editing" ritual from CLAUDE.md with one command:
 
 What it does (and refuses to do):
 
-  1. Reads OUTPUT_SLUG and SOURCE_FILES from build.py (no duplication).
+  1. Reads OUTPUT_SLUG and SOURCE_FILES from guide.toml via kitconfig (the
+     single validated source of truth — no scraping build.py).
   2. Refuses to run if the working tree has staged changes (would silently
      fold them into the release commit) or modifications outside the
      SOURCE_FILES list (would either be lost or unexpectedly committed).
@@ -28,35 +29,26 @@ can investigate, then `git commit --amend <slug>.pdf` once fixed.
 from __future__ import annotations
 
 import argparse
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import kitconfig
+
 ROOT = Path(__file__).parent.resolve()
-BUILD_PY = ROOT / "build.py"
 
 
-def _parse_build_constants() -> tuple[str, list[str]]:
-    """Scrape OUTPUT_SLUG and the full SOURCE_FILES list from build.py without
-    importing weasyprint (which would add ~1s of import time for no good
-    reason). Returns the full source list — including absent files — so that
-    deleting a source file (e.g. removing transforms.py to deactivate the
-    hook) is treated as an in-scope release change rather than rejected as
-    "outside SOURCE_FILES."
+def _load_constants() -> tuple[str, list[str]]:
+    """Read OUTPUT_SLUG and the canonical SOURCE_FILES list from guide.toml via
+    kitconfig — no scraping of build.py. kitconfig is dependency-light (stdlib
+    only, no weasyprint), so this stays fast. The full source list is returned
+    — including files that may be absent (e.g. a deactivated transforms.py) —
+    so that deleting a source file is treated as an in-scope release change
+    rather than rejected as "outside SOURCE_FILES."
     """
-    text = BUILD_PY.read_text(encoding="utf-8")
-    slug_m = re.search(r'^OUTPUT_SLUG\s*=\s*"([^"]+)"', text, re.M)
-    if not slug_m:
-        sys.exit("release.py: could not find OUTPUT_SLUG = \"...\" in build.py")
-    slug = slug_m.group(1)
-    files = re.findall(r'"(guide\.md|style\.css|build\.py|transforms\.py)"', text)
-    seen: list[str] = []
-    for f in files:
-        if f not in seen:
-            seen.append(f)
-    return slug, seen
+    cfg = kitconfig.load(ROOT)
+    return cfg.OUTPUT_SLUG, list(kitconfig.SOURCE_FILES)
 
 
 def _git(*args: str, capture: bool = False, check: bool = True) -> subprocess.CompletedProcess:
@@ -137,7 +129,7 @@ def main() -> int:
     p.add_argument("-m", "--message", required=True, help="Commit message")
     args = p.parse_args()
 
-    slug, source_files = _parse_build_constants()
+    slug, source_files = _load_constants()
 
     to_stage = _ensure_clean_state(source_files)
     print(f"  staging: {', '.join(to_stage)}")

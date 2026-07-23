@@ -30,6 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import kitconfig
+
 ROOT = Path(__file__).parent.resolve()
 SRC = ROOT / "guide.md"
 STYLE_SCREEN = ROOT / "style-screen.css"
@@ -41,10 +43,11 @@ _EMBED_ID = re.compile(r'<div class="embed youtube" data-id="(?P<id>[^"]+)"')
 
 
 def _output_slug() -> str:
-    """Scrape OUTPUT_SLUG from build.py so the print-HTML path matches what the
-    build writes — the single source of truth, same as the Makefile."""
-    m = re.search(r'^OUTPUT_SLUG\s*=\s*"([^"]+)"', (ROOT / "build.py").read_text(encoding="utf-8"), re.M)
-    return m.group(1) if m else "guide-template"
+    """Read OUTPUT_SLUG from guide.toml via kitconfig so the print-HTML path
+    matches what the build writes — the validated single source of truth, same
+    as the Makefile. No hardcoded fallback: a wrong slug here would check the
+    wrong file."""
+    return kitconfig.load(ROOT).OUTPUT_SLUG
 
 
 def _run(cmd: list[str]) -> None:

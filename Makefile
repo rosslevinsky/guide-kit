@@ -1,11 +1,15 @@
 # The output slug — drives the filenames `make`, `make verify`, `make baseline`,
-# and `make clean` operate on. Single source of truth is `OUTPUT_SLUG` in
-# build.py; the awk one-liner below scrapes it so the Makefile and build.py
-# can never drift. Falls back to `guide-template` only if the scrape fails
-# (e.g. build.py was edited into an unparseable shape).
-OUTPUT_SLUG := $(shell awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $$2; exit}' build.py)
-ifeq ($(OUTPUT_SLUG),)
-OUTPUT_SLUG := guide-template
+# and `make clean` operate on. The single source of truth is `OUTPUT_SLUG` in
+# guide.toml (validated by kitconfig); the awk one-liner reads it directly so the
+# Makefile resolves a filename without needing a pixi env. There is NO fallback:
+# a wrong-but-plausible default (e.g. `guide-template` for git-guide, whose slug
+# is `git-github-for-beginners`) is worse than a hard error, so an empty result
+# stops the build immediately. guide.toml uses double-quoted strings by
+# convention (kitconfig is the validating reader); a non-double-quoted OUTPUT_SLUG
+# yields an empty scrape and the hard error below — never a silent mis-resolve.
+OUTPUT_SLUG := $(shell awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $$2; exit}' guide.toml)
+ifeq ($(strip $(OUTPUT_SLUG)),)
+$(error OUTPUT_SLUG not found in guide.toml — is guide.toml present and well-formed?)
 endif
 
 # Paths the workflow operates on. The WORKING render lands under build/
