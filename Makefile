@@ -20,7 +20,7 @@ endif
 WORKING_PDF := build/$(OUTPUT_SLUG).pdf
 REFERENCE_PDF := $(OUTPUT_SLUG).pdf
 
-.PHONY: build help all install html web dev deploy verify baseline release clean
+.PHONY: build help all install html web dev deploy verify verify-render baseline release clean
 
 # `build` is the FIRST non-.PHONY target, so bare `make` builds.
 # Intentional divergence from mac-terminal-guide / git-guide, which default to `help`.
@@ -36,11 +36,12 @@ help:
 	@echo "  make web                   Build the deployable website into app/dist/ (opt-in web layer)"
 	@echo "  make dev                   Build the site and serve it locally (wrangler dev; needs app/)"
 	@echo "  make deploy                Build and deploy the site to Cloudflare (manual; needs app/)"
-	@echo "  make verify                Check that the freshly-built PDF matches the committed $(REFERENCE_PDF)"
-	@echo "  make baseline              Promote $(WORKING_PDF) onto $(REFERENCE_PDF) (use deliberately)"
+	@echo "  make verify                Staleness check: is $(REFERENCE_PDF) up to date with source? (no build; CI-safe)"
+	@echo "  make verify-render         Render canary: page count + stamp-excluded text (needs a build; canonical host only)"
+	@echo "  make baseline              Promote $(WORKING_PDF) onto $(REFERENCE_PDF), with platform + clean-tree guards"
 	@echo "  make release MSG=\"...\"     Stage source + refresh reference + amend, in one commit"
 	@echo "  make install               Install all dependencies via pixi"
-	@echo "  make clean                 Remove build/ and verify-diff/"
+	@echo "  make clean                 Remove build/"
 	@echo ""
 	@echo "All targets delegate to pixi. Install pixi first: https://pixi.sh"
 
@@ -76,19 +77,30 @@ deploy:
 	pixi run web
 	cd app && npx wrangler deploy
 
-# verify depends on build so a fresh render is always compared to the reference.
-verify: build
-	pixi run python verify_pdf.py $(REFERENCE_PDF) $(WORKING_PDF)
+# verify is the STALENESS check only: is the committed reference PDF up to date
+# with the source? It compares the hash embedded in the PDF's version stamp
+# against a fresh content hash over SOURCE_FILES — NO build, NO rendering,
+# platform-independent (milliseconds). This is the sole `verify` CI runs.
+# NO `build` prerequisite (intentional divergence from the old pixel harness).
+verify:
+	pixi run python verify_pdf.py --staleness
 
-# baseline overwrites the committed reference PDF with the fresh render. `cp`
-# (not `mv`) so the just-built PDF stays under build/ for visual review. Use
-# deliberately, only after eyeballing — this silently re-blesses any rendering
-# regression. After running, commit $(REFERENCE_PDF) together with the source
-# files that changed it via the amend workflow (see CLAUDE.md), or use
-# `make release MSG="..."` which does the whole dance in one shot.
-baseline: build
-	cp $(WORKING_PDF) $(REFERENCE_PDF)
-	@echo "  reference -> $(REFERENCE_PDF) (commit it together with source changes)"
+# verify-render is the secondary canary: it builds and compares page count +
+# stamp-excluded text against the committed reference. It REQUIRES a build and
+# is PLATFORM-SENSITIVE (font substitution shifts line wrapping), so it runs on
+# the canonical host ONLY and is NEVER wired into CI. Its one genuine catch is
+# environmental drift (a `pixi update` that shifts layout with no source change).
+verify-render: build
+	pixi run python verify_pdf.py --render $(REFERENCE_PDF) $(WORKING_PDF)
+
+# baseline promotes the fresh render onto the committed reference PDF, guarded:
+# baseline.py refuses a platform mismatch (sys.platform != guide.toml's
+# baseline_platform) and a dirty SOURCE_FILES tree BEFORE building or copying,
+# then asserts the rendered stamp is not `· dirty`. After it runs, commit
+# $(REFERENCE_PDF) together with the source that changed it (see CLAUDE.md), or
+# use `make release MSG="..."` which does the whole dance in one shot.
+baseline:
+	pixi run python baseline.py $(BASELINE_ARGS)
 
 # release automates the after-editing dance: stage source files, commit with
 # MSG, re-render with a clean version stamp, copy to $(REFERENCE_PDF), amend.
@@ -99,4 +111,4 @@ release:
 	pixi run python release.py -m "$(MSG)"
 
 clean:
-	rm -rf build/ verify-diff/
+	rm -rf build/

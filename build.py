@@ -338,6 +338,19 @@ def build_web() -> None:
         print("  web layer not enabled — run `bootstrap.py --with-web` to enable it")
         return
 
+    # Hard-FAIL on a missing reference PDF BEFORE rendering, so no partial site is
+    # written: a site must not deploy with a guaranteed-404 download link
+    # (plan.md:150). This is the compensating gate for the staleness check's
+    # deliberate pass-with-notice on an absent PDF (verify_pdf.py --staleness): a
+    # never-released guide passes `make verify` but cannot build its web layer
+    # until its first reference PDF exists.
+    if not REFERENCE_PDF.exists():
+        raise SystemExit(
+            f"build.py --web: reference PDF {REFERENCE_PDF.name} is missing — the site's "
+            "download link would 404. Generate it on the canonical host (`make release` / "
+            "`make baseline` + commit) before building or deploying the web layer."
+        )
+
     WEB_DIR.mkdir(parents=True, exist_ok=True)
     out_index = WEB_DIR / "index.html"
     out_index.write_text(render_web_html(), encoding="utf-8")
@@ -345,11 +358,8 @@ def build_web() -> None:
 
     # Copy the committed reference PDF (what readers download) — NOT a fresh
     # render — so the site links to the verified-by-baseline file.
-    if REFERENCE_PDF.exists():
-        shutil.copyfile(REFERENCE_PDF, WEB_DIR / REFERENCE_PDF.name)
-        print(f"  WEB   ->  {WEB_DIR / REFERENCE_PDF.name}")
-    else:
-        print(f"  WARN  reference PDF {REFERENCE_PDF.name} missing; site will 404 the download link")
+    shutil.copyfile(REFERENCE_PDF, WEB_DIR / REFERENCE_PDF.name)
+    print(f"  WEB   ->  {WEB_DIR / REFERENCE_PDF.name}")
 
 
 # ---------------------------------------------------------------------------

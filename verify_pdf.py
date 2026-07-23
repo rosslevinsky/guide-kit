@@ -1,26 +1,36 @@
 #!/usr/bin/env python3
-"""Content-identicalness regression harness for the guide PDF.
+"""Reference-PDF verification for the guide.
 
-Usage:
-    python verify_pdf.py <baseline.pdf> <candidate.pdf>
+Two distinct commands, deliberately not one (plan.md:95):
 
-Compares two PDFs with three checks at zero tolerance:
-  1. Page count (pdfinfo).
-  2. Text content (pdftotext -layout, byte-equal).
-  3. Per-page pixel diff (pdftoppm + Pillow ImageChops.difference).
+    python verify_pdf.py --staleness
+        The PRIMARY gate (`make verify`). Is the committed reference PDF out of
+        date with the source? Compares the content hash embedded in the PDF's
+        version-stamp footer (one pdftotext call) against a freshly computed
+        kitconfig.content_hash() over SOURCE_FILES. NO pandoc, NO WeasyPrint, no
+        rendering, no platform sensitivity — milliseconds, correct on any
+        machine, so this is what CI runs.
 
-Pre-step: both inputs are canonicalized via `qpdf --deterministic-id
---normalize-content=y` into temp paths first, so accidental non-determinism
-in the inputs doesn't masquerade as a real diff.
+    python verify_pdf.py --render <reference.pdf> <candidate.pdf>
+        The render canary (`make verify-render`). Page count + stamp-EXCLUDED
+        text comparison between the committed reference and a fresh build.
+        Requires a build and is platform-sensitive (font substitution changes
+        line wrapping, so page count can legitimately differ between a Linux
+        build and a macOS baseline), so it runs on the canonical host ONLY and
+        is NEVER wired into CI. Its one genuine catch is environmental drift — a
+        `pixi update` that shifts layout with no source change.
 
-On any check failure, prints an operator-readable summary to stderr and
-exits 1. Per-page diff PNGs from check 3 are saved to `verify-diff/`
-alongside the script so the operator can visually inspect what changed.
+Absent reference PDF (staleness): a guide that has never been released has zero
+root PDFs by design (bootstrap deletes the inherited template PDF; the guide's
+own does not exist until its first macOS `make release`). That state PASSES with
+a `pre-first-release` notice. A PDF that WAS released and is now gone FAILS — the
+discriminator is git history for the reference path. The missing-PDF hole for a
+web-enabled guide is separately closed by build_web()'s hard failure (build.py).
 
 Exit codes:
-    0 — every check passed (PDFs are content-identical)
-    1 — any check failed (see stderr summary + verify-diff/ for details)
-    2 — invocation / environment error (missing args, tool not on PATH)
+    0 — fresh, or pre-first-release
+    1 — stale, deleted-after-release, or a render-canary mismatch
+    2 — invocation / environment error (missing args, tool not on PATH, bad file)
 """
 from __future__ import annotations
 
@@ -33,24 +43,21 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageChops
+import kitconfig
 
 HERE = Path(__file__).parent.resolve()
-DIFF_DIR = HERE / "verify-diff"
+
+# The version stamp rendered into the footer: "YYYY-MM-DD HH:MM:SS · <12 hex>"
+# (+ " · dirty"). Only the 12-hex content hash is needed to answer staleness.
+_STAMP_HASH_RE = re.compile(r"·\s*([0-9a-f]{12})\b")
+# A whole stamp line, for the render canary's stamp-exclusion and the dirty check.
+_STAMP_LINE_RE = re.compile(
+    r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\s*·\s*[0-9a-f]{12}(?:\s*·\s*dirty)?"
+)
 
 
-# ---------------------------------------------------------------------------
-# Tool checks
-# ---------------------------------------------------------------------------
-
-# `compare` (ImageMagick) was the previous pixel-diff backend. It's been
-# replaced by Pillow so the harness works on Windows too (conda-forge has no
-# imagemagick build for win-64).
-REQUIRED_TOOLS = ["pdfinfo", "pdftotext", "pdftoppm", "qpdf"]
-
-
-def check_tools() -> None:
-    missing = [t for t in REQUIRED_TOOLS if shutil.which(t) is None]
+def _require(tools: list[str]) -> None:
+    missing = [t for t in tools if shutil.which(t) is None]
     if missing:
         sys.stderr.write(
             "verify_pdf.py: missing required tools on PATH: "
@@ -60,63 +67,7 @@ def check_tools() -> None:
         sys.exit(2)
 
 
-# ---------------------------------------------------------------------------
-# Pre-step: canonicalize via qpdf
-# ---------------------------------------------------------------------------
-
-def canonicalize(pdf: Path, tmpdir: Path, name: str) -> Path:
-    out = tmpdir / f"{name}.canon.pdf"
-    subprocess.run(
-        [
-            "qpdf",
-            "--deterministic-id",
-            "--normalize-content=y",
-            "--object-streams=preserve",
-            str(pdf),
-            str(out),
-        ],
-        check=True,
-    )
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Check 1: page count
-# ---------------------------------------------------------------------------
-
-PAGES_RE = re.compile(r"^Pages:\s+(\d+)\s*$", re.MULTILINE)
-
-
-def page_count(pdf: Path) -> int:
-    result = subprocess.run(
-        ["pdfinfo", str(pdf)],
-        capture_output=True, text=True, encoding="utf-8", check=True,
-    )
-    m = PAGES_RE.search(result.stdout)
-    if not m:
-        raise RuntimeError(f"could not parse Pages from pdfinfo output for {pdf}")
-    return int(m.group(1))
-
-
-def check_page_count(baseline: Path, candidate: Path) -> tuple[bool, str]:
-    b = page_count(baseline)
-    c = page_count(candidate)
-    if b == c:
-        return True, f"page count: {b} (match)"
-    return False, f"page count: baseline={b}, candidate={c} (MISMATCH)"
-
-
-# ---------------------------------------------------------------------------
-# Check 2: text content
-# ---------------------------------------------------------------------------
-
-def pdf_text(pdf: Path) -> str:
-    # No `-layout`: extract the text in reading order without trying to
-    # preserve visual column positions via interstitial whitespace.
-    # `-layout` makes the text-content check sensitive to sub-pixel glyph
-    # position shifts (so a 1-px difference in where a word starts can
-    # turn into a leading-space difference here). We want the check to
-    # catch added/removed/reordered text, not visual position drift.
+def _pdftotext(pdf: Path) -> str:
     result = subprocess.run(
         ["pdftotext", str(pdf), "-"],
         capture_output=True, text=True, encoding="utf-8", check=True,
@@ -124,97 +75,160 @@ def pdf_text(pdf: Path) -> str:
     return result.stdout
 
 
-def check_text(baseline: Path, candidate: Path) -> tuple[bool, str]:
-    b = pdf_text(baseline)
-    c = pdf_text(candidate)
-    if b == c:
-        return True, "text content: identical"
-    snippet = "\n".join(
-        list(
-            difflib.unified_diff(
-                b.splitlines(),
-                c.splitlines(),
-                fromfile="baseline",
-                tofile="candidate",
-                lineterm="",
-                n=2,
+# ---------------------------------------------------------------------------
+# Staleness check (make verify) — the primary, platform-independent gate
+# ---------------------------------------------------------------------------
+
+def parse_stamp_hash(text: str) -> str | None:
+    """Return the first 12-hex content hash from a version stamp in `text`, or
+    None. Pure function over already-extracted text — no PDF, no tools — so the
+    comparison logic is testable without a renderer."""
+    m = _STAMP_HASH_RE.search(text)
+    return m.group(1) if m else None
+
+
+def extract_stamp_hash(pdf: Path) -> str | None:
+    """The 12-hex content hash embedded in the PDF's footer stamp, or None."""
+    return parse_stamp_hash(_pdftotext(pdf))
+
+
+def _git(root: Path, *args: str) -> str:
+    try:
+        return subprocess.run(
+            ["git", *args], cwd=root, capture_output=True, text=True,
+            encoding="utf-8", check=True,
+        ).stdout
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
+
+
+def _was_ever_released(root: Path, reference: Path) -> bool:
+    """True if the reference PDF path has any commit history — i.e. it was
+    released at least once and is now missing (deleted), vs. never released."""
+    return bool(_git(root, "log", "-1", "--format=%H", "--", reference.name).strip())
+
+
+def _changed_source_files(root: Path, reference: Path) -> list[str]:
+    """Best-effort: the SOURCE_FILES entries that changed since the reference
+    PDF's last commit (committed-since or in the working tree). Names the stale
+    file(s) for the operator. Falls back to files with working-tree changes."""
+    ref_commit = _git(root, "log", "-1", "--format=%H", "--", reference.name).strip()
+    if ref_commit:
+        diff = _git(root, "diff", "--name-only", ref_commit, "--", *kitconfig.SOURCE_FILES)
+        changed = [line for line in diff.splitlines() if line.strip()]
+        if changed:
+            return changed
+    # Fallback: uncommitted SOURCE_FILES modifications.
+    status = _git(root, "status", "--porcelain", "--", *kitconfig.SOURCE_FILES)
+    return [line[3:] for line in status.splitlines() if line.strip()]
+
+
+def staleness_check(root: Path = HERE) -> int:
+    _require(["pdftotext"])
+    slug = kitconfig.load(root).OUTPUT_SLUG
+    reference = root / f"{slug}.pdf"
+
+    if not reference.exists():
+        if _was_ever_released(root, reference):
+            sys.stderr.write(
+                f"FAIL  reference PDF {reference.name} was released and is now missing "
+                "— restore it or re-release.\n"
             )
-        )[:50]
+            return 1
+        print(f"OK    no reference PDF yet — pre-first-release ({reference.name})")
+        return 0
+
+    embedded = extract_stamp_hash(reference)
+    current = kitconfig.content_hash(root)
+    if embedded is None:
+        sys.stderr.write(
+            f"FAIL  {reference.name} has no readable version stamp — cannot verify staleness.\n"
+        )
+        return 1
+    if embedded == current:
+        print(f"OK    reference PDF is fresh (stamp {current} matches source)")
+        return 0
+
+    stale = _changed_source_files(root, reference)
+    named = ", ".join(stale) if stale else "one or more SOURCE_FILES"
+    sys.stderr.write(
+        f"FAIL  reference PDF is STALE — embedded stamp {embedded} != source hash {current}.\n"
+        f"      Changed since last release: {named}.\n"
+        f"      Re-run `make release` (or `make baseline` + commit) on the canonical host.\n"
     )
-    return False, "text content: DIFFERS — first 50 lines of unified diff:\n" + snippet
+    return 1
 
 
 # ---------------------------------------------------------------------------
-# Check 3: per-page pixel diff
+# Render canary (make verify-render) — canonical-host only, never in CI
 # ---------------------------------------------------------------------------
 
-def rasterize(pdf: Path, prefix: Path) -> list[Path]:
-    """Rasterize `pdf` to one PNG per page at 150 dpi. Returns sorted page paths."""
+def _canonicalize(pdf: Path, tmpdir: Path, name: str) -> Path:
+    out = tmpdir / f"{name}.canon.pdf"
     subprocess.run(
-        ["pdftoppm", "-r", "150", "-png", str(pdf), str(prefix)],
+        ["qpdf", "--deterministic-id", "--normalize-content=y",
+         "--object-streams=preserve", str(pdf), str(out)],
         check=True,
     )
-    # pdftoppm names files like <prefix>-1.png, <prefix>-2.png, ...
-    return sorted(prefix.parent.glob(f"{prefix.name}-*.png"))
+    return out
 
 
-def pixel_diff_page(a: Path, b: Path, out: Path) -> int:
-    """Count pixels that differ between rasterized page images `a` and `b`.
-    When the count is nonzero, also writes a visual diff PNG to `out`
-    (the absolute-difference image, like ImageMagick's `compare` produces).
-
-    Returns the absolute-error pixel count (0 means content-identical).
-    """
-    img_a = Image.open(a).convert("RGB")
-    img_b = Image.open(b).convert("RGB")
-    if img_a.size != img_b.size:
-        # Different rasterized dimensions = different layout = full-frame diff.
-        # Save b as the diff and return the larger pixel count so the operator
-        # sees the regression rather than a confusing crash.
-        img_b.save(out)
-        return max(img_a.size[0] * img_a.size[1], img_b.size[0] * img_b.size[1])
-    diff = ImageChops.difference(img_a, img_b)
-    if diff.getbbox() is None:
-        return 0
-    # Per-pixel max across R/G/B via successive `lighter` ops, so a pixel
-    # counts as differing if ANY channel differs (matches ImageMagick's AE).
-    r, g, b = diff.split()
-    max_channel = ImageChops.lighter(ImageChops.lighter(r, g), b)
-    histogram = max_channel.histogram()
-    ae = sum(histogram[1:])  # bin 0 is identical; everything else differs
-    diff.save(out)
-    return ae
+_PAGES_RE = re.compile(r"^Pages:\s+(\d+)\s*$", re.MULTILINE)
 
 
-def check_pixels(baseline: Path, candidate: Path, tmpdir: Path) -> tuple[bool, str]:
-    baseline_pngs = rasterize(baseline, tmpdir / "baseline")
-    candidate_pngs = rasterize(candidate, tmpdir / "candidate")
-    # Page count is already verified by check 1, so lengths should match.
-    n = min(len(baseline_pngs), len(candidate_pngs))
-    bad_pages: list[tuple[int, int]] = []
-    DIFF_DIR.mkdir(exist_ok=True)
-    for i in range(n):
-        page_num = i + 1
-        diff_path = DIFF_DIR / f"page-{page_num:02d}.png"
-        ae = pixel_diff_page(baseline_pngs[i], candidate_pngs[i], diff_path)
-        if ae == 0:
-            diff_path.unlink(missing_ok=True)
-        else:
-            bad_pages.append((page_num, ae))
-    if not bad_pages:
-        # Tidy up the empty diff dir we created — leaves no stale verify-diff/
-        # on disk when everything passed.
-        try:
-            DIFF_DIR.rmdir()
-        except OSError:
-            pass  # directory wasn't empty (operator added files); leave alone
-        return True, f"pixel diff: 0 on all {n} pages"
-    detail = ", ".join(f"page {p}: AE={ae}" for p, ae in bad_pages)
-    return (
-        False,
-        f"pixel diff: NONZERO on {len(bad_pages)} page(s) — {detail}. "
-        f"Diff PNGs saved to {DIFF_DIR}/page-NN.png.",
+def _page_count(pdf: Path) -> int:
+    result = subprocess.run(
+        ["pdfinfo", str(pdf)], capture_output=True, text=True, encoding="utf-8", check=True,
     )
+    m = _PAGES_RE.search(result.stdout)
+    if not m:
+        raise RuntimeError(f"could not parse Pages from pdfinfo output for {pdf}")
+    return int(m.group(1))
+
+
+def strip_stamp(text: str) -> str:
+    """Drop version-stamp fragments so the canary's text comparison carries
+    signal. The stamp moves on every edit (and can gain ` · dirty`), so leaving
+    it in would make verify-render red after every change (plan.md:95)."""
+    return _STAMP_LINE_RE.sub("", text)
+
+
+def render_canary(reference: Path, candidate: Path) -> int:
+    _require(["pdfinfo", "pdftotext", "qpdf"])
+    for label, p in (("reference", reference), ("candidate", candidate)):
+        if not p.exists():
+            sys.stderr.write(f"verify_pdf.py: {label} not found: {p}\n")
+            return 2
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        ref = _canonicalize(reference, tmp, "reference")
+        cand = _canonicalize(candidate, tmp, "candidate")
+
+        pb, pc = _page_count(ref), _page_count(cand)
+        if pb != pc:
+            sys.stderr.write(
+                f"FAIL  page count: reference={pb}, candidate={pc} (MISMATCH)\n"
+            )
+            return 1
+
+        tb = strip_stamp(_pdftotext(ref))
+        tc = strip_stamp(_pdftotext(cand))
+        if tb != tc:
+            snippet = "\n".join(
+                list(difflib.unified_diff(
+                    tb.splitlines(), tc.splitlines(),
+                    fromfile="reference", tofile="candidate", lineterm="", n=2,
+                ))[:50]
+            )
+            sys.stderr.write(
+                "FAIL  stamp-excluded text DIFFERS — first 50 lines of unified diff:\n"
+                + snippet + "\n"
+            )
+            return 1
+
+    print(f"PASS  render canary: page count {pb} and stamp-excluded text identical")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -222,49 +236,23 @@ def check_pixels(baseline: Path, candidate: Path, tmpdir: Path) -> tuple[bool, s
 # ---------------------------------------------------------------------------
 
 def main() -> int:
-    p = argparse.ArgumentParser(description="Verify a candidate PDF matches a baseline PDF.")
-    p.add_argument("baseline", type=Path)
-    p.add_argument("candidate", type=Path)
+    p = argparse.ArgumentParser(description="Verify the guide's reference PDF.")
+    mode = p.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
+        "--staleness", action="store_true",
+        help="Primary gate: is the committed reference PDF out of date with the source? "
+             "(no build, platform-independent — this is what CI runs)",
+    )
+    mode.add_argument(
+        "--render", nargs=2, metavar=("REFERENCE", "CANDIDATE"), type=Path,
+        help="Render canary: page count + stamp-excluded text (needs a build, "
+             "platform-sensitive, canonical host only — never in CI)",
+    )
     args = p.parse_args()
 
-    if not args.baseline.exists():
-        sys.stderr.write(f"verify_pdf.py: baseline not found: {args.baseline}\n")
-        return 2
-    if not args.candidate.exists():
-        sys.stderr.write(f"verify_pdf.py: candidate not found: {args.candidate}\n")
-        return 2
-
-    check_tools()
-
-    with tempfile.TemporaryDirectory() as td:
-        tmpdir = Path(td)
-        baseline = canonicalize(args.baseline, tmpdir, "baseline")
-        candidate = canonicalize(args.candidate, tmpdir, "candidate")
-
-        results: list[tuple[bool, str]] = []
-        ok, msg = check_page_count(baseline, candidate)
-        results.append((ok, msg))
-        if not ok:
-            # Pixel diff is meaningless when page counts differ; stop early.
-            print("FAIL  " + msg, file=sys.stderr)
-            return 1
-
-        ok, msg = check_text(baseline, candidate)
-        results.append((ok, msg))
-
-        ok, msg = check_pixels(baseline, candidate, tmpdir)
-        results.append((ok, msg))
-
-    all_ok = all(ok for ok, _ in results)
-    if all_ok:
-        for _, msg in results:
-            print("PASS  " + msg)
-        return 0
-
-    for ok, msg in results:
-        prefix = "PASS  " if ok else "FAIL  "
-        print(prefix + msg, file=sys.stderr if not ok else sys.stdout)
-    return 1
+    if args.staleness:
+        return staleness_check(HERE)
+    return render_canary(args.render[0], args.render[1])
 
 
 if __name__ == "__main__":

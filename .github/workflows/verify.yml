@@ -1,16 +1,19 @@
 name: verify
 
-# Build-smoke CI. Runs `make` (PDF) + `make web` (site) to catch
-# "the pipeline crashes" regressions. Does NOT run `make verify` — the strict
-# pixel-exact harness only reproduces on one canonical machine, so local
-# pre-push `make verify` is the real regression gate (see CLAUDE.md "CI policy").
+# CI (Ubuntu) runs: the kit test suite, `make verify` (the platform-independent
+# STALENESS check — is the committed reference PDF up to date with the source?),
+# and `make` / `make web` build smoke. It NEVER runs `make verify-render`, which
+# builds and is platform-sensitive (font substitution shifts line wrapping) — that
+# canary is a canonical-host command only. The old "CI is build-smoke only because
+# the pixel harness doesn't reproduce across machines" rule no longer applies: the
+# pixel check is gone and the staleness check reproduces everywhere.
 #
 # Cost controls (deliberate):
-#   * Ubuntu only. macOS runners bill at 10x and Windows at 2x the Linux rate;
-#     the cross-platform smoke rarely caught anything the Ubuntu run didn't.
-#     Re-add a matrix here if cross-platform breakage ever becomes a real risk.
+#   * Ubuntu only. macOS runners bill at 10x and Windows at 2x the Linux rate.
 #   * paths filters. Doc-only / plan-only pushes (README, CLAUDE.md, LICENSE,
-#     plans/, .gitignore) don't change either rendered output, so they skip CI.
+#     plans/, .gitignore) change no rendered output, so they skip CI. The root
+#     reference PDF (`*.pdf`) IS filtered in: a commit touching only the
+#     reader-facing deliverable must still be gated by the staleness check.
 
 on:
   push:
@@ -29,6 +32,7 @@ on:
       - 'guide.toml'
       - 'kitconfig.py'
       - 'tests/**'
+      - '*.pdf'
       - '.github/workflows/verify.yml'
   pull_request:
     branches: [main]
@@ -46,6 +50,7 @@ on:
       - 'guide.toml'
       - 'kitconfig.py'
       - 'tests/**'
+      - '*.pdf'
       - '.github/workflows/verify.yml'
   workflow_dispatch:
 
@@ -84,31 +89,70 @@ jobs:
           cache: true
           frozen: true
 
-      # Kit test suite — fast, dependency-light unit tests for the kit tooling
-      # (guide.toml loader, SOURCE_FILES, and later sync/manifest). Runs in the
-      # kit-only pixi environment; targets never run it. Phase 3 reshapes this
-      # into the guarded, templated form the seven targets receive — here it
-      # only needs to serve guide-template itself.
+      # Kit test suite — one shared shape for the kit and all seven targets. The
+      # kit (guide-template — no `.template-version`) runs its OWN pixi `kit` env.
+      # A sync target has no `kit` env (pytest is a kit-only feature that never
+      # templates in), so it borrows the kit's env by checking the kit out to
+      # _kit/ and pointing pixi at its manifest. TWO INDEPENDENT guards — do not
+      # conflate them:
+      #   * checkout is guarded on `.template-version` EXISTING — only a target
+      #     needs to borrow the runner; the kit is the source and never has one.
+      #   * the test run is guarded on `tests/` EXISTING — true for the kit and for
+      #     five of seven targets; the rest skip rather than fail on empty collection.
+      # `.template-version` lands in targets in Phase 6, so the target branch is
+      # inert in the kit today; the kit branch works from Phase 1 onward.
+      - name: Resolve kit repo (targets only)
+        id: kit
+        if: hashFiles('.template-version') != ''
+        run: |
+          # source_repo is the upstream kit a target borrows its test runner from.
+          # .template-version is a JSON structured record (finalized in Phase 6).
+          SRC=$(python3 -c "import json; print(json.load(open('.template-version'))['source_repo'])")
+          echo "source_repo=$SRC" >> "$GITHUB_OUTPUT"
+
+      - name: Check out kit test runner (targets only)
+        if: steps.kit.outputs.source_repo != '' && hashFiles('tests/**') != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.kit.outputs.source_repo }}
+          path: _kit
+          fetch-depth: 0
+
       - name: kit test suite
-        run: pixi run -e kit test
+        if: hashFiles('tests/**') != ''
+        run: |
+          if [ -f .template-version ]; then
+            pixi run --manifest-path _kit/pixi.toml -e kit pytest tests/ -q
+          else
+            pixi run -e kit test
+          fi
 
       # PDF build smoke — catches "the pipeline crashes" regressions.
       - name: make (PDF build smoke)
         run: make
 
-      # Web build smoke — confirm `make web` produces a nonzero index.html.
-      # Gated on web *enablement* (presence of style-screen.css), NOT on the
-      # `web` target's existence: the shared Makefile now defines `web` on every
-      # fork, so a `make -n web` guard would pass even on a PDF-only fork — and
-      # there `make web` deliberately no-ops, so `test -s app/dist/index.html`
-      # would then fail. `style-screen.css` only exists after
-      # `bootstrap.py --with-web`, so it's the true web-enabled signal.
+      # Web build smoke — confirm `make web` produces a nonzero index.html. Gated
+      # on web ENABLED (style-screen.css present) AND a reference PDF present:
+      # build_web() now HARD-FAILS on a missing reference PDF (no more 404 download
+      # link), and a web-enabled guide has zero root PDFs from bootstrap until its
+      # first canonical-host release — so without the reference-PDF guard its CI
+      # would be red across that whole pre-first-release window. Skip with a notice.
       - name: make web (web build smoke)
         run: |
-          if [ -f style-screen.css ]; then
+          if [ ! -f style-screen.css ]; then
+            echo "web layer not enabled (no style-screen.css); skipping web smoke"
+          elif ! ls -1 *.pdf >/dev/null 2>&1; then
+            echo "pre-first-release — no reference PDF yet; web smoke skipped"
+          else
             make web
             test -s app/dist/index.html || { echo "app/dist/index.html missing or empty"; exit 1; }
             echo "web build smoke OK"
-          else
-            echo "web layer not enabled (no style-screen.css); skipping web smoke"
           fi
+
+      # Staleness gate — is the committed reference PDF up to date with the source?
+      # Platform-independent (no build, no render), so it runs in CI for the first
+      # time. CI runs `make verify` and NEVER `make verify-render` (which builds and
+      # is platform-sensitive — a canonical-host-only canary). Run LAST so the
+      # build-smoke signal is still visible on a legitimately-stale (red) round.
+      - name: make verify (staleness check)
+        run: make verify

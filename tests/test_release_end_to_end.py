@@ -34,7 +34,9 @@ def _seed_repo(repo):
         'DESCRIPTION = "d"\n'
         'KEYWORDS = "k"\n'
         'COPYRIGHT_YEAR = 2026\n'
-        'baseline_platform = "darwin"\n',
+        # Match the host so release.py's platform guard (Phase 3) passes and the
+        # commit/promote/amend path under test actually runs.
+        f'baseline_platform = "{sys.platform}"\n',
         encoding="utf-8",
     )
     (repo / "guide.md").write_text("# Probe\n", encoding="utf-8")

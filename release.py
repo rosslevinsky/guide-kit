@@ -127,7 +127,22 @@ def main() -> int:
         description="Stage source + refresh reference PDF + amend, in one commit.",
     )
     p.add_argument("-m", "--message", required=True, help="Commit message")
+    p.add_argument(
+        "--allow-platform-mismatch", action="store_true",
+        help="Override the platform guard (loud, deliberate escape hatch).",
+    )
     args = p.parse_args()
+
+    # Platform guard — fire BEFORE any commit or reference-PDF write (plan.md:45,
+    # :102). release.py renders and commits, so a Linux VM must not promote a
+    # Linux-typography PDF into a family of macOS-rendered ones. Keyed on the
+    # recorded baseline_platform, never hardcoded to macOS.
+    ok, msg = kitconfig.baseline_platform_matches(ROOT)
+    if not ok and not args.allow_platform_mismatch:
+        sys.exit(
+            f"make release refused: {msg}.\n"
+            "  Pass --allow-platform-mismatch to force (you almost never want this)."
+        )
 
     slug, source_files = _load_constants()
 

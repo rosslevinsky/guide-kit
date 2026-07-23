@@ -3,18 +3,19 @@
  * Placeholders substituted at build time by build.py:
  *   __TITLE__      — document title
  *   __VERSION__    — auto version stamp: "YYYY-MM-DD HH:MM:SS · <sha256[:12]>" of the
- *                    most recent commit touching guide.md / style.css /
- *                    build.py / transforms.py, plus " · dirty" if the working
- *                    tree has uncommitted changes to any of those files
+ *                    most recent commit touching any SOURCE_FILES entry (guide.md,
+ *                    style.css, build.py, transforms.py, guide.toml, kitconfig.py),
+ *                    plus " · dirty" if the working tree has uncommitted changes
+ *                    to any of those files
  *
  * Font choice: system-font stacks. The PDF is rendered with whatever
  * the host OS has — Helvetica Neue on macOS, Segoe UI on Windows,
- * DejaVu/Liberation on Linux. Cross-platform pixel-identical rendering
- * is not attempted (HarfBuzz/Cairo/FreeType differ across OSes; even
- * with the same font file loaded, glyph positioning shifts subtly).
- * `make verify` is strict and meant to be run on a single canonical
- * platform (macOS in the CI matrix). Linux + Windows CI run `make`
- * only — see `.github/workflows/verify.yml`.
+ * DejaVu/Liberation on Linux — so a rendered PDF is not byte-identical
+ * across machines. `make verify` does NOT compare pixels: it is a
+ * platform-independent staleness check (the PDF's embedded stamp vs. a
+ * fresh content hash over SOURCE_FILES) and runs in CI. Reference PDFs
+ * are generated on one canonical host (guide.toml's baseline_platform) so
+ * the family shares typography — see verify_pdf.py and verify.yml.
  *
  * Inline HTML islands recognized by the rules below:
  *   <div class="title-block">     — h1 + tagline at top of page 1

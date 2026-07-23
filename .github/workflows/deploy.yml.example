@@ -34,6 +34,9 @@ on:
       - 'pixi.toml'
       - 'pixi.lock'
       - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - '*.pdf'
       - '.github/workflows/deploy.yml'
   pull_request:
     branches: [main]
@@ -47,6 +50,9 @@ on:
       - 'pixi.toml'
       - 'pixi.lock'
       - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - '*.pdf'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -60,7 +66,32 @@ permissions:
   pull-requests: write
 
 jobs:
+  # Pre-first-release guard: a web-enabled guide has zero root PDFs from bootstrap
+  # until its first canonical-host release, and build_web() now HARD-FAILS on a
+  # missing reference PDF (no 404 download link). Without this, the deploy workflow
+  # would be red on every push from scaffolding through the first baseline. The
+  # deploy job is SKIPPED (not failed) until a reference PDF exists, so the workflow
+  # stays green across that pre-first-release window.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      has_pdf: ${{ steps.check.outputs.has_pdf }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check for a reference PDF
+        id: check
+        run: |
+          if ls -1 *.pdf >/dev/null 2>&1; then
+            echo "has_pdf=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pdf=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::pre-first-release — no reference PDF yet; skipping build + deploy"
+          fi
+
   deploy:
+    needs: guard
+    if: needs.guard.outputs.has_pdf == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

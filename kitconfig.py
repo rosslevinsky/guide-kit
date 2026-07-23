@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -165,6 +166,27 @@ def _validate(data: dict, base: Path) -> KitConfig:
         KEYWORDS=data["KEYWORDS"],
         COPYRIGHT_YEAR=data["COPYRIGHT_YEAR"],
         baseline_platform=platform,
+    )
+
+
+def baseline_platform_matches(
+    root: Path | None = None, current_platform: str | None = None
+) -> tuple[bool, str]:
+    """Return (ok, message) for whether this host may take a baseline for the
+    guide at `root`. `make baseline` / `make release` refuse when they don't
+    match (unless explicitly overridden) so a Linux VM can't render a
+    Linux-typography PDF into a family of macOS-rendered ones (plan.md:102).
+    Keyed on the recorded platform, never hardcoded to macOS — a Linux forker
+    records "linux" and baselines normally. `current_platform` is injectable for
+    tests; it defaults to sys.platform."""
+    cfg = load(root)
+    current = current_platform if current_platform is not None else sys.platform
+    if current == cfg.baseline_platform:
+        return True, f"platform OK ({current} == baseline_platform)"
+    return (
+        False,
+        f"platform mismatch: this host is {current!r} but guide.toml records "
+        f"baseline_platform={cfg.baseline_platform!r}",
     )
 
 

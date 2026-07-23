@@ -7,9 +7,6 @@
 # GitHub); nothing under build/ is tracked.
 build/
 
-# Verify harness output (per-page diff PNGs written on `make verify` failure).
-verify-diff/
-
 # Opt-in web layer (present only after `bootstrap.py --with-web`). The site is
 # rendered to app/dist/ by `make web`; nothing under it is tracked. Node deps
 # for the wrangler dev/deploy wrapper live in app/node_modules — the lockfile
