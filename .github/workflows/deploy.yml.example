@@ -112,6 +112,11 @@ jobs:
           cache: true
           frozen: true
 
+      - name: Staleness gate — never deploy a stale reference PDF
+        # The downloadable PDF is part of the deployed site; don't ship one that
+        # is out of date with the source. Platform-independent (no build).
+        run: make verify
+
       - name: Set up Node 22
         uses: actions/setup-node@v4
         with:

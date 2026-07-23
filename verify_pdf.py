@@ -99,12 +99,30 @@ def extract_stamp_hash(pdf: Path) -> str | None:
 def read_stamp(pdf: Path) -> tuple[str | None, bool]:
     """Return (content_hash, is_dirty) from the PDF's footer stamp in one
     pdftotext call. hash is None when no dated stamp is present; is_dirty
-    reflects a trailing `· dirty` segment. Used by `make baseline` to confirm a
-    promoted render is fresh and clean."""
+    reflects a trailing `· dirty` segment. Used by staleness and `make baseline`."""
     m = _STAMP_RE.search(_pdftotext(pdf))
     if m is None:
         return None, False
     return m.group(1), m.group(2) == "dirty"
+
+
+def promotable_stamp(working: Path, root: Path) -> tuple[bool, str]:
+    """Whether a freshly built PDF is safe to promote to the reference: it must
+    have a readable, non-dirty stamp equal to the CURRENT source hash. Shared by
+    `make baseline` and `make release` so neither blesses a no-op/stale/dirty
+    render (which would immediately fail `make verify`)."""
+    try:
+        stamp, is_dirty = read_stamp(working)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        return False, f"fresh render is unreadable ({exc})"
+    expected = kitconfig.content_hash(root)
+    if stamp is None:
+        return False, "fresh render has no readable version stamp"
+    if is_dirty:
+        return False, "rendered stamp carries a `· dirty` segment"
+    if stamp != expected:
+        return False, f"fresh render's stamp {stamp} != source hash {expected}"
+    return True, f"promotable (stamp {stamp})"
 
 
 def _git(root: Path, *args: str) -> str:
@@ -182,11 +200,26 @@ def staleness_check(root: Path = HERE) -> int:
         print(f"OK    no reference PDF yet — pre-first-release ({reference.name})")
         return 0
 
-    embedded = extract_stamp_hash(reference)
+    try:
+        embedded, embedded_dirty = read_stamp(reference)
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        # A corrupt/unreadable PDF is an environment/invocation error (exit 2),
+        # not a staleness verdict — honour the documented exit-code contract
+        # instead of leaking a traceback.
+        sys.stderr.write(f"ERROR could not read {reference.name} (corrupt PDF?): {exc}\n")
+        return 2
     current = kitconfig.content_hash(root)
     if embedded is None:
         sys.stderr.write(
             f"FAIL  {reference.name} has no readable version stamp — cannot verify staleness.\n"
+        )
+        return 1
+    if embedded_dirty:
+        # A reference stamped `· dirty` is not a valid deliverable even if its
+        # hash matches — it was baselined from an uncommitted tree.
+        sys.stderr.write(
+            f"FAIL  {reference.name} was baselined DIRTY (`· dirty` stamp) — not a valid "
+            "reference; re-release on the canonical host.\n"
         )
         return 1
     if embedded == current:

@@ -16,6 +16,7 @@ import sys
 import pytest
 
 import release
+import verify_pdf
 
 
 def _git(repo, *args):
@@ -63,6 +64,10 @@ def test_release_end_to_end(tmp_path, monkeypatch):
         (repo / "build" / "probe-guide.pdf").write_bytes(b"%PDF-fake-render")
 
     monkeypatch.setattr(release, "_build", _stub_build)
+    # The stubbed render is a fake PDF with no readable stamp; the release
+    # ORCHESTRATION is what this test exercises, so stub the render validation too
+    # (promotable_stamp is covered directly by the baseline/staleness tests).
+    monkeypatch.setattr(verify_pdf, "promotable_stamp", lambda w, r: (True, "stubbed"))
     monkeypatch.setattr(sys, "argv", ["release.py", "-m", "test release"])
 
     rc = release.main()
@@ -104,6 +109,10 @@ def test_release_accepts_a_guide_toml_change(tmp_path, monkeypatch):
         (repo / "build" / "probe-guide.pdf").write_bytes(b"%PDF-x")
 
     monkeypatch.setattr(release, "_build", _stub_build)
+    # The stubbed render is a fake PDF with no readable stamp; the release
+    # ORCHESTRATION is what this test exercises, so stub the render validation too
+    # (promotable_stamp is covered directly by the baseline/staleness tests).
+    monkeypatch.setattr(verify_pdf, "promotable_stamp", lambda w, r: (True, "stubbed"))
     monkeypatch.setattr(sys, "argv", ["release.py", "-m", "toml change"])
 
     assert release.main() == 0

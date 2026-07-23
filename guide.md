@@ -2,7 +2,7 @@
 
 # Guide Template
 
-*A starter for single-document beginner-guide PDFs — exercising every styled element so the verify harness has surface area to check.*
+*A starter for single-document beginner-guide PDFs — exercising every styled element so the stylesheet has surface area to eyeball.*
 
 </div>
 
@@ -11,13 +11,13 @@
 This placeholder guide is shipped with `guide-template`. It exists for two reasons:
 
 1. The build pipeline has something to render before you replace it with your own content.
-2. Every styled element in `style.css` is exercised at least once, so the verify harness's per-page pixel diff catches any future regression to those rules.
+2. Every styled element in `style.css` is exercised at least once, so a styling change is easy to spot when you eyeball the rendered PDF.
 
-Edit `guide.md` to write your own guide. Run `make` to render the PDF (output lands at `build/<slug>.pdf`). Run `make verify` to confirm a rebuilt PDF matches the committed reference at the repo root (`<slug>.pdf`).
+Edit `guide.md` to write your own guide. Run `make` to render the PDF (output lands at `build/<slug>.pdf`). Run `make verify` to confirm the committed reference PDF (`<slug>.pdf` at the repo root) is up to date with the source — a fast, platform-independent staleness check that does no rendering.
 
 ## What this section is for
 
-This is an `h2` heading. The verify harness will notice if its color, weight, or margin changes between renders.
+This is an `h2` heading. If you change its color, weight, or margin, you'll see it when you eyeball the render; the `make verify-render` canary flags a resulting page-count or text shift.
 
 ### And this is an h3
 
@@ -113,7 +113,7 @@ The `<pre class="diagram">` element renders ASCII art in a tan-bordered monospac
 
 # Section after a forced page break
 
-The `<div class="page-break"></div>` element forces a page break before this section. The verify harness checks page count as well as content, so this forced break is exercised by the page-count check too.
+The `<div class="page-break"></div>` element forces a page break before this section. The `make verify-render` canary checks page count, so this forced break is exercised by that check too.
 
 ## More content here
 
@@ -121,12 +121,9 @@ Any text you put on this page lives on its own physical page in the PDF, separat
 
 # How verification works
 
-`make verify` runs `verify_pdf.py` against the committed reference PDF at the repo root. Three checks at zero tolerance:
+There are two commands, and they answer different questions:
 
-1. **Page count** via `pdfinfo` — fails if the PDFs disagree on page count.
-2. **Text content** via `pdftotext` — fails on any text difference, with a first-50-lines unified-diff snippet.
-3. **Per-page pixel** via `pdftoppm` + Pillow `ImageChops.difference` at zero tolerance — fails if any channel of any pixel differs.
-
-When verify fails, per-page diff PNGs land in `verify-diff/page-NN.png` so you can see what changed.
+- **`make verify`** — the staleness check, and the one CI runs. It compares the content hash embedded in the committed reference PDF's footer stamp against a freshly computed hash over the source files, using a single `pdftotext` call. No build, no rendering, no platform sensitivity — milliseconds, and correct on any machine. A mismatch means someone edited source and did not re-run `make release`, so the repo ships Markdown and a PDF that disagree. It names the stale file.
+- **`make verify-render`** — a secondary canary for the canonical host only, never wired into CI. It builds a fresh PDF and compares page count plus `pdftotext` output (with the version-stamp line excluded) against the committed reference. Because font substitution shifts line wrapping across platforms, this is meaningful only on the host the reference was rendered on; its one genuine catch is environmental drift, such as a dependency update that changes layout with no source change.
 
 If you change source intentionally, the workflow is: edit → `make` → eyeball the PDF → `make release MSG="..."` to land source + refreshed reference in one commit. (Or the manual dance: `git commit` source first, then `make baseline`, then `git commit --amend` to fold the refreshed reference PDF in. Doing it in the other order produces a dirty-stamp PDF that future verify runs will reject.)

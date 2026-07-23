@@ -108,7 +108,7 @@ baseline:
 # outside the SOURCE_FILES set — handle those with plain `git commit` first.
 release:
 	@test -n "$(MSG)" || (echo "usage: make release MSG=\"your commit message\""; exit 1)
-	pixi run python release.py -m "$(MSG)"
+	pixi run python release.py -m "$(MSG)" $(RELEASE_ARGS)
 
 clean:
 	rm -rf build/

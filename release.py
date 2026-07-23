@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 
 import kitconfig
+import verify_pdf
 
 ROOT = Path(__file__).parent.resolve()
 
@@ -153,6 +154,17 @@ def main() -> int:
     print(f"  committed source: {args.message!r}")
 
     _build()
+
+    # Don't bless a render that isn't demonstrably fresh and clean — same guard
+    # `make baseline` uses, so `make release` can't promote a stale/dirty/unstamped
+    # file. The source commit above is preserved for the operator to investigate.
+    ok, msg = verify_pdf.promotable_stamp(ROOT / "build" / f"{slug}.pdf", ROOT)
+    if not ok:
+        sys.exit(
+            f"release.py: not promoting — {msg}. The source commit is preserved; "
+            "investigate, then `git commit --amend` the reference once fixed."
+        )
+
     reference_name = _promote_to_reference(slug)
 
     _git("add", reference_name)

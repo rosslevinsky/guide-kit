@@ -83,26 +83,17 @@ def main() -> int:
     if not working.exists():
         sys.exit(f"make baseline: expected fresh render at {working} but it's missing.")
 
-    # Do not promote a render that isn't demonstrably fresh and clean. The
-    # dirty-tree guard makes this true in the happy path; these checks catch a
-    # build that produced no stamp, a dirty stamp, or a stamp that doesn't match
-    # current source (e.g. a stale render left in build/) — any of which would
-    # make the new reference fail `make verify` immediately.
-    stamp, is_dirty = verify_pdf.read_stamp(working)
-    expected = kitconfig.content_hash(ROOT)
-    if stamp is None:
-        sys.exit("make baseline refused: fresh render has no readable version stamp — not promoting.")
-    if is_dirty:
-        sys.exit("make baseline refused: rendered stamp carries a `· dirty` segment.")
-    if stamp != expected:
-        sys.exit(
-            f"make baseline refused: fresh render's stamp {stamp} != source hash {expected} "
-            "— the build did not reflect current source; not promoting."
-        )
+    # Do not promote a render that isn't demonstrably fresh and clean (no stamp,
+    # a dirty stamp, or a stamp that doesn't match current source — e.g. a stale
+    # render left in build/), any of which would make the new reference fail
+    # `make verify` immediately. Shared with `make release`.
+    ok, msg = verify_pdf.promotable_stamp(working, ROOT)
+    if not ok:
+        sys.exit(f"make baseline refused: {msg} — not promoting.")
 
     reference = ROOT / f"{slug}.pdf"
     shutil.copyfile(working, reference)
-    print(f"  reference <- {working.relative_to(ROOT)} (stamp {stamp})")
+    print(f"  reference <- {working.relative_to(ROOT)} (stamp {kitconfig.content_hash(ROOT)})")
     print(f"  commit {reference.name} together with the source that changed it (see CLAUDE.md).")
     return 0
 

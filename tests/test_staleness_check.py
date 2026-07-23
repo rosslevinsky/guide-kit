@@ -49,14 +49,23 @@ def _mkrepo(tmp_path, with_pdf=True):
 def test_fresh_passes(tmp_path, monkeypatch):
     repo = _mkrepo(tmp_path)
     fresh = kitconfig.content_hash(repo)
-    monkeypatch.setattr(verify_pdf, "extract_stamp_hash", lambda pdf: fresh)
+    monkeypatch.setattr(verify_pdf, "read_stamp", lambda pdf: (fresh, False))
     assert verify_pdf.staleness_check(repo) == 0
+
+
+def test_dirty_stamped_reference_fails(tmp_path, monkeypatch, capsys):
+    # Even when the hash matches, a reference stamped `· dirty` is not valid.
+    repo = _mkrepo(tmp_path)
+    fresh = kitconfig.content_hash(repo)
+    monkeypatch.setattr(verify_pdf, "read_stamp", lambda pdf: (fresh, True))
+    assert verify_pdf.staleness_check(repo) == 1
+    assert "DIRTY" in capsys.readouterr().err
 
 
 def test_edited_source_fails_and_names_file(tmp_path, monkeypatch, capsys):
     repo = _mkrepo(tmp_path)
     baseline_hash = kitconfig.content_hash(repo)
-    monkeypatch.setattr(verify_pdf, "extract_stamp_hash", lambda pdf: baseline_hash)
+    monkeypatch.setattr(verify_pdf, "read_stamp", lambda pdf: (baseline_hash, False))
     # Edit a source file after "release" — the content hash now moves.
     (repo / "guide.md").write_text("seed-guide.md\n\nan added paragraph\n", encoding="utf-8")
     assert kitconfig.content_hash(repo) != baseline_hash
@@ -82,7 +91,7 @@ def test_deleted_after_release_fails(tmp_path, capsys):
 
 def test_no_readable_stamp_fails(tmp_path, monkeypatch, capsys):
     repo = _mkrepo(tmp_path)
-    monkeypatch.setattr(verify_pdf, "extract_stamp_hash", lambda pdf: None)
+    monkeypatch.setattr(verify_pdf, "read_stamp", lambda pdf: (None, False))
     assert verify_pdf.staleness_check(repo) == 1
     assert "no readable version stamp" in capsys.readouterr().err
 
@@ -93,7 +102,7 @@ def test_names_untracked_source_file(tmp_path, monkeypatch, capsys):
     # early-return that only reported tracked changes).
     repo = _mkrepo(tmp_path)  # transforms.py absent
     baseline_hash = kitconfig.content_hash(repo)
-    monkeypatch.setattr(verify_pdf, "extract_stamp_hash", lambda pdf: baseline_hash)
+    monkeypatch.setattr(verify_pdf, "read_stamp", lambda pdf: (baseline_hash, False))
     (repo / "transforms.py").write_text("# newly added source\n", encoding="utf-8")
     assert kitconfig.content_hash(repo) != baseline_hash
     assert verify_pdf.staleness_check(repo) == 1
