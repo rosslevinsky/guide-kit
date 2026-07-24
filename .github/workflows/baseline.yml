@@ -99,3 +99,23 @@ jobs:
         # A GITHUB_TOKEN push does not itself re-trigger workflows, so kick verify.yml
         # once so its status reflects the now-fresh reference PDF. Best-effort.
         run: gh workflow run verify.yml --ref "${{ github.ref_name }}" || echo "could not dispatch verify.yml (non-fatal)"
+
+      - name: Redeploy the site with the refreshed PDF (web-enabled guides only)
+        if: steps.fresh.outputs.already_fresh == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # Same GITHUB_TOKEN limitation as above, and it bites harder here: the whole
+        # point of a baseline refresh is that readers get the NEW PDF, but the site
+        # serves a copy of the reference baked in at `make web` time. Without this the
+        # commit lands, verify goes green, and the deployed site keeps serving the OLD
+        # download indefinitely — silently, since nothing checks the served copy.
+        #
+        # Guarded on deploy.yml existing so PDF-only guides no-op cleanly. Best-effort:
+        # a guide whose deploy secrets are unset should not fail its baseline refresh.
+        run: |
+          if [ -f .github/workflows/deploy.yml ]; then
+            gh workflow run deploy.yml --ref "${{ github.ref_name }}" \
+              || echo "could not dispatch deploy.yml (non-fatal)"
+          else
+            echo "no deploy.yml — PDF-only guide, nothing to redeploy"
+          fi
