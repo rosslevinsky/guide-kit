@@ -47,7 +47,7 @@ web = "python build.py --web"
 # guide family — they template into every target's pixi.toml — so a target
 # receives neither pytest nor a `test` task and never regenerates its lockfile
 # merely because the kit gained a test runner (plan.md:89, :90). Only
-# guide-template's own `kit` environment carries the suite. The target-shape
+# the kit's own `kit` environment carries the suite. The target-shape
 # renderer (Phase 5) drops kit-only features; test_kit_only_test_dependency
 # asserts the placement that guarantee relies on.
 [feature.kit.dependencies]

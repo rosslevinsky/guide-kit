@@ -27,6 +27,7 @@ on:
       - 'verify_pdf.py'
       - 'baseline.py'
       - 'release.py'
+      - 'bootstrap.py'
       - 'Makefile'
       - 'pixi.toml'
       - 'pixi.lock'
@@ -50,6 +51,7 @@ on:
       - 'verify_pdf.py'
       - 'baseline.py'
       - 'release.py'
+      - 'bootstrap.py'
       - 'Makefile'
       - 'pixi.toml'
       - 'pixi.lock'
@@ -100,7 +102,7 @@ jobs:
           frozen: true
 
       # Kit test suite — one shared shape for the kit and all seven targets. The
-      # kit (guide-template — no `.template-version`) runs its OWN pixi `kit` env.
+      # kit (the template repo — no `.template-version`) runs its OWN pixi `kit` env.
       # A sync target has no `kit` env (pytest is a kit-only feature that never
       # templates in), so it borrows the kit's env by checking the kit out to
       # _kit/ and pointing pixi at its manifest. TWO INDEPENDENT guards — do not

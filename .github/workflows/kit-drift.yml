@@ -7,7 +7,7 @@ name: kit-drift
 # as a ::warning:: for the maintainer to act on (run sync). It compares COMPUTED
 # managed-content digests, never the kit_version label (which can go unbumped).
 #
-# In the kit itself (guide-template — no .template-version) it cleanly no-ops.
+# In the kit itself (the template repo — no .template-version) it cleanly no-ops.
 
 on:
   schedule:
