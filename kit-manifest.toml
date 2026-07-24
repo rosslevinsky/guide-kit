@@ -1,0 +1,270 @@
+# kit-manifest.toml — the two-axis file classification for the guide kit.
+#
+# THE RULE (enforced by tests/test_manifest_roles.py, which enumerates
+# `git ls-files`): every git-tracked file in the template MUST be classified
+# here, in the SAME commit that adds it. An unclassified file fails CI.
+#
+# Two INDEPENDENT axes — never collapse them (a single list made deploy.yml
+# unsyncable, defeating the kit's purpose — plan.md:72):
+#
+#   lifecycle  (required on every entry) — the file's role IN THE KIT:
+#     retained-in-kit  a canonical source authored/maintained in the kit
+#                      (whether or not it is projected into a target)
+#     bootstrap-source a staging file (.example / templates/) materialized into
+#                      a live destination by bootstrap --with-web / adopt-web
+#     generated        a build/resolution output, not a hand-authored source
+#
+#   destination policy (present ONLY if the file has a projected live path in a
+#   target — `projects_to` + `policy` travel together) — what SYNC does to that
+#   live path:
+#     identical      copied verbatim, kit -> target
+#     templated      copied with guide.toml values substituted
+#     managed-region only the <!-- kit:begin -->..<!-- kit:end --> block replaced
+#     never          the path exists in the target but sync NEVER writes it
+#                    (target-owned content, e.g. guide.md, the reference PDF)
+#
+#   A file with no `projects_to`/`policy` is kit-only: it has no live path in a
+#   target at all (bootstrap.py, sync.py, tests/, plans/, the sentinel).
+#
+# Per-target shape: destination policy is evaluated per shape. A PDF-only guide
+# has no app/ or deploy.yml destinations, so the bootstrap-source (web-layer)
+# entries are INERT for it, not missing-and-refused (plan.md:76). The resolver
+# (kitmanifest.py) treats every bootstrap-source entry as web-only.
+#
+# pixi.lock — DECLARED OWNER + UPDATE STRATEGY (plan.md:78, :237): it is
+# per-target and never synced (`generated` + `never`). Each guide owns its own
+# lock and regenerates it with `pixi install` when a genuinely SHARED dependency
+# changes (the Python floor, a new shared dep). It is a RENDERING input — the
+# family's locks already diverge on fontconfig (guide-template 2.18.0 vs
+# mac/git 2.17.1) — so it is never overwritten kit->target; doing so could shift
+# a guide's PDF output. CI installs `frozen: true`, so a guide's lock must match
+# its own rendered pixi.toml.
+
+# ============================ retained-in-kit ============================
+# --- identical: synced verbatim ---
+[[entry]]
+path = "build.py"
+lifecycle = "retained-in-kit"
+projects_to = "build.py"
+policy = "identical"
+
+[[entry]]
+path = "release.py"
+lifecycle = "retained-in-kit"
+projects_to = "release.py"
+policy = "identical"
+
+[[entry]]
+path = "verify_pdf.py"
+lifecycle = "retained-in-kit"
+projects_to = "verify_pdf.py"
+policy = "identical"
+
+[[entry]]
+path = "verify_web.py"
+lifecycle = "retained-in-kit"
+projects_to = "verify_web.py"
+policy = "identical"
+
+[[entry]]
+path = "kitconfig.py"
+lifecycle = "retained-in-kit"
+projects_to = "kitconfig.py"
+policy = "identical"
+
+[[entry]]
+path = "baseline.py"
+lifecycle = "retained-in-kit"
+projects_to = "baseline.py"
+policy = "identical"
+
+[[entry]]
+path = "Makefile"
+lifecycle = "retained-in-kit"
+projects_to = "Makefile"
+policy = "identical"
+
+[[entry]]
+path = "LICENSE"
+lifecycle = "retained-in-kit"
+projects_to = "LICENSE"
+policy = "identical"
+
+[[entry]]
+path = "LICENSE-CONTENT"
+lifecycle = "retained-in-kit"
+projects_to = "LICENSE-CONTENT"
+policy = "identical"
+
+[[entry]]
+# baseline.yml carries no slug (reads guide.toml via awk at runtime), so it is
+# byte-identical across guides — every guide gets the macOS baseline workflow.
+path = ".github/workflows/baseline.yml"
+lifecycle = "retained-in-kit"
+projects_to = ".github/workflows/baseline.yml"
+policy = "identical"
+
+# --- templated: synced with guide.toml substitution ---
+[[entry]]
+path = "pixi.toml"
+lifecycle = "retained-in-kit"
+projects_to = "pixi.toml"
+policy = "templated"
+
+[[entry]]
+path = ".github/workflows/verify.yml"
+lifecycle = "retained-in-kit"
+projects_to = ".github/workflows/verify.yml"
+policy = "templated"
+
+# --- managed-region: only the marked block is replaced ---
+[[entry]]
+path = "CLAUDE.md"
+lifecycle = "retained-in-kit"
+projects_to = "CLAUDE.md"
+policy = "managed-region"
+
+# --- never: exists in the target but sync leaves it alone (target-owned) ---
+[[entry]]
+path = "guide.md"
+lifecycle = "retained-in-kit"
+projects_to = "guide.md"
+policy = "never"
+
+[[entry]]
+path = "style.css"
+lifecycle = "retained-in-kit"
+projects_to = "style.css"
+policy = "never"
+
+[[entry]]
+# per-target configuration: sync READS guide.toml to render templated files, but
+# must NEVER write it. never (not no-destination) so the exhaustiveness test
+# cannot accept a policy that clobbers it (plan.md:69).
+path = "guide.toml"
+lifecycle = "retained-in-kit"
+projects_to = "guide.toml"
+policy = "never"
+
+[[entry]]
+path = "README.md"
+lifecycle = "retained-in-kit"
+projects_to = "README.md"
+policy = "never"
+
+[[entry]]
+path = ".gitignore"
+lifecycle = "retained-in-kit"
+projects_to = ".gitignore"
+policy = "never"
+
+# --- kit-only: no live path in a target (no destination) ---
+[[entry]]
+path = "bootstrap.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "kit-manifest.toml"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "kitmanifest.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = ".template-uninitialized"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "plans/**"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "tests/**"
+lifecycle = "retained-in-kit"
+
+# --- pre-declared kit files that later phases add (classified now so the
+#     exhaustiveness test does not break the moment they land — plan.md:61) ---
+[[entry]]
+# Phase 5. Run FROM the kit against a target; never copied into one.
+path = "sync.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+# Phase 8. Two-root (kit_root + --target); never copied into a target.
+path = "adopt-web.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+# Phase 6. The scheduled drift check must reach EVERY guide (plan.md:238), and it
+# interpolates the target's own identity, so it projects as `templated`. Confirm
+# against what the workflow actually substitutes when Phase 6 writes it.
+path = ".github/workflows/kit-drift.yml"
+lifecycle = "retained-in-kit"
+projects_to = ".github/workflows/kit-drift.yml"
+policy = "templated"
+
+# ============================ bootstrap-source ============================
+# The web layer. Every bootstrap-source entry is web-only: its destination is
+# materialized by bootstrap --with-web / adopt-web and is INERT in a PDF-only
+# target. Their destination POLICIES are set independently (plan.md:71):
+# deploy.yml is identical, but seeded style-screen.css / transforms.py are
+# `never` (target-owned once written — sync must not clobber a guide's own).
+[[entry]]
+path = "style-screen.css.example"
+lifecycle = "bootstrap-source"
+projects_to = "style-screen.css"
+policy = "never"
+
+[[entry]]
+path = "transforms.py.example"
+lifecycle = "bootstrap-source"
+projects_to = "transforms.py"
+policy = "never"
+
+[[entry]]
+path = ".github/workflows/deploy.yml.example"
+lifecycle = "bootstrap-source"
+projects_to = ".github/workflows/deploy.yml"
+policy = "identical"
+
+[[entry]]
+# wrangler.jsonc takes the slug substituted into the worker name → templated.
+path = "templates/web/wrangler.jsonc"
+lifecycle = "bootstrap-source"
+projects_to = "app/wrangler.jsonc"
+policy = "templated"
+
+[[entry]]
+path = "templates/web/package.json"
+lifecycle = "bootstrap-source"
+projects_to = "app/package.json"
+policy = "identical"
+
+[[entry]]
+path = "templates/web/package-lock.json"
+lifecycle = "bootstrap-source"
+projects_to = "app/package-lock.json"
+policy = "identical"
+
+[[entry]]
+path = "templates/web/public/.gitkeep"
+lifecycle = "bootstrap-source"
+projects_to = "app/public/.gitkeep"
+policy = "identical"
+
+# ============================ generated ============================
+[[entry]]
+# The committed reference PDF: a build output. In a target it is <slug>.pdf and
+# is target-owned (macOS-rendered deliverable) — sync never writes it.
+path = "guide-template.pdf"
+lifecycle = "generated"
+projects_to = "<slug>.pdf"
+policy = "never"
+
+[[entry]]
+# per-target resolution output; each guide regenerates its own (see header).
+path = "pixi.lock"
+lifecycle = "generated"
+projects_to = "pixi.lock"
+policy = "never"
