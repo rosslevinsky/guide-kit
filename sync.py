@@ -140,6 +140,43 @@ def _render_managed(target_text: str, kit_text: str) -> str:
 
 _TEMPLATED_FIELDS = ("OUTPUT_SLUG", "TITLE", "AUTHOR", "DESCRIPTION", "KEYWORDS", "baseline_platform")
 
+# Kit-only regions: lines between these sentinels exist ONLY in the kit and are
+# dropped when a templated file is rendered into a target. The kit's test
+# environment is the motivating case — pytest/pyyaml and the `kit` environment
+# must never reach a target's pixi.toml, or every target's pixi.lock gains a
+# `kit` environment and regenerates merely because the kit gained a test runner
+# (plan.md:89, :90). Before this existed the sections templated through verbatim:
+# the placement test asserted the structure, but nothing consumed it.
+#
+# Comment-syntax-agnostic by design: the sentinel is matched as a substring, so
+# the same idiom works in TOML/YAML (`#`), and the markers live on their own
+# lines and are removed with the block.
+KIT_ONLY_BEGIN = "kit-only:begin"
+KIT_ONLY_END = "kit-only:end"
+
+
+def _strip_kit_only(text: str, where: str = "templated file") -> str:
+    """Drop every kit-only region (marker lines included). Unbalanced or nested
+    markers are an error rather than a silent partial strip — a missed strip
+    leaks the kit's test env into a target, which is the bug this prevents."""
+    out, depth, seen = [], 0, 0
+    for line in text.splitlines(keepends=True):
+        if KIT_ONLY_BEGIN in line:
+            if depth:
+                raise SyncError(f"{where}: nested '{KIT_ONLY_BEGIN}'")
+            depth, seen = 1, seen + 1
+            continue
+        if KIT_ONLY_END in line:
+            if not depth:
+                raise SyncError(f"{where}: '{KIT_ONLY_END}' without '{KIT_ONLY_BEGIN}'")
+            depth = 0
+            continue
+        if not depth:
+            out.append(line)
+    if depth:
+        raise SyncError(f"{where}: unterminated '{KIT_ONLY_BEGIN}'")
+    return "".join(out)
+
 
 def _render_templated(kit_text: str, kit_cfg, target_cfg) -> str:
     """Substitute the kit's guide.toml string values with the target's. In
@@ -150,7 +187,11 @@ def _render_templated(kit_text: str, kit_cfg, target_cfg) -> str:
     over the ORIGINAL text, so a replacement's output can never be re-matched — a
     naive sequence of str.replace() could cascade (e.g. kit TITLE -> a value that
     equals kit AUTHOR, then AUTHOR -> its target). A kit value that maps to two
-    different target values is ambiguous and rejected."""
+    different target values is ambiguous and rejected.
+
+    Kit-only regions are stripped FIRST, so a target never receives them and the
+    substitution never has to reason about text that is about to be deleted."""
+    kit_text = _strip_kit_only(kit_text)
     # Collect ALL kit->target values first, INCLUDING identity mappings (kv == tv):
     # a kit value that must stay unchanged for one field but be rewritten for
     # another is ambiguous, and skipping identities before the check would miss it

@@ -1,7 +1,11 @@
 [workspace]
 name = "guide-template"
 version = "0.1.0"
-description = "Template repository for single-document beginner-guide PDF projects (pandoc + WeasyPrint, with content-identicalness regression harness)."
+# NOTE: this must stay byte-identical to guide.toml's DESCRIPTION. `templated`
+# rendering substitutes the kit's guide.toml VALUES with the target's, so a
+# hand-written variant here cannot be matched and would propagate the kit's own
+# description into every converged guide's pixi.toml.
+description = "Template repository for single-document beginner-guide PDF projects. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/"
 channels = ["conda-forge"]
 # `make verify` is a STALENESS check — does the committed reference PDF's embedded
 # stamp match a fresh content hash over SOURCE_FILES? — with no rendering and no
@@ -41,15 +45,22 @@ web = "python build.py --web"
 # because the Makefile target enforces the required MSG argument with a
 # clear usage message).
 
+# kit-only:begin
 # ----- Kit-only test environment -----
-# pytest and the `test` task deliberately live in a KIT-ONLY feature, NOT in
-# root [dependencies]/[tasks]. Root deps must stay byte-identical across the
-# guide family — they template into every target's pixi.toml — so a target
-# receives neither pytest nor a `test` task and never regenerates its lockfile
-# merely because the kit gained a test runner (plan.md:89, :90). Only
-# the kit's own `kit` environment carries the suite. The target-shape
-# renderer (Phase 5) drops kit-only features; test_kit_only_test_dependency
-# asserts the placement that guarantee relies on.
+# Everything between the surrounding sentinel comments exists ONLY in the kit.
+# sync.py's _strip_kit_only() removes this whole block when rendering pixi.toml
+# into a target, so a target's pixi.toml never declares pytest, the `test` task,
+# or a `kit` environment — and its pixi.lock therefore never gains a `kit` env
+# or regenerates merely because the kit gained a test runner (plan.md:89, :90).
+#
+# Placement alone is NOT enough: these sections are outside root
+# [dependencies]/[tasks], but `templated` rendering copies the whole file, so
+# before the sentinels existed they reached every target verbatim. The sentinels
+# are what actually enforces it; test_kit_only_test_dependency asserts the
+# placement, and test_kit_only_region asserts the stripping.
+#
+# NOTE: never write either sentinel literally in prose — a stray occurrence is
+# parsed as a real marker and unbalances the block.
 [feature.kit.dependencies]
 pytest = ">=8,<9"
 # pyyaml: the kit suite parses the workflow YAML to assert CI's contract (runs
@@ -64,3 +75,4 @@ test = "pytest tests/ -q"
 # the test feature on top of it so the suite has python + the kit modules.
 [environments]
 kit = ["kit"]
+# kit-only:end
