@@ -259,6 +259,92 @@ def _prune_kit_only(manifest) -> None:
         print(f"  kit-only files  removed ({', '.join(sorted(removed))})")
 
 
+_README_ROW_RE = re.compile(r"^\|\s*`([^`]+)`")
+
+
+def _prune_readme(with_web: bool) -> None:
+    """Make README.md describe THIS guide rather than the kit it came from.
+
+    The README is filled in from the kit's, so a fresh fork inherits rows for
+    files it no longer has (`bootstrap.py`, `.template-uninitialized`,
+    `templates/web/`, `sync.py`, the manifest) and prose telling the reader how
+    to enable a web layer that is already live. These are the public landing
+    page of a new repo, so they are worth getting right.
+
+    Row pruning is driven by what actually exists on disk rather than a
+    hardcoded list, so it stays correct as the kit's file set changes.
+    """
+    p = ROOT / "README.md"
+    if not p.is_file():
+        return
+    lines, kept, dropped = p.read_text(encoding="utf-8").splitlines(keepends=True), [], 0
+    for line in lines:
+        m = _README_ROW_RE.match(line)
+        if m:
+            # A row may name several paths ("`LICENSE` / `LICENSE-CONTENT`");
+            # keep it if ANY of them survived, so shared rows are not lost.
+            paths = re.findall(r"`([^`]+)`", line.split("|")[1])
+            candidates = [c.split()[0].rstrip("/") for c in paths if c and not c.startswith("<")]
+            if candidates and not any((ROOT / c).exists() for c in candidates):
+                dropped += 1
+                continue
+        kept.append(line)
+    text = "".join(kept)
+
+    if with_web:
+        text = text.replace(
+            "# Opt-in web layer (only after `bootstrap.py --with-web` — see \"Website deploy\"):",
+            "# Website (enabled for this guide):")
+        text = text.replace(
+            "The PDF is the default deliverable; the website is **opt-in**. On a PDF-only fork "
+            "`make web` no-ops cleanly and `make dev`/`make deploy` exit with a \"web layer not "
+            "enabled\" message — nothing under `app/` exists until you opt in.",
+            "This guide has the website enabled. Note `make web` **fails** until the first "
+            "reference PDF exists, because the site's download link would otherwise 404.")
+        text = text.replace(
+            "(The web-layer files above ship inert. A PDF-only fork has no `app/`, no "
+            "`style-screen.css`, and no live `deploy.yml`.",
+            "(The web layer is live in this guide: `app/`, `style-screen.css` and `deploy.yml` "
+            "are all present.")
+
+        # The "how to enable the web layer" recipe instructs running bootstrap.py,
+        # which no longer exists here and would refuse anyway. Replace the whole
+        # enable-it block with a statement of what this guide already has.
+        text = re.sub(
+            r"The website is an \*\*opt-in\*\* second output\..*?re-baseline with `make release`\.\)",
+            "The website is already enabled for this guide: `style-screen.css`, the `app/` "
+            "Cloudflare scaffold (with this guide's slug as the worker name) and a live "
+            "`.github/workflows/deploy.yml` are all present. `transforms.py` is deliberately "
+            "**not** activated — it is a `SOURCE_FILES` entry, so creating it shifts the version "
+            "stamp, and this guide has no embeds to split per output.",
+            text, count=1, flags=re.S)
+        text = re.sub(
+            r"```bash\npixi run python bootstrap\.py [^\n]*--with-web\n```\n\n", "", text, count=1)
+
+    # Doc-only file list: drop names this guide no longer has, so the boundary
+    # it describes matches the repo.
+    def _prune_doconly(m: re.Match) -> str:
+        kept = [seg for seg in re.findall(r"`[^`]+`", m.group(0))
+                if not seg.strip("`").endswith((".py", ".toml"))
+                or (ROOT / seg.strip("`")).exists()
+                or seg.strip("`").startswith(("LICENSE", "pixi", "README", "CLAUDE"))]
+        return ", ".join(kept)
+
+    text = re.sub(r"(?<=This covers )`README\.md`.*?(?=, and `\.github/workflows/`)",
+                  _prune_doconly, text, count=1, flags=re.S)
+
+    # The reference PDF does not exist until the first release on the canonical
+    # host, so the landing page must not link to it and 404.
+    text = re.sub(
+        r"^> \*\*Read the guide:\*\*.*$",
+        "> **Read the guide:** the PDF is published here after the first release "
+        "on the canonical host (see *Workflow: editing content*).",
+        text, count=1, flags=re.MULTILINE)
+
+    p.write_text(text, encoding="utf-8")
+    print(f"  README.md        pruned ({dropped} row(s) for files this guide does not have)")
+
+
 def _write_template_version(source_repo: str, kit_version: str, kit_digest: str, shape: str) -> None:
     """Record managed state so the fork starts in sync. managed_digest is the KIT's
     digest (captured from the pristine copy before any edits); rendered_checksums
@@ -355,6 +441,7 @@ def main() -> int:
     # Load fresh: main() has no manifest in scope, and this must happen AFTER
     # _write_template_version has recorded the projections.
     _prune_kit_only(kitmanifest.load(ROOT))
+    _prune_readme(args.with_web)
 
     SENTINEL.unlink()
     print("  .template-uninitialized  removed")

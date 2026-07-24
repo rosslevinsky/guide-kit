@@ -121,12 +121,23 @@ jobs:
           # .template-version is a JSON structured record (finalized in Phase 6).
           SRC=$(python3 -c "import json; print(json.load(open('.template-version'))['source_repo'])")
           echo "source_repo=$SRC" >> "$GITHUB_OUTPUT"
+          # Pin the borrowed runner to the kit version this guide actually
+          # adopted. Without a ref the checkout takes the kit's default-branch
+          # HEAD, so tightening a shared assertion in the kit turns every guide
+          # red at once with no commit in any of them, and a guide can never
+          # reproduce yesterday's CI. This matters more now that the kit holds
+          # shared assertion LOGIC (tests/topic_coverage.py), not just a runner.
+          KITV=$(python3 -c "import json; print(json.load(open('.template-version')).get('kit_version') or '')")
+          echo "kit_version=$KITV" >> "$GITHUB_OUTPUT"
 
       - name: Check out kit test runner (targets only)
         if: steps.kit.outputs.source_repo != '' && hashFiles('tests/**') != ''
         uses: actions/checkout@v4
         with:
           repository: ${{ steps.kit.outputs.source_repo }}
+          # Empty ref falls back to the default branch, which is the right
+          # behaviour for a guide whose record predates kit_version.
+          ref: ${{ steps.kit.outputs.kit_version }}
           path: _kit
           fetch-depth: 0
 
