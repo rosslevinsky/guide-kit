@@ -163,6 +163,20 @@ committed.
 `release.py` refuses to run with staged changes or modifications outside `SOURCE_FILES` — commit
 those with a plain `git commit` first. Doc-only edits (`README.md`, this file, `LICENSE`,
 `Makefile`, `pixi.toml`, workflows) do not bump the stamp and never need a baseline refresh.
+Never `git add` anything under `build/` — that is the working render, and it is gitignored.
+
+### The one thing verification cannot catch: dependency drift
+
+`make verify` compares hashes over `SOURCE_FILES`. `pixi.lock` is **not** in that list, so a
+dependency bump that changes how WeasyPrint or fontconfig lays out text will shift the rendered
+PDF while `make verify` stays green — the source really is unchanged, so the staleness check is
+answering its question correctly. Nothing in CI closes this gap either: `make verify-render`, the
+only check that would notice, needs a build and is canonical-host-only.
+
+So treat a `pixi.lock` change as a **rendering** change: run `make verify-render` on the canonical
+host after one, and re-baseline if the layout moved. Pin tighter in `pixi.toml` if a guide needs a
+narrower window. (`fontconfig` in particular already differs across this family, so a lock refresh
+can move one guide's pagination and not another's.)
 
 ### Tone
 
