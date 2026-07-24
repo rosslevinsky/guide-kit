@@ -48,9 +48,24 @@ fail validation in every consumer.
 
 Every declared command must be INVOKED in a fenced example (as the command
 itself — not merely mentioned in a comment, quoted in a warning string, or
-passed as an argument to something else) and that invocation must RECORD ITS
-OUTPUT, because these guides show the reader what to expect. An example with no
-output is unverifiable by definition.
+passed as an argument to something else) and that example must DEMONSTRATE A
+RESULT, because these guides show the reader what to expect.
+
+"Demonstrates a result" deliberately does NOT mean "the command printed
+something". Half the inventory of a terminal guide is silent on success — `cd`,
+`mkdir`, `cp`, `mv`, `rm` — and the correct way to document a silent command is
+to run it and then show the effect:
+
+    $ mkdir photos
+    $ ls
+    list.txt   notes   photos
+
+Requiring direct output would make those commands unsatisfiable and turn this
+check into a false-positive machine for precisely the commands these guides
+exist to teach. So the rule is: somewhere after the invocation, the block must
+contain at least one OUTPUT line. A block that is nothing but a stack of
+commands with no output anywhere teaches the reader nothing verifiable, and
+that is what this rejects.
 
 Copy this into a new terminal guide as `tests/test_topic_coverage.py`:
 
@@ -314,17 +329,20 @@ class CoverageReport:
             )
         for c in self.commands_without_output:
             lines.append(
-                f"  - command {c!r} is invoked but its example records no output — these guides "
-                "show what the reader should see, so an example with no output is unverifiable"
+                f"  - command {c!r} is invoked but its example demonstrates no result — the block "
+                "shows only commands and no output. For a silent command, run it and then show "
+                "the effect (e.g. `mkdir photos` followed by `ls`)"
             )
         return "\n".join(lines)
 
 
 def check_commands(markdown: str, commands: list[str]) -> tuple[list[str], list[str]]:
-    """Returns (never_invoked, invoked_without_output).
+    """Returns (never_invoked, invoked_without_a_demonstrated_result).
 
-    The output window for an invocation ends at the NEXT command line, so one
-    command's output is never credited to the previous one.
+    A result is demonstrated when, somewhere after the invocation in the same
+    block, there is an output line. That covers both a command that prints
+    directly and a silent one whose effect is shown by a following check — see
+    the module docstring for why requiring direct output would be wrong.
     """
     no_example, no_output = [], []
     blocks = code_blocks(markdown)
@@ -336,13 +354,9 @@ def check_commands(markdown: str, commands: list[str]) -> tuple[list[str], list[
                 if inv is None or not _first_token_is(inv, cmd):
                     continue
                 invoked = True
-                for nxt in block[i + 1:]:
-                    if _invocation(nxt) is not None:
-                        break                      # next command — window closed
-                    if nxt.strip():
-                        with_output = True
-                        break
-                if with_output:
+                if any(line_.strip() and _invocation(line_) is None
+                       for line_ in block[i + 1:]):
+                    with_output = True
                     break
             if with_output:
                 break

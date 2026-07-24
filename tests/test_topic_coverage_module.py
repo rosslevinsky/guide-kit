@@ -316,9 +316,23 @@ def test_command_quoted_in_a_warning_string_does_not_count():
     assert no_ex == ["rm"]
 
 
-def test_next_commands_output_is_not_credited_to_the_previous_one():
-    """`rm` prints nothing; `ls`'s output must not be counted as `rm`'s."""
+def test_silent_command_documented_by_its_effect_passes():
+    """A silent command shown with a following check DOES demonstrate a result.
+
+    An earlier version ended the output window at the next command line, so a
+    silent command could never satisfy the check — and half a terminal guide's
+    inventory (cd, mkdir, cp, mv, rm) is silent on success. That made the rule
+    unsatisfiable for exactly the commands these guides teach. The honest rule
+    is "the example demonstrates a result", not "the command printed something".
+    """
     md = "```\n$ rm notes.txt\n$ ls\nphotos\n```\n"
+    no_ex, no_out = tc.check_commands(md, ["rm"])
+    assert no_ex == [] and no_out == []
+
+
+def test_a_block_of_commands_with_no_output_at_all_fails():
+    """What the rule actually rejects: an example that shows nothing verifiable."""
+    md = "```\n$ rm a.txt\n$ rm b.txt\n```\n"
     no_ex, no_out = tc.check_commands(md, ["rm"])
     assert no_ex == [] and no_out == ["rm"]
 
@@ -353,7 +367,7 @@ def test_detects_example_with_no_recorded_output():
     stripped = BASH_GUIDE.replace("$ ls\nnotes.txt  photos", "$ ls")
     rep = tc.analyze(stripped, BASH_COMMANDS)
     assert rep.commands_without_output == ["ls"]
-    assert "records no output" in rep.failure_text("g")
+    assert "demonstrates no result" in rep.failure_text("g")
 
 
 # ---------------------------------------------------------------------------
