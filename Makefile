@@ -23,9 +23,11 @@ REFERENCE_PDF := $(OUTPUT_SLUG).pdf
 .PHONY: build help all install html web dev deploy verify verify-render baseline release clean
 
 # `build` is the FIRST non-.PHONY target, so bare `make` builds.
-# Intentional divergence from mac-terminal-guide / git-guide, which default to `help`.
 # Rationale: the most common operation in a guide repo is "render after edit"; bare
 # `make` should do that without ceremony. `make help` still works for discovery.
+# (This file is family-shared and lands verbatim in every guide, so it must not
+# describe any individual guide's behaviour — an earlier note here claimed the
+# guides "default to help", which became self-contradictory once synced.)
 build:
 	pixi run build
 

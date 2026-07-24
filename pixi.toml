@@ -1,10 +1,14 @@
 [workspace]
 name = "guide-template"
 version = "0.1.0"
-# NOTE: this must stay byte-identical to guide.toml's DESCRIPTION. `templated`
-# rendering substitutes the kit's guide.toml VALUES with the target's, so a
-# hand-written variant here cannot be matched and would propagate the kit's own
-# description into every converged guide's pixi.toml.
+# kit-only:begin
+# NOTE (kit maintainers): the description below must stay byte-identical to
+# guide.toml's DESCRIPTION. `templated` rendering substitutes the kit's
+# guide.toml VALUES with the target's, so a hand-written variant here cannot be
+# matched and would propagate the kit's own description into every converged
+# guide. This note is itself kit-only — a target's pixi.toml is overwritten by
+# sync, so the instruction has no addressee there.
+# kit-only:end
 description = "Template repository for single-document beginner-guide PDF projects. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/"
 channels = ["conda-forge"]
 # `make verify` is a STALENESS check — does the committed reference PDF's embedded

@@ -67,7 +67,11 @@ def test_render_templated_strips_kit_only(repo_root):
     assert "feature" not in data, "kit-only [feature.kit.*] leaked into the target"
     assert "environments" not in data, "kit-only [environments] leaked into the target"
     assert "pytest" not in rendered and "pyyaml" not in rendered
+    # NB: a `test` task never lives in root [tasks] regardless of stripping, so
+    # asserting its absence here would hold either way. Assert the load-bearing
+    # thing instead: the kit-only TASKS table is gone, not merely not-at-root.
     assert "test" not in data.get("tasks", {})
+    assert "kit" not in (data.get("feature") or {})
     # The parts a target genuinely needs survive.
     assert data["workspace"]["name"] == "mac-terminal-guide"
     assert "pandoc" in data["dependencies"] and "weasyprint" in data["dependencies"]
@@ -79,6 +83,35 @@ def test_kit_keeps_its_own_kit_environment(repo_root):
     data = tomllib.loads((repo_root / "pixi.toml").read_text(encoding="utf-8"))
     assert "pytest" in data["feature"]["kit"]["dependencies"]
     assert "kit" in data["environments"]
+
+
+def test_no_sentinel_outside_the_templated_path(repo_root):
+    """Kit-only stripping runs ONLY inside _render_templated.
+
+    `identical` files are copied verbatim and `managed-region` copies the kit's
+    marker block verbatim, so a kit-only sentinel in either would leak into every
+    target silently — no error, no diff to notice. Until stripping covers those
+    paths, assert no such source carries one.
+    """
+    import kitmanifest
+    manifest = kitmanifest.load(repo_root)
+    offenders = []
+    for entry in manifest.entries:
+        if entry.policy not in ("identical", "managed-region"):
+            continue
+        src = repo_root / entry.path
+        if not src.is_file():
+            continue
+        try:
+            text = src.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue                      # binary (e.g. the reference PDF)
+        if sync.KIT_ONLY_BEGIN in text or sync.KIT_ONLY_END in text:
+            offenders.append(f"{entry.path} [{entry.policy}]")
+    assert not offenders, (
+        "kit-only sentinel found in a file whose policy does NOT strip it — it would "
+        f"be copied into every target verbatim: {offenders}"
+    )
 
 
 def test_pixi_description_matches_guide_toml_so_it_substitutes(repo_root):

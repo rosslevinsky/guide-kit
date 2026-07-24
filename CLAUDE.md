@@ -79,9 +79,13 @@ A ` · dirty` segment is appended when the working tree has uncommitted changes 
 - **`make verify`** — the **staleness check**, and the only verify CI runs. It compares the
   content hash embedded in the committed reference PDF's stamp against a freshly computed hash
   over `SOURCE_FILES` (one `pdftotext` call). No build, no rendering, platform-independent —
-  milliseconds. A mismatch means someone edited source without re-running `make release`, so the
-  repo ships Markdown and a PDF that disagree; it names the stale file. A never-released guide
-  (no reference PDF yet) passes with a `pre-first-release` notice.
+  milliseconds. It has three outcomes, not two: **stale** (the stamp parses, the hashes differ —
+  someone edited source without re-running `make release`, and the error names the stale file);
+  **unreadable stamp** (the stamp cannot be parsed at all, so freshness cannot be established and
+  the check fails closed rather than guessing — no file is named; a reference PDF rendered before
+  a stamp-format change lands here, and a re-render clears it); and **pre-first-release** (no
+  reference PDF yet — passes with a notice). Note a red `make verify` also blocks `deploy.yml`,
+  which gates on it.
 - **`make verify-render`** — a secondary, **canonical-host-only** canary: it builds a fresh PDF
   and compares page count plus stamp-excluded `pdftotext` against the reference. It needs a build
   and is platform-sensitive (font substitution changes line wrapping), so it is **never** wired
