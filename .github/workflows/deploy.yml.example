@@ -133,10 +133,18 @@ jobs:
       - name: Build website (make web)
         run: make web
 
-      # ── Production: push to main ──────────────────────────────────────────
+      # ── Production: push to main, or a manual/automated dispatch ──────────
+      # workflow_dispatch MUST be included here. It is a declared trigger (see
+      # `on:` above) and is how baseline.yml redeploys after refreshing the
+      # reference PDF — but a dispatched run matches neither `push` nor
+      # `pull_request`, so without it the job builds the site, skips both deploy
+      # steps, and still reports SUCCESS. That is the worst kind of failure:
+      # green check, nothing deployed, site silently serving the old PDF.
       - name: Wrangler deploy (production)
         id: deploy_prod
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
