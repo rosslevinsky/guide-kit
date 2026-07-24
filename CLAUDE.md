@@ -170,13 +170,20 @@ Never `git add` anything under `build/` — that is the working render, and it i
 `make verify` compares hashes over `SOURCE_FILES`. `pixi.lock` is **not** in that list, so a
 dependency bump that changes how WeasyPrint or fontconfig lays out text will shift the rendered
 PDF while `make verify` stays green — the source really is unchanged, so the staleness check is
-answering its question correctly. Nothing in CI closes this gap either: `make verify-render`, the
-only check that would notice, needs a build and is canonical-host-only.
+answering its question correctly. Nothing in CI closes this gap either.
+
+`make verify-render` is the closest thing to a backstop, but it is **not** a complete one: it
+compares page count and stamp-stripped `pdftotext` output, so it catches drift that moves
+pagination or extracted text and is blind to pure metric changes — kerning, justification, glyph
+substitution that happens to preserve line breaks. It also needs a build, and while it is
+*conventionally* run only on the canonical host, nothing enforces that (unlike `make baseline`,
+which does check `sys.platform`).
 
 So treat a `pixi.lock` change as a **rendering** change: run `make verify-render` on the canonical
-host after one, and re-baseline if the layout moved. Pin tighter in `pixi.toml` if a guide needs a
-narrower window. (`fontconfig` in particular already differs across this family, so a lock refresh
-can move one guide's pagination and not another's.)
+host after one, **and eyeball the PDF** — the automated check alone is not sufficient. Re-baseline
+if the layout moved, and pin tighter in `pixi.toml` if a guide needs a narrower window.
+(`fontconfig` in particular already differs across this family, so a lock refresh can move one
+guide's pagination and not another's.)
 
 ### Tone
 

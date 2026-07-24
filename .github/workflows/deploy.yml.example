@@ -174,7 +174,11 @@ jobs:
           PREVIEW_OUTPUT: ${{ steps.deploy_preview.outputs.command-output }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" == "push" && "$GIT_REF" == "refs/heads/main" ]]; then
+          # This production test MUST match the `if:` on the deploy_prod step
+          # above. When they drift, a real production deploy is reported as a
+          # preview with an empty URL — a log that lies about what shipped.
+          if [[ "$GIT_REF" == "refs/heads/main" \
+                && ( "$EVENT_NAME" == "push" || "$EVENT_NAME" == "workflow_dispatch" ) ]]; then
             URL="$PROD_URL"
             ENV_NAME='production'
           else
