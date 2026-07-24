@@ -47,8 +47,13 @@ import kitconfig
 import kitmanifest
 
 TEMPLATE_VERSION = ".template-version"
+SCHEMA_VERSION = 1
 MARK_BEGIN = "<!-- kit:begin -->"
 MARK_END = "<!-- kit:end -->"
+
+# Destination policies whose content the kit "manages" (feeds the managed-content
+# digest); never-tier is target-owned and excluded.
+_MANAGED_POLICIES = ("identical", "templated", "managed-region")
 
 EXIT_OK = 0
 EXIT_DRIFT = 1
@@ -249,16 +254,18 @@ def _checkable_bytes(policy: str, file_bytes: bytes) -> bytes:
     return file_bytes
 
 
-def build_plan(kit_root: Path, target: Path) -> tuple[list[Item], dict]:
-    """Compute the per-destination plan. Returns (items, template_version).
-    Raises SyncError on a genuine refusal (local edit, unadopted existing dest).
-    Exit-2 (needs adopt) is signalled by returning a None template_version."""
+def build_plan(kit_root: Path, target: Path) -> tuple[list[Item], dict | None, str | None]:
+    """Compute the per-destination plan. Returns (items, template_version,
+    kit_digest) — the digest is computed from the SAME kit read as the plan, so
+    --apply records exactly the content it wrote. Raises SyncError on a genuine
+    refusal (local edit, unadopted existing dest). Exit-2 (needs adopt) is
+    signalled by a None template_version."""
     # Check .template-version FIRST: an unadopted guide (which may not even have a
     # guide.toml yet — the adoption sequence hand-writes it) exits cleanly as
     # needs-adopt rather than crashing in kitconfig.load(target).
     tv = _read_template_version(target)
     if tv is None:
-        return [], None  # caller maps this to EXIT_NEEDS_ADOPT
+        return [], None, None  # caller maps this to EXIT_NEEDS_ADOPT
     recorded = tv.get("rendered_checksums", {})
 
     kit_cfg = kitconfig.load(kit_root)
@@ -267,6 +274,7 @@ def build_plan(kit_root: Path, target: Path) -> tuple[list[Item], dict]:
     shape = "web-enabled" if (target / "style-screen.css").exists() or (target / "app").is_dir() else "pdf-only"
 
     manifest = kitmanifest.load(kit_root)
+    kit_digest = compute_managed_digest(kit_root)  # same snapshot as the reads below
     items: list[Item] = []
     for proj in manifest.projections(shape, slug=slug):
         if proj.policy == "never":
@@ -317,14 +325,14 @@ def build_plan(kit_root: Path, target: Path) -> tuple[list[Item], dict]:
         action = "in-sync" if current == expected else "update"
         items.append(Item(proj.dest, dest_abs, proj.policy, expected,
                           _checkable_bytes(proj.policy, expected), action))
-    return items, tv
+    return items, tv, kit_digest
 
 
 # ---------------------------------------------------------------------------
 # apply (transactional, rollback journal)
 # ---------------------------------------------------------------------------
 
-def _apply(target: Path, items: list[Item], tv: dict) -> None:
+def _apply(target: Path, items: list[Item], tv: dict, kit_digest: str) -> None:
     to_write = [it for it in items if it.action in ("create", "update")]
     # Journal holds only destinations ALREADY replaced (prior bytes, or None if
     # the dest did not exist). Because _atomic_write is atomic, a FAILED write
@@ -355,7 +363,8 @@ def _apply(target: Path, items: list[Item], tv: dict) -> None:
             recorded[it.dest_rel] = _sha256(it.checkable)
         new_tv = dict(tv)
         new_tv["rendered_checksums"] = recorded
-        new_tv["state"] = "applied"
+        new_tv["state"] = "applied"          # clears adopted_unapplied
+        new_tv["managed_digest"] = kit_digest  # the SAME snapshot the plan wrote from
         tv_path = target / TEMPLATE_VERSION
         tv_prior = tv_path.read_bytes() if tv_path.exists() else None
         journal.append((tv_path, tv_prior))
@@ -372,6 +381,137 @@ def _apply(target: Path, items: list[Item], tv: dict) -> None:
             except Exception as exc:
                 sys.stderr.write(f"sync.py: WARNING could not roll back {dest}: {exc}\n")
         raise
+
+
+# ---------------------------------------------------------------------------
+# managed-content digest + adoption + drift
+# ---------------------------------------------------------------------------
+
+def compute_managed_digest(kit_root: Path) -> str:
+    """sha256 over the kit's MANAGED content — the bytes of identical/templated
+    kit source files and the marked block of managed-region files, in a fixed
+    (dest-sorted) order. Recomputed at check time so ANY change to a managed kit
+    file moves the digest: this closes the forget-to-bump-the-version
+    silent-staleness hole a hand-maintained counter would leave open. never-tier
+    is excluded (target-owned)."""
+    manifest = kitmanifest.load(kit_root)
+    kit_cfg = kitconfig.load(kit_root)
+    projs = [p for p in manifest.projections("web-enabled") if p.policy in _MANAGED_POLICIES]
+    h = hashlib.sha256()
+    # The kit's guide.toml values are substitution ANCHORS for templated files —
+    # changing one alters rendered target output even when no managed source
+    # file's bytes change, so they are digest inputs.
+    for f in _TEMPLATED_FIELDS:
+        h.update(b"kitcfg:" + f.encode("utf-8") + b"=" + str(getattr(kit_cfg, f)).encode("utf-8") + b"\0")
+    for proj in sorted(projs, key=lambda p: (p.dest, p.policy)):
+        content = (kit_root / proj.source).read_bytes()
+        if proj.policy == "managed-region":
+            content = _region(content.decode("utf-8"), f"kit {proj.source}").encode("utf-8")
+        # Include the POLICY: a policy change (e.g. identical -> templated) alters
+        # the projection even when the source bytes are unchanged.
+        h.update(proj.dest.encode("utf-8") + b"\0" + proj.policy.encode("utf-8") + b"\0" + content + b"\0")
+    return h.hexdigest()
+
+
+def _target_shape(target: Path) -> str:
+    return "web-enabled" if (target / "style-screen.css").exists() or (target / "app").is_dir() else "pdf-only"
+
+
+def adopt(kit_root: Path, target: Path, source_repo: str, kit_version: str,
+          assume_yes: bool = False, confirm=input) -> int:
+    """First-contact adoption: record the target's CURRENT (pre-sync) managed
+    checksums and establish managed state. A one-time reviewed event — not the
+    steady-state path. Refuses if already adopted or the target tree is dirty;
+    prints a per-file inventory and requires confirmation; writes state
+    `adopted_unapplied` (which the drift check treats as BEHIND until --apply)."""
+    kit_root, target = kit_root.resolve(), target.resolve()
+    if (target / TEMPLATE_VERSION).exists():
+        raise SyncError(f"{target.name} already has {TEMPLATE_VERSION} — adoption is first-contact only.")
+    if _is_dirty(target):
+        raise SyncError(f"refusing --adopt: the target worktree ({target.name}) is dirty — commit first.")
+
+    target_cfg = kitconfig.load(target)  # requires guide.toml (adoption step 1)
+    manifest = kitmanifest.load(kit_root)
+    rendered: dict[str, str] = {}
+    print(f"Adoption inventory for {target.name} (source: {source_repo}):")
+    for proj in manifest.projections(_target_shape(target), slug=target_cfg.OUTPUT_SLUG):
+        if proj.policy == "never":
+            continue
+        dest_abs = _resolve_dest(target, proj.dest)
+        if dest_abs.exists():
+            rendered[proj.dest] = _sha256(_checkable_bytes(proj.policy, dest_abs.read_bytes()))
+            print(f"  will manage  {proj.dest} [{proj.policy}] (recording current hash)")
+        else:
+            print(f"  will create  {proj.dest} [{proj.policy}] on --apply")
+
+    if not assume_yes:
+        ans = confirm(f"Record these {len(rendered)} pre-sync hashes and establish managed state? [y/N] ")
+        if str(ans).strip().lower() not in ("y", "yes"):
+            print("Adoption cancelled — nothing written.")
+            return EXIT_DRIFT
+
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "source_repo": source_repo,
+        "kit_version": kit_version,
+        "managed_digest": compute_managed_digest(kit_root),
+        "state": "adopted_unapplied",
+        "rendered_checksums": rendered,
+    }
+    _atomic_write(target / TEMPLATE_VERSION, (json.dumps(record, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+    print(f"{target.name}: adopted ({len(rendered)} files recorded, state=adopted_unapplied).")
+    print(f"  Next: commit {TEMPLATE_VERSION}, then `sync.py {target.name} --apply`.")
+    return EXIT_OK
+
+
+def drift_report(kit_root: Path, target: Path) -> tuple[bool, list[str]]:
+    """Return (drifted, messages). A target drifts if it is adopted-but-unapplied,
+    or the kit's managed digest has moved since it last synced (upstream drift),
+    or its own managed files were edited away from the recorded checksums
+    (local drift). Warn-only — the caller decides how to surface it."""
+    kit_root, target = kit_root.resolve(), target.resolve()
+    tv = _read_template_version(target)
+    if tv is None:
+        return False, [f"{target.name}: no {TEMPLATE_VERSION} — not an adopted target; skipping."]
+    msgs: list[str] = []
+    drifted = False
+
+    if tv.get("state") == "adopted_unapplied":
+        drifted = True
+        msgs.append(f"{target.name}: state is adopted_unapplied — behind (run --apply).")
+
+    kit_digest = compute_managed_digest(kit_root)
+    if tv.get("managed_digest") != kit_digest:
+        drifted = True
+        msgs.append(
+            f"{target.name}: upstream managed content changed "
+            f"(recorded {str(tv.get('managed_digest'))[:12]} != kit {kit_digest[:12]}) — run sync."
+        )
+
+    # Local drift: a managed file edited away from its recorded checksum.
+    try:
+        target_cfg = kitconfig.load(target)
+        manifest = kitmanifest.load(kit_root)
+        recorded = tv.get("rendered_checksums", {})
+        for proj in manifest.projections(_target_shape(target), slug=target_cfg.OUTPUT_SLUG):
+            if proj.policy == "never" or proj.dest not in recorded:
+                continue
+            dest_abs = _resolve_dest(target, proj.dest)
+            if not dest_abs.exists():
+                drifted = True
+                msgs.append(f"{target.name}: recorded managed file {proj.dest} is missing (deleted).")
+            elif _sha256(_checkable_bytes(proj.policy, dest_abs.read_bytes())) != recorded[proj.dest]:
+                drifted = True
+                msgs.append(f"{target.name}: local edit to managed file {proj.dest} (differs from recorded).")
+    except Exception as exc:  # the warn-only check must never crash — but an
+        # incomplete validation is INDETERMINATE, so treat it as drift rather than
+        # letting a "could not validate" line be followed by "UP TO DATE".
+        drifted = True
+        msgs.append(f"{target.name}: could not fully validate local checksums ({exc}) — treating as drift.")
+
+    if not drifted:
+        msgs.append(f"{target.name}: up to date with the kit.")
+    return drifted, msgs
 
 
 # ---------------------------------------------------------------------------
@@ -401,7 +541,7 @@ def run_sync(kit_root: Path, target: Path, apply: bool) -> int:
             )
             return EXIT_DRIFT
 
-    items, tv = build_plan(kit_root, target)
+    items, tv, kit_digest = build_plan(kit_root, target)
     if tv is None:
         sys.stderr.write(
             f"{target.name}: no {TEMPLATE_VERSION} — first contact requires `--adopt` (Phase 6).\n"
@@ -434,7 +574,7 @@ def run_sync(kit_root: Path, target: Path, apply: bool) -> int:
             sys.stderr.write(f"  REFUSE {it.dest_rel} — {it.reason}\n")
         sys.stderr.write(f"{target.name}: refusing to apply — resolve the above first.\n")
         return EXIT_DRIFT
-    _apply(target, updates, tv)
+    _apply(target, updates, tv, kit_digest)
     print(f"{target.name}: applied {len(updates)} update(s).")
     return EXIT_OK
 
@@ -444,14 +584,45 @@ def main(argv: list[str] | None = None) -> int:
         description="Sync the kit's shared files into a sibling guide (copy-and-checksum).",
         epilog="Run from the workspace root: `python guide-template/sync.py <guide> [--apply]`.",
     )
-    p.add_argument("guide", help="Sibling guide directory name (e.g. mac-terminal-guide).")
+    p.add_argument("guide", nargs="?", help="Sibling guide directory name (for sync / --adopt).")
     p.add_argument("--apply", action="store_true", help="Write the changes (default: dry-run).")
+    p.add_argument("--adopt", action="store_true",
+                   help="First-contact adoption (needs --source-repo and --kit-version).")
+    p.add_argument("--source-repo", help="Upstream kit repo recorded at adoption (e.g. rosslevinsky/guide-template).")
+    p.add_argument("--kit-version", help="Human-readable kit version label recorded at adoption.")
+    p.add_argument("--yes", action="store_true", help="Skip the adoption confirmation prompt.")
+    p.add_argument("--managed-digest", action="store_true",
+                   help="Print the kit's computed managed-content digest and exit.")
+    p.add_argument("--check-drift", action="store_true",
+                   help="Warn-only drift check of --target against the kit (never fails).")
+    p.add_argument("--target", help="Target repo path for --check-drift (default: current directory).")
     args = p.parse_args(argv)
 
+    # One primary mode at a time; --apply modifies sync only.
+    primary = [m for m in ("adopt", "managed_digest", "check_drift") if getattr(args, m)]
+    if len(primary) > 1:
+        p.error(f"choose at most one of --adopt / --managed-digest / --check-drift (got {primary})")
+    if args.apply and (args.adopt or args.managed_digest or args.check_drift):
+        p.error("--apply cannot be combined with --adopt / --managed-digest / --check-drift")
+
     kit_root = Path(__file__).parent.resolve()
-    workspace_root = kit_root.parent
-    target = workspace_root / args.guide
     try:
+        if args.managed_digest:
+            print(compute_managed_digest(kit_root))
+            return EXIT_OK
+        if args.check_drift:
+            drifted, msgs = drift_report(kit_root, Path(args.target or ".").resolve())
+            for m in msgs:
+                print(m)
+            print("DRIFT DETECTED" if drifted else "UP TO DATE")
+            return EXIT_OK  # warn-only: the scheduled check must never fail the run
+        if not args.guide:
+            p.error("a guide is required for sync / --adopt")
+        target = kit_root.parent / args.guide
+        if args.adopt:
+            if not args.source_repo or not args.kit_version:
+                p.error("--adopt requires --source-repo and --kit-version")
+            return adopt(kit_root, target, args.source_repo, args.kit_version, assume_yes=args.yes)
         return run_sync(kit_root, target, args.apply)
     except SyncError as exc:
         sys.stderr.write(f"sync.py: {exc}\n")

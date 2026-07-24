@@ -1,0 +1,77 @@
+name: kit-drift
+
+# Scheduled, WARN-ONLY drift check: has the KIT's managed content moved since this
+# guide last synced? It runs in its OWN workflow — NOT bolted onto verify.yml,
+# which fires only on push/PR to this repo and is paths-filtered, so an UPSTREAM
+# kit change triggers nothing there. This never FAILS the run; drift is surfaced
+# as a ::warning:: for the maintainer to act on (run sync). It compares COMPUTED
+# managed-content digests, never the kit_version label (which can go unbumped).
+#
+# In the kit itself (guide-template — no .template-version) it cleanly no-ops.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"   # weekly, Monday 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kit-drift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out this guide
+        uses: actions/checkout@v4
+
+      - name: Resolve the upstream kit
+        id: kit
+        run: |
+          if [ ! -f .template-version ]; then
+            echo "no .template-version — this is the kit (or an unadopted repo); nothing to check."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # source_repo is the upstream kit this guide was adopted from (public, so
+          # GITHUB_TOKEN suffices). VALIDATE it as owner/repo before echoing into
+          # $GITHUB_OUTPUT — a value containing a newline could otherwise inject
+          # further outputs (e.g. skip=true) and bypass the check.
+          SRC=$(python3 - <<'PY'
+          import json, re, sys
+          s = json.load(open(".template-version")).get("source_repo", "")
+          if not re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", s):
+              sys.exit(1)
+          print(s)
+          PY
+          ) || { echo "::warning::.template-version source_repo is missing or not owner/repo; skipping."; echo "skip=true" >> "$GITHUB_OUTPUT"; exit 0; }
+          echo "source_repo=$SRC" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the kit
+        if: steps.kit.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.kit.outputs.source_repo }}
+          path: _kit
+          fetch-depth: 1
+
+      - name: Warn on drift (never fails the run)
+        if: steps.kit.outputs.skip != 'true'
+        run: |
+          # sync.py + kitconfig/kitmanifest are stdlib-only (no pixi needed). This
+          # step is unconditionally warn-only: an errored checker (nonzero, which
+          # bash -o pipefail would otherwise propagate) becomes an indeterminate
+          # warning, never a failed run.
+          if ! python3 _kit/sync.py --check-drift --target "$GITHUB_WORKSPACE" | tee drift.txt; then
+            echo "::warning::kit-drift check errored (indeterminate) — investigate."
+          fi
+          if grep -q "DRIFT DETECTED" drift.txt; then
+            echo "::warning::kit drift detected — this guide is behind the kit; run sync to update."
+          fi
