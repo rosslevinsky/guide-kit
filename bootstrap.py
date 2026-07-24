@@ -217,6 +217,48 @@ def _materialize_web(kit_cfg, fork_cfg, with_transforms: bool) -> None:
     print(f"  web layer        materialized (style-screen.css, app/, deploy.yml{extra})")
 
 
+def _prune_kit_only(manifest) -> None:
+    """Delete every KIT-ONLY path from the fork.
+
+    A `--template` fork is a full copy of the kit, so it inherits the kit's own
+    machinery: the test suite, sync.py, adopt-web.py, the manifest and its
+    loader, and plans/. None of it belongs in a guide, and leaving it there is
+    not merely untidy — `verify.yml`'s target branch is guarded on `tests/**`
+    existing, so an inherited `tests/` makes every new fork borrow the kit's
+    runner and execute the KIT's suite against the GUIDE. Those tests assert
+    kit-shaped facts (bootstrap.py exists, pixi.toml has a `kit` env, every
+    tracked file is classified) that are false in a fork by construction, so a
+    brand-new repo lands with a permanently red default branch.
+
+    The set is derived from the manifest rather than hardcoded: an entry that is
+    `retained-in-kit` with no `projects_to` is by definition never projected into
+    a target, which is exactly "kit-only". Adding such a file to the manifest
+    therefore prunes it here automatically.
+
+    bootstrap.py and .template-uninitialized are in that set too, but they are
+    deleted separately at the very end — this runs before them, and pruning the
+    script out from under itself mid-run would be a poor idea.
+    """
+    keep = {"bootstrap.py", ".template-uninitialized"}
+    removed = []
+    for entry in manifest.entries:
+        if entry.lifecycle != "retained-in-kit" or entry.projects_to:
+            continue
+        rel = entry.path
+        if rel in keep:
+            continue
+        target = ROOT / rel[:-3].rstrip("/") if rel.endswith("/**") else ROOT / rel
+        if not target.exists():
+            continue
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        removed.append(rel)
+    if removed:
+        print(f"  kit-only files  removed ({', '.join(sorted(removed))})")
+
+
 def _write_template_version(source_repo: str, kit_version: str, kit_digest: str, shape: str) -> None:
     """Record managed state so the fork starts in sync. managed_digest is the KIT's
     digest (captured from the pristine copy before any edits); rendered_checksums
@@ -309,6 +351,10 @@ def main() -> int:
         print(f"  {kit_slug}.pdf  removed (fork has no reference PDF until its first macOS release)")
 
     _write_template_version(args.source_repo, args.kit_version, kit_digest, shape)
+
+    # Load fresh: main() has no manifest in scope, and this must happen AFTER
+    # _write_template_version has recorded the projections.
+    _prune_kit_only(kitmanifest.load(ROOT))
 
     SENTINEL.unlink()
     print("  .template-uninitialized  removed")

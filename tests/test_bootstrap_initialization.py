@@ -116,3 +116,39 @@ def test_bootstrap_with_web_but_no_transforms(tmp_path):
     assert not drifted, msgs
     items, _, _ = sync.build_plan(pristine, fork)
     assert all(it.action == "in-sync" for it in items), [(i.dest_rel, i.action) for i in items if i.action != "in-sync"]
+
+
+def test_bootstrap_prunes_every_kit_only_path(tmp_path):
+    """A fork must inherit none of the kit's own machinery.
+
+    `--template` copies the whole kit, so without pruning a fork ships the kit's
+    test suite, sync.py, adopt-web.py, the manifest and its loader, and plans/.
+    That is not cosmetic: verify.yml's target branch is guarded on `tests/**`
+    existing, so an inherited tests/ makes the fork borrow the kit's runner and
+    run the KIT's suite against the GUIDE — asserting kit-shaped facts that are
+    false in a fork by construction (bootstrap.py present, a `kit` pixi env,
+    every tracked file classified). The result is a brand-new repo with a
+    permanently red default branch.
+    """
+    import kitmanifest
+    fork = _mkcopy(tmp_path / "fork")
+    r = _run_bootstrap(fork, "--baseline-platform", "darwin",
+                       "--source-repo", "rosslevinsky/guide-template", "--kit-version", "test")
+    assert r.returncode == 0, r.stderr
+
+    manifest = kitmanifest.load(REPO_ROOT)
+    kit_only = [e.path for e in manifest.entries
+                if e.lifecycle == "retained-in-kit" and not e.projects_to]
+    assert kit_only, "manifest declares no kit-only entries — the guard would be vacuous"
+
+    leaked = []
+    for rel in kit_only:
+        p = fork / (rel[:-3].rstrip("/") if rel.endswith("/**") else rel)
+        if p.exists():
+            leaked.append(rel)
+    assert not leaked, f"kit-only paths leaked into the fork: {leaked}"
+
+    # The guide's own machinery must survive the pruning.
+    for kept in ("guide.md", "style.css", "build.py", "kitconfig.py", "verify_pdf.py",
+                 "Makefile", "pixi.toml", "guide.toml", ".template-version"):
+        assert (fork / kept).exists(), f"pruning removed a file the guide needs: {kept}"
