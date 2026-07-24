@@ -21,15 +21,14 @@ _IGNORE = shutil.ignore_patterns(".git", ".pixi", "build", "__pycache__", "node_
 
 
 def _mkcopy(dst: Path) -> Path:
-    """A --template-style copy of the kit, with kit:begin/end markers added to
-    CLAUDE.md (simulating Phase 9, which compute_managed_digest needs)."""
+    """A --template-style copy of the kit. The kit's real CLAUDE.md already carries
+    the kit:begin/end markers (Phase 9), which compute_managed_digest needs — so the
+    copy is faithful with no synthetic marker injection."""
     shutil.copytree(REPO_ROOT, dst, ignore=_IGNORE)
-    claude = dst / "CLAUDE.md"
-    claude.write_text(
-        claude.read_text(encoding="utf-8")
-        + f"\n{sync.MARK_BEGIN}\nSHARED KIT POLICY (managed block, no placeholders)\n{sync.MARK_END}\n",
-        encoding="utf-8",
-    )
+    # Guard: the fixture is only valid while the kit ships exactly one marker pair.
+    claude = (dst / "CLAUDE.md").read_text(encoding="utf-8")
+    assert claude.count(sync.MARK_BEGIN) == 1 and claude.count(sync.MARK_END) == 1, \
+        "kit CLAUDE.md must carry exactly one managed-region marker pair"
     return dst
 
 

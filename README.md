@@ -1,6 +1,6 @@
 # {{GUIDE_NAME}}
 
-A single-document beginner-guide PDF, authored in Markdown and rendered to PDF via pandoc + WeasyPrint. The reference PDF — `{{GUIDE_SLUG}}.pdf` — lives at the repo root, so anyone can download it directly from GitHub without cloning, installing, or building. Local `make verify` enforces zero-pixel-diff against that reference so a rebuild is guaranteed to match what readers actually downloaded.
+A single-document beginner-guide PDF, authored in Markdown and rendered to PDF via pandoc + WeasyPrint. The reference PDF — `{{GUIDE_SLUG}}.pdf` — lives at the repo root, so anyone can download it directly from GitHub without cloning, installing, or building. `make verify` is a fast, platform-independent **staleness check**: it confirms the committed reference PDF is up to date with the source (no rendering), so the repo never ships Markdown and a PDF that disagree.
 
 > **Read the guide:** [`{{GUIDE_SLUG}}.pdf`]({{GUIDE_SLUG}}.pdf) (downloadable directly from this repo).
 >
@@ -14,15 +14,16 @@ A single-document beginner-guide PDF, authored in Markdown and rendered to PDF v
 
 ### What this template is
 
-`guide-template` codifies the shape of a *single-document beginner-guide PDF project*: one Markdown source, one rendered PDF, a reproducible build, a content-identicalness regression harness, and a per-fork HTML transforms hook. Concretely it gives you:
+`guide-template` codifies the shape of a *single-document beginner-guide PDF project* — one Markdown source, one rendered PDF, a reproducible build, a per-guide `guide.toml`, and a copy-and-checksum sync engine that keeps the shared tooling up to date across the family. Concretely it gives you:
 
 - **A render pipeline:** `guide.md` → pandoc → (optional `transforms.py`) → wrap in HTML → WeasyPrint → qpdf canonicalize → `build/{{GUIDE_SLUG}}.pdf`.
-- **A reference PDF at the repo root** (`{{GUIDE_SLUG}}.pdf`) that readers can download from GitHub directly. The committed reference IS the deliverable.
-- **A deterministic version stamp in the footer** — `YYYY-MM-DD HH:MM:SS · <12-hex-sha256>` — derived from `git log` over your source files. Readers can see exactly which commit a PDF was built from.
-- **A `make verify` harness** that compares the freshly-built PDF against the committed reference (page count + text content + per-page pixel diff at zero tolerance), so accidental rendering regressions can't ship.
-- **A `make release` workflow** that bundles source commits + reference refresh into one atomic commit, eliminating an entire class of "I forgot to update the baseline" mistakes.
-- **A per-output `transforms.py` hook** for per-guide HTML rewrites (code-block classification, link injection, table styling) — with separate PDF and web entry points (`post_pandoc_html_for_pdf` / `_for_web`) that drive the opt-in website's play-on-screen / link-in-print media split — without forking the build script.
-- **Pixi-managed deps + Apache 2.0 / CC BY 4.0 dual licensing + a bundled CI workflow** so each new guide starts with reproducible builds, clean licensing for both code and content, and Ubuntu CI smoke (paths-filtered, to keep Actions minutes low) from day one.
+- **A reference PDF at the repo root** (`{{GUIDE_SLUG}}.pdf`) that readers download from GitHub directly. The committed reference IS the deliverable.
+- **A deterministic version stamp in the footer** — `YYYY-MM-DD HH:MM:SS · <12-hex-sha256>` — over the `SOURCE_FILES` list. Readers can see exactly which commit a PDF was built from.
+- **A two-command verify split:** `make verify` is a platform-independent staleness check (embedded stamp vs. a fresh content hash — no build, runs in CI); `make verify-render` is a canonical-host-only page-count + stamp-excluded-text canary.
+- **A `make release` workflow** that bundles source commit + reference refresh into one atomic commit, eliminating "I forgot to update the baseline" mistakes.
+- **A copy-and-checksum kit:** per-guide constants in `guide.toml`, a two-axis `kit-manifest.toml`, and `sync.py` to pull shared-tooling updates into guides created from the template (no `git subtree`, no merge).
+- **A per-output `transforms.py` hook** for per-guide HTML rewrites, with separate PDF/web entry points driving the opt-in website's play-on-screen / link-in-print media split.
+- **Pixi-managed deps + Apache 2.0 / CC BY 4.0 dual licensing + bundled CI** (build smoke + the staleness check + a scheduled kit-drift warning) so each guide starts reproducible and clean.
 
 ### Why this exists
 
@@ -30,12 +31,13 @@ The template was extracted in 2026 from three guides (`mac-terminal-guide`, `git
 
 ### Design choices worth knowing
 
-- **Pixi**, not `pip` + `venv` + `brew`. Pandoc, WeasyPrint, poppler, qpdf, and pillow are all installed into a project-local conda env from `conda-forge`. No `brew install pango`. No system-wide state. `pixi install` from a fresh clone is sufficient on macOS / Linux / Windows.
+- **Pixi**, not `pip` + `venv` + `brew`. Pandoc, WeasyPrint, poppler, and qpdf are all installed into a project-local conda env from `conda-forge`. No `brew install pango`. No system-wide state. `pixi install` from a fresh clone is sufficient on macOS / Linux / Windows.
 - **WeasyPrint**, not LaTeX. Trades aesthetic ceiling for "you can debug it in a browser." `make html` writes a standalone HTML preview to `build/{{GUIDE_SLUG}}.html` for fast iteration before the slower PDF render.
 - **pandoc** for Markdown → HTML, not a custom parser. Smart-quote conversion is **disabled** (`-smart`) so the literal characters in your source land in the PDF — important for ASCII diagrams and copy-pasteable command snippets.
 - **A `transforms.py` hook**, not config files. If a fork needs to rewrite the HTML pandoc produces (turn `Debit / Credit` code blocks into ruled tables, inject TOC anchors, classify numeric vs. prose tables), it provides per-output `post_pandoc_html_for_pdf` / `post_pandoc_html_for_web` functions (or a single-entry `post_pandoc_html` fallback for PDF-only forks). The template ships `transforms.py.example` demonstrating the per-output YouTube-embed split (iframe on the site, watch-link in print); activate by copying to `transforms.py` and the build picks it up automatically. See [Website deploy](#website-deploy-cloudflare).
-- **Content-identicalness, not byte-identicalness.** The verify harness checks page count + text + per-page pixels. Two consecutive builds of the same committed source produce content-identical PDFs even though the raw bytes can differ slightly (font subset prefixes, etc.). `SOURCE_DATE_EPOCH` is pinned from the most recent source commit and the output is run through `qpdf --deterministic-id` to make this hold.
-- **CI is build-smoke only**, not verify, and **Ubuntu only**. Strict pixel-exact rendering doesn't reproduce reliably across machines (HarfBuzz/Cairo/FreeType differences across OSes, and even between macOS minor versions). CI's job is to confirm `make` runs without crashing; local pre-push `make verify` is the real regression gate. macOS/Windows smoke was dropped to save Actions minutes (macOS bills 10x, Windows 2x the Linux rate), and the trigger is paths-filtered so doc-only pushes skip CI.
+- **Staleness verification, computed not rendered.** `make verify` compares the content hash embedded in the committed PDF's footer stamp against a fresh hash over `SOURCE_FILES` — no build, no fonts, no platform sensitivity — so it runs identically everywhere, including CI. Whether the *rendering* reproduced is a separate, canonical-host-only concern (`make verify-render`). `SOURCE_DATE_EPOCH` + `qpdf --deterministic-id` still make repeated builds of identical source content-identical.
+- **Reference PDFs are rendered on one canonical host.** They embed system fonts, which differ across OSes, so the family renders its downloadable PDFs on a single platform (recorded in `guide.toml` as `baseline_platform`) for consistent typography. `make baseline` / `make release` refuse a wrong-platform or dirty-tree render; `.github/workflows/baseline.yml` renders on a macOS runner so you don't need a Mac locally.
+- **CI runs the staleness check and build smoke, Ubuntu only.** Because `make verify` is platform-independent it gates in CI for real (the old "build-smoke only" rule is gone). CI never runs `make verify-render` (it needs a build and is platform-sensitive). Ubuntu-only + paths-filtered keeps Actions minutes low; a scheduled `kit-drift.yml` warns (never fails) when the kit's shared tooling moves ahead of this guide.
 - **Dual licensing.** Code (build scripts, CSS, configuration) is Apache 2.0. Content (your `guide.md` and the rendered PDF) is CC BY 4.0. Both live as explicit `LICENSE*` files so GitHub auto-detects them correctly and downstream re-users see clear, separate terms.
 
 ### How to fork
@@ -51,19 +53,32 @@ pixi run python bootstrap.py "My Guide Title" my-guide-slug \
   --keywords "comma, separated, keywords"
 ```
 
-`bootstrap.py` substitutes your title and slug into `build.py`, `pixi.toml`, `README.md`, and `CLAUDE.md`; removes this entire "Getting started from this template" section; and deletes itself + the `.template-uninitialized` sentinel that suppresses `build.py`'s template-hygiene check.
+`bootstrap.py` writes your per-guide values into a new `guide.toml`; re-renders the `templated` files (`pixi.toml`, `verify.yml`, `kit-drift.yml`) with your identity; fills the `{{GUIDE_NAME}}` / `{{GUIDE_SLUG}}` placeholders in `README.md` and in `CLAUDE.md`'s text outside the managed region; deletes the inherited reference PDF (yours is not built yet); writes the initial `.template-version` record; removes this entire "Getting started from this template" section; and deletes itself + the `.template-uninitialized` sentinel that suppresses `build.py`'s template-hygiene check.
 
 Then write your `guide.md`, eyeball with `make`, and `make release MSG="Initial content"` to land the first source + reference commit. Push, and your guide's PDF is downloadable from your fork's GitHub page.
 
-### Optional: examples in the wild
+### Staying in sync with the kit
 
-Real guides have been built from this template:
+A guide created from this template keeps its shared tooling up to date by **copy-and-checksum, not merge** — no `git subtree`, no upstream remote. The kit (`guide-template`) is the source of truth for the shared files; each guide records what it last adopted in `.template-version`.
 
-- A 52-page beginner's guide to financial accounting, with a substantive `transforms.py` (journal-entry classification, prose/figures table classification, glossary line breaks). Closest example of using every escape hatch.
-- An 11-page beginner's guide to the macOS Terminal. Minimal — no `transforms.py`, small HTML-island vocabulary.
-- A 28-page curriculum-style guide to Git and GitHub. Richer `style.css` (CSS-counter TOC numbering, exercise blocks with difficulty pills, separate `@page :first` at-rules) but no `transforms.py`.
+- `kit-manifest.toml` classifies every kit file on **two axes**: source lifecycle (`retained-in-kit` / `bootstrap-source` / `generated`) and destination policy (`identical` / `templated` / `managed-region` / `never`).
+- `python sync.py <guide>` reports drift and writes nothing (the default is a dry run).
+- `python sync.py <guide> --apply` writes the update transactionally (refusing a dirty tree or an unrecorded managed file, rolling back on any error).
+- `CLAUDE.md` is a `managed-region` file: only the block between the `kit:begin` / `kit:end` markers is synced; your own guide-specific sections outside them are never touched.
+- A scheduled, warn-only `kit-drift.yml` reports (never fails) when the kit moves ahead of a guide.
 
-These currently live in private repos so the actual sources aren't linked here, but they exercise the template's full range (one with transforms, two without; one with minimal CSS, one with richer CSS).
+Adding a web layer to an already-initialized guide is a separate one-shot: `python guide-template/adopt-web.py --target ../my-guide` (see [Website deploy](#website-deploy-cloudflare)).
+
+### Optional: the guide family
+
+This template is the kit behind a small family of guides, tied together by a hub site that links each one's PDF (and website, where it has one). The family spans the template's full range:
+
+- **Financial accounting** — a long-form guide with a substantive `transforms.py` (journal-entry classification, prose/figures table classification, glossary line breaks). The closest example of using every escape hatch.
+- **macOS Terminal** — minimal: no `transforms.py`, a small HTML-island vocabulary.
+- **Git & GitHub** — a curriculum-style guide with a richer `style.css` (CSS-counter TOC numbering, exercise blocks with difficulty pills, a separate `@page :first`) but no `transforms.py`.
+- Additional terminal-focused guides built on the same kit round out the family.
+
+Each guide is its own repo; the hub site is the single place their links are collected.
 
 ---
 
@@ -71,7 +86,7 @@ These currently live in private repos so the actual sources aren't linked here, 
 
 ### 1. Install pixi
 
-[pixi](https://pixi.sh) is a cross-platform package manager that handles every dependency this project needs (pandoc, Python, WeasyPrint, poppler, Pillow, qpdf) in a single isolated environment. No `brew`, no `apt`, no virtualenvs.
+[pixi](https://pixi.sh) is a cross-platform package manager that handles every dependency this project needs (pandoc, Python, WeasyPrint, poppler, qpdf) in a single isolated environment. No `brew`, no `apt`, no virtualenvs.
 
 ```bash
 # macOS / Linux
@@ -95,10 +110,11 @@ pixi install
 ```bash
 make                            # PDF (default) — writes build/{{GUIDE_SLUG}}.pdf
 make html                       # standalone HTML preview at build/{{GUIDE_SLUG}}.html
-make verify                     # check the fresh build matches the committed {{GUIDE_SLUG}}.pdf
-make baseline                   # promote build/{{GUIDE_SLUG}}.pdf onto {{GUIDE_SLUG}}.pdf (use deliberately)
-make release MSG="..."          # stage source + refresh reference + amend, in one commit
-make clean                      # remove build/ and verify-diff/
+make verify                     # staleness check: committed {{GUIDE_SLUG}}.pdf is up to date with source (no build)
+make verify-render              # canonical-host-only render canary (page count + text); needs a build
+make baseline                   # promote build/{{GUIDE_SLUG}}.pdf onto {{GUIDE_SLUG}}.pdf (canonical host; use deliberately)
+make release MSG="..."          # stage source + refresh reference + amend, in one commit (canonical host)
+make clean                      # remove build/
 
 # Opt-in web layer (only after `bootstrap.py --with-web` — see "Website deploy"):
 make web                        # build the website into app/dist/
@@ -115,20 +131,29 @@ The PDF is the default deliverable; the website is **opt-in**. On a PDF-only for
 | File | Purpose |
 |------|---------|
 | `guide.md` | The guide itself, in Markdown. Real Markdown with HTML islands only where Markdown can't express the styling. |
+| `guide.toml` | The seven per-guide values (`TITLE`, `OUTPUT_SLUG`, `AUTHOR`, `DESCRIPTION`, `KEYWORDS`, `COPYRIGHT_YEAR`, `baseline_platform`). Read and validated by `kitconfig.py`. |
+| `kitconfig.py` | The single strict loader/validator for `guide.toml`; owns the canonical `SOURCE_FILES` list and the content-hash used by the stamp and `make verify`. |
 | `style.css` | All visual styling (page layout, fonts, callouts, exercise boxes, tables, ASCII diagrams). Carries `__TITLE__` and `__VERSION__` placeholders substituted by `build.py`. |
-| `build.py` | The build pipeline: pandoc → optional `transforms.post_pandoc_html` → wrap in `<html>` → WeasyPrint → `qpdf` canonicalize. Holds `TITLE` / `OUTPUT_SLUG` / `AUTHOR` / `DESCRIPTION` / `KEYWORDS` constants. |
+| `build.py` | The build pipeline: pandoc → optional `transforms.post_pandoc_html` → wrap in `<html>` → WeasyPrint → `qpdf` canonicalize. Reads the per-guide values through `kitconfig`; holds no guide-specific literal. |
 | `transforms.py.example` | Hook template. Copy → `transforms.py` to activate per-guide HTML transforms. |
 | `transforms.py` | Optional — present only in forks that need post-pandoc HTML rewrites. |
-| `verify_pdf.py` | Three-check harness (page count, text diff, per-page pixel diff at zero tolerance). |
-| `release.py` | Helper for `make release` — stages source files, commits, re-renders, promotes the working render onto `{{GUIDE_SLUG}}.pdf`, amends. |
+| `verify_pdf.py` | The verify engine: `--staleness` (embedded stamp hash vs. a fresh content hash — no build) and a separate `--render` canary (page count + stamp-excluded text). |
+| `baseline.py` | Helper for `make baseline` — platform + dirty-tree guards, then promotes the working render onto `{{GUIDE_SLUG}}.pdf`. Refuses off the canonical host. |
+| `release.py` | Helper for `make release` — stages source, commits, re-renders, promotes onto `{{GUIDE_SLUG}}.pdf`, amends. Refuses off the canonical host or with a dirty tree. |
+| `kit-manifest.toml` / `kitmanifest.py` | The two-axis file manifest (source lifecycle × destination policy) and its loader — the classification `sync.py` and `bootstrap.py` act on. |
+| `sync.py` | Copy-and-checksum engine: reports drift (default) or, with `--apply`, transactionally updates a guide's shared files from the kit. |
+| `adopt-web.py` | One-shot: add the opt-in web layer to an already-initialized guide (`--target <guide>`). Runs from the kit, writes only into the target. |
+| `.template-version` | Per-guide record of what was last adopted from the kit (`managed_digest`, `rendered_checksums`, `state`). Written by `bootstrap.py`; updated by `sync.py`. |
 | `{{GUIDE_SLUG}}.pdf` | Committed reference PDF at the repo root — readers download this directly from GitHub. Regenerate via `make baseline` or `make release`. |
 | `bootstrap.py` | One-shot rename-your-fork script. Present in template; deleted after first run. |
 | `.template-uninitialized` | Sentinel suppressing `build.py`'s template-hygiene check while the template is in its un-substituted state. `bootstrap.py` removes it. |
 | `Makefile` | Convenience targets — thin wrappers around `pixi run` plus a few amend-workflow helpers. |
 | `pixi.toml` / `pixi.lock` | Dependency manifest + locked versions for reproducible builds. |
-| `CLAUDE.md` | Project conventions, gotchas, and per-guide notes. Read before editing content. |
+| `CLAUDE.md` | Project conventions and per-guide notes; a `managed-region` file (shared policy between the `kit:begin`/`kit:end` markers is synced). Read before editing content. |
 | `LICENSE` / `LICENSE-CONTENT` | Apache 2.0 for code, CC BY 4.0 for content. |
-| `.github/workflows/verify.yml` | CI: build-smoke on Ubuntu only, paths-filtered. (Strict `make verify` runs only locally — see CLAUDE.md's "CI policy".) |
+| `.github/workflows/verify.yml` | CI on Ubuntu, paths-filtered: build smoke + `make verify` (the staleness check). Never runs `make verify-render`. |
+| `.github/workflows/baseline.yml` | Renders the reference PDF on a `macos-latest` runner and commits it — dispatch it instead of needing a physical canonical host. |
+| `.github/workflows/kit-drift.yml` | Scheduled, warn-only: reports when the kit's shared tooling has moved ahead of this guide. |
 | `style-screen.css.example` | Opt-in web layer: screen stylesheet starter. `bootstrap.py --with-web` copies it to `style-screen.css` (NOT a SOURCE_FILE — web-only, doesn't bump the PDF stamp). |
 | `templates/web/` | Opt-in web layer: the `app/` scaffold staging dir (`wrangler.jsonc`, `package.json` + lockfile, `public/.gitkeep`). `--with-web` copies it to `app/` with the slug substituted, then removes the staging copy. |
 | `.github/workflows/deploy.yml.example` | Opt-in web layer: inert deploy workflow (GitHub only runs `*.yml`). `--with-web` activates it as `deploy.yml`. |
@@ -141,13 +166,13 @@ The PDF is the default deliverable; the website is **opt-in**. On a PDF-only for
 For **intentional content changes** — anything that alters the rendered PDF:
 
 ```
-1. Edit guide.md / style.css / build.py / transforms.py
+1. Edit guide.md / style.css / build.py / transforms.py / guide.toml
 2. make                                    # render to build/{{GUIDE_SLUG}}.pdf
 3. Open build/{{GUIDE_SLUG}}.pdf and eyeball it. Right? If not, fix and goto 2.
 4. make release MSG="Your commit message"  # stage source, commit, refresh reference, amend
 ```
 
-`make release` is a thin wrapper around `release.py`. It refuses to run if the working tree has staged changes or modifications to files outside the version-stamp input list (`SOURCE_FILES` in `build.py`: `guide.md` / `style.css` / `build.py` / `transforms.py`) — commit those with plain `git commit` first.
+`make release` is a thin wrapper around `release.py`. It refuses to run if the working tree has staged changes or modifications to files outside the version-stamp input list (`SOURCE_FILES` in `kitconfig.py`: `guide.md` / `style.css` / `build.py` / `transforms.py` / `guide.toml` / `kitconfig.py`) — commit those with plain `git commit` first. It also refuses off the canonical host recorded in `guide.toml` as `baseline_platform`.
 
 The manual equivalent of step 4, if you'd rather drive it yourself:
 
@@ -161,29 +186,27 @@ git commit --amend --no-edit     # fold {{GUIDE_SLUG}}.pdf into the source commi
 
 Why amend? The version stamp in the PDF footer is derived from `git log` and `git status`. Rendering the reference PDF *before* the source commit produces a footer with ` · dirty` and the previous commit's date — which will never match a future post-commit `make verify`. Committing source first makes the stamp stable; amend keeps source + reference in one logical commit. `make release` enforces the order; doing it by hand requires you to.
 
-For **doc-only changes** — anything outside `SOURCE_FILES` — the rendered PDF is unaffected. Commit normally; no reference refresh needed. This covers `README.md`, `CLAUDE.md`, `LICENSE*`, `Makefile`, `pixi.toml`, `pixi.lock`, `verify_pdf.py`, `release.py`, `bootstrap.py`, and `.github/workflows/`. `release.py` enforces this boundary — it refuses to run when modifications outside `SOURCE_FILES` are present, so a doc edit can never accidentally hitchhike into a release commit.
+For **doc-only changes** — anything outside `SOURCE_FILES` — the rendered PDF is unaffected. Commit normally; no reference refresh needed. This covers `README.md`, `CLAUDE.md`, `LICENSE*`, `Makefile`, `pixi.toml`, `pixi.lock`, `verify_pdf.py`, `baseline.py`, `release.py`, `bootstrap.py`, `sync.py`, `adopt-web.py`, `kit-manifest.toml`, `kitmanifest.py`, `.template-version`, and `.github/workflows/`. `release.py` enforces this boundary — it refuses to run when modifications outside `SOURCE_FILES` are present, so a doc edit can never accidentally hitchhike into a release commit.
 
 (One sneaky case: a `pixi.lock` update can drift rendering even though it's not a "source" file. That'll surface as a `make verify` failure on the next build — correct behavior. Pin tighter in `pixi.toml` if you want to narrow the window.)
 
-## Verify harness
+## Verify: two commands, not one
 
-`make verify` runs `verify_pdf.py {{GUIDE_SLUG}}.pdf build/{{GUIDE_SLUG}}.pdf`, which checks:
+Verification is split into a fast, platform-independent staleness check and a slower, canonical-host-only render canary. Neither compares rendered images.
 
-1. **Page count** via `pdfinfo` — fails on mismatch.
-2. **Text content** via `pdftotext` (no `-layout`) — fails with a first-50-lines unified diff snippet. Catches added / removed / reordered text, not visual position drift.
-3. **Per-page pixel diff** via `pdftoppm -r 150 -png` + Pillow `ImageChops.difference` at zero tolerance — fails if any channel of any pixel differs on any page. On failure, per-page diff PNGs land in `verify-diff/page-NN.png` for visual inspection.
+**`make verify` — the staleness check (the one CI runs).** It runs `verify_pdf.py --staleness` against the committed `{{GUIDE_SLUG}}.pdf`: read the content hash embedded in the PDF's footer stamp (one `pdftotext` call), compute a fresh hash over `SOURCE_FILES`, and compare. No build, no fonts, no rendering — milliseconds, and it produces the same answer on every machine. A mismatch means someone edited a source file without re-running `make release`, so the repo would ship Markdown and a PDF that disagree; the error names the stale file. A never-released guide (no reference PDF yet) passes with a `pre-first-release` notice.
 
-Both PDFs are canonicalized through `qpdf --deterministic-id --normalize-content=y` first so accidental non-determinism in the inputs doesn't masquerade as a real diff.
+A green `make verify` is the contract that the committed reference PDF is up to date with the committed source. A red one means either uncommitted/unreleased source changes (run the workflow above) or a `· dirty` stamp that a release would clear.
 
-A green `make verify` is the contract that your latest build is content-identical to the committed reference. A red `make verify` either means a real regression OR that you intentionally changed source without refreshing the reference (run the workflow above).
+**`make verify-render` — the render canary (canonical host only).** It builds a fresh PDF and compares page count plus stamp-excluded `pdftotext` text against the committed reference. It needs a build and is platform-sensitive (font substitution changes line wrapping), so it is **never** wired into CI. Its one genuine catch is *environmental* drift — a dependency bump that shifts layout with no source change — which the computed staleness check can't see.
 
-**A known fragility:** the pixel-exact check can be sensitive to fontconfig cache state outside `.pixi/`. A `rm -rf .pixi && pixi install` on the same machine can occasionally produce a slightly different glyph rendering for pages heavy in non-ASCII characters (we've hit it on `→` arrows). Pixi.lock pins package versions but not your system's font-cache state. If you see a one-page pixel diff after a fresh install, refresh the reference (`make release MSG="Refresh reference"`) and recommit. Page count + text content checks remain reliable across this.
+Both PDFs it touches are canonicalized through `qpdf --deterministic-id --normalize-content=y` so accidental non-determinism doesn't masquerade as a real diff.
 
 ## CI policy
 
-CI (GitHub Actions) runs `make` build-smoke on `ubuntu-latest` only. It does **not** run `make verify`. Why: strict pixel-exact rendering doesn't reproduce across machines (HarfBuzz/Cairo/FreeType drift across OSes, and even between macOS minor versions ship different fonts). CI's job is to confirm the pipeline doesn't crash; local pre-push `make verify` is what catches rendering regressions.
+CI (GitHub Actions) runs on `ubuntu-latest` only: the **kit test suite**, a **PDF build smoke** (`make` renders without crashing), a **web build smoke** (`make web`, when the guide has a web layer), and **`make verify`** (the staleness check). Because staleness is computed from hashes rather than rendered, it reproduces identically on any machine, so — unlike the old image-comparison harness — it is a real gate in CI, not just a local one. CI never runs `make verify-render`: that needs a build and is platform-sensitive, so it stays a canonical-host command.
 
-Two cost controls keep Actions minutes low: CI is **Ubuntu only** (macOS runners bill at 10x and Windows at 2x the Linux rate, and the cross-platform smoke rarely caught anything Ubuntu didn't), and the workflow is **paths-filtered** — pushes that only touch docs (`README.md`, `CLAUDE.md`, `LICENSE*`), `plans/`, or other non-build files skip CI entirely. Trigger a run manually from the Actions tab (`workflow_dispatch`) if you ever need one outside those paths.
+Two cost controls keep Actions minutes low: CI is **Ubuntu only** (macOS runners bill at 10x and Windows at 2x the Linux rate), and the workflow is **paths-filtered** — pushes that only touch docs (`README.md`, `CLAUDE.md`, `LICENSE*`), `plans/`, or other non-source files skip it. The reference PDF itself is rendered on the canonical host: dispatch `.github/workflows/baseline.yml` (a `macos-latest` runner) to refresh it without a physical Mac. A scheduled `.github/workflows/kit-drift.yml` warns — never fails — when the kit's shared tooling has moved ahead of this guide.
 
 ## Website deploy (Cloudflare)
 
@@ -193,7 +216,7 @@ The website is an **opt-in** second output. The PDF is the default; a PDF-only f
 pixi run python bootstrap.py "My Guide Title" my-guide-slug --with-web
 ```
 
-That materializes `style-screen.css`, activates `transforms.py` (the per-output YouTube embed split, so embeds work on the site and degrade to links in the PDF), copies the `app/` Cloudflare scaffold (with your slug as the worker name), and activates a live `.github/workflows/deploy.yml`. (Already initialized without it? Copy `style-screen.css.example` → `style-screen.css` and `transforms.py.example` → `transforms.py`, copy `templates/web/` → `app/` and set the `name` field in `app/wrangler.jsonc` to your slug, and rename `.github/workflows/deploy.yml.example` → `deploy.yml`. Note `transforms.py` is a SOURCE_FILE — re-baseline with `make release` afterward.)
+That materializes `style-screen.css`, activates `transforms.py` (the per-output YouTube embed split, so embeds work on the site and degrade to links in the PDF), copies the `app/` Cloudflare scaffold (with your slug as the worker name), and activates a live `.github/workflows/deploy.yml`. (Already initialized without it? Run `python guide-template/adopt-web.py --target ../my-guide` — it materializes the same web layer transactionally and records the new managed files in `.template-version` so `sync.py` doesn't later refuse them. `transforms.py` is **not** activated by default, since it is a SOURCE_FILE and would shift the version stamp; pass `--with-transforms` if the guide needs it, then re-baseline with `make release`.)
 
 Once enabled, the site builds with `make web` (→ `app/dist/`) and deploys to Cloudflare Workers Static Assets. `make dev` serves it locally (requires **Node ≥22**; run `npm install` in `app/` first — wrangler is pinned in `app/package.json`). `.github/workflows/deploy.yml` deploys automatically (push to `main` → production; PR → preview URL posted as a comment). `make deploy` is the manual one-off.
 
@@ -256,8 +279,9 @@ By default the site is reachable at `{{GUIDE_SLUG}}.<your-subdomain>.workers.dev
 The conventions you'll most often want to know:
 
 - **Allowed HTML islands** in `guide.md` are listed in [`CLAUDE.md`](CLAUDE.md). The defaults: `<div class="title-block">`, `<div class="callout warn|tip|accent">`, `<div class="exercise">`, `<pre class="diagram">`, `<div class="page-break"></div>`. Forks add or remove from this list and update `style.css` to match.
-- **Source files that bump the version stamp:** `guide.md`, `style.css`, `build.py`, `transforms.py`. Only changes to these require a reference refresh (everything else commits normally).
-- **The footer version stamp** is derived from `git log` + `git status` over the source files. ` · dirty` appears when the working tree has uncommitted source changes. Treat it as a load-bearing signal that the PDF in your hand matches a real commit.
+- **Source files that bump the version stamp:** `guide.md`, `style.css`, `build.py`, `transforms.py`, `guide.toml`, `kitconfig.py` (the canonical `SOURCE_FILES` list lives in `kitconfig.py`). Only changes to these require a reference refresh (everything else commits normally).
+- **Per-guide values live in `guide.toml`**, not scattered through the scripts — `TITLE`, `OUTPUT_SLUG`, `AUTHOR`, `DESCRIPTION`, `KEYWORDS`, `COPYRIGHT_YEAR`, `baseline_platform` — read and validated by `kitconfig.py`. `OUTPUT_SLUG` is independent of the repo name.
+- **The footer version stamp** is `YYYY-MM-DD HH:MM:SS · <sha256[:12]>` over the `SOURCE_FILES` bytes (author date of the most recent commit touching any of them). ` · dirty` appears when the working tree has uncommitted source changes. Treat it as a load-bearing signal that the PDF in your hand matches a real commit — `make verify` compares exactly this embedded hash against fresh source.
 
 ## License
 

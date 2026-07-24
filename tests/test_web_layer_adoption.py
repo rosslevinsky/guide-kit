@@ -25,14 +25,10 @@ adopt_web = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(adopt_web)
 
 
-def _mkkit(dst: Path, markers: bool = False) -> Path:
+def _mkkit(dst: Path) -> Path:
+    # The kit's real CLAUDE.md already carries the kit:begin/end markers (Phase 9),
+    # which bootstrap.py's compute_managed_digest needs — copy it faithfully.
     shutil.copytree(REPO_ROOT, dst, ignore=_IGNORE)
-    if markers:
-        claude = dst / "CLAUDE.md"
-        claude.write_text(
-            claude.read_text(encoding="utf-8")
-            + f"\n{sync.MARK_BEGIN}\nSHARED KIT POLICY\n{sync.MARK_END}\n", encoding="utf-8"
-        )
     return dst
 
 
@@ -152,8 +148,8 @@ def test_refuses_without_template_version(tmp_path):
 def test_records_checksums_so_sync_does_not_refuse(tmp_path):
     # A fully-adopted PDF-only fork (via bootstrap), then adopt-web, then confirm
     # the planner sync.py uses has NO refusals — proving the web dests were recorded.
-    kit = _mkkit(tmp_path / "kit", markers=True)
-    fork = _mkkit(tmp_path / "fork", markers=True)
+    kit = _mkkit(tmp_path / "kit")
+    fork = _mkkit(tmp_path / "fork")
     r = subprocess.run(
         [sys.executable, str(fork / "bootstrap.py"), "Mac Guide", "mac-guide",
          "--baseline-platform", "darwin", "--source-repo", "rosslevinsky/guide-template", "--kit-version", "t"],
