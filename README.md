@@ -69,16 +69,23 @@ A guide created from this template keeps its shared tooling up to date by **copy
 
 Adding a web layer to an already-initialized guide is a separate one-shot: `python guide-template/adopt-web.py --target ../my-guide` (see [Website deploy](#website-deploy-cloudflare)).
 
-### Optional: the guide family
+### The guide family
 
-This template is the kit behind a small family of guides, tied together by a hub site that links each one's PDF (and website, where it has one). The family spans the template's full range:
+This template is the kit behind six guides. Four of them are terminal guides, collected by a hub
+site: **<https://terminal-guides.speedytuna.com>**. Between them they exercise the template's full
+range — with and without `transforms.py`, minimal and rich `style.css`, PDF-only and web-enabled.
 
-- **Financial accounting** — a long-form guide with a substantive `transforms.py` (journal-entry classification, prose/figures table classification, glossary line breaks). The closest example of using every escape hatch.
-- **macOS Terminal** — minimal: no `transforms.py`, a small HTML-island vocabulary.
-- **Git & GitHub** — a curriculum-style guide with a richer `style.css` (CSS-counter TOC numbering, exercise blocks with difficulty pills, a separate `@page :first`) but no `transforms.py`.
-- Additional terminal-focused guides built on the same kit round out the family.
+| Guide | What it exercises | Read it |
+|---|---|---|
+| **macOS Terminal** | The structural model the others follow. No `transforms.py`, small island vocabulary. | [mac-terminal.speedytuna.com](https://mac-terminal.speedytuna.com) |
+| **Linux Terminal** | Same shape, adapted; every command executed in a container and its output copied exactly. | [linux-terminal.speedytuna.com](https://linux-terminal.speedytuna.com) |
+| **Windows PowerShell** | Written fresh around the object pipeline; split verification (executed in `pwsh`, cited where Windows-only). | [powershell.speedytuna.com](https://powershell.speedytuna.com) |
+| **Windows Command Prompt** | Re-framed rather than translated; verified by per-command citation, since `cmd.exe` has no Linux runtime. | [cmd.speedytuna.com](https://cmd.speedytuna.com) |
+| **Git & GitHub** | Richer `style.css` — CSS-counter TOC numbering, exercise blocks with difficulty pills, a separate `@page :first`. No `transforms.py`. | private repo |
+| **Financial accounting** | The closest example of using every escape hatch: a substantive `transforms.py` doing journal-entry classification, prose/figures table classification and glossary line breaks. | private repo |
 
-Each guide is its own repo; the hub site is the single place their links are collected.
+Each guide is its own repo. The four terminal guides publish public sites; the other two are
+private, so they are listed for what they demonstrate rather than linked.
 
 ---
 
