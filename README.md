@@ -181,8 +181,24 @@ For **intentional content changes** — anything that alters the rendered PDF:
 1. Edit guide.md / style.css / build.py / transforms.py / guide.toml
 2. make                                    # render to build/{{GUIDE_SLUG}}.pdf
 3. Open build/{{GUIDE_SLUG}}.pdf and eyeball it. Right? If not, fix and goto 2.
-4. make release MSG="Your commit message"  # stage source, commit, refresh reference, amend
+4. git commit && git push                  # CI refreshes the reference PDF for you
 ```
+
+**Step 4 is a plain push, from any platform.** The reference PDF is regenerated in CI: your push
+leaves the committed reference stale, so `verify.yml` fails and auto-dispatches `baseline.yml`,
+which re-renders on a `macos-latest` runner, smoke-checks the render, commits the refreshed PDF,
+and then dispatches `deploy.yml` so the site stops serving the old download. **That first red
+`verify` run is expected** — the commit `baseline.yml` pushes behind it is the green one. Don't
+try to repair it by hand.
+
+Steps 2–3 still matter. Once you push, the only thing that looks at the render is `make smoke`,
+which checks that the PDF resembles a finished guide — never that it says what you meant.
+
+### Refreshing the reference yourself
+
+`make release` collapses steps 2–4 into one command and is the right tool **on the canonical
+host** — it refuses to run anywhere else (`baseline_platform` in `guide.toml`), which is exactly
+why the push path above is the normal one for everyone else.
 
 `make release` is a thin wrapper around `release.py`. It refuses to run if the working tree has staged changes or modifications to files outside the version-stamp input list (`SOURCE_FILES` in `kitconfig.py`: `guide.md` / `style.css` / `build.py` / `transforms.py` / `guide.toml` / `kitconfig.py`) — commit those with plain `git commit` first. It also refuses off the canonical host recorded in `guide.toml` as `baseline_platform`.
 
@@ -231,6 +247,21 @@ pixi run python bootstrap.py "My Guide Title" my-guide-slug --with-web
 That materializes `style-screen.css`, activates `transforms.py` (the per-output YouTube embed split, so embeds work on the site and degrade to links in the PDF), copies the `app/` Cloudflare scaffold (with your slug as the worker name), and activates a live `.github/workflows/deploy.yml`. (Already initialized without it? Run `python guide-template/adopt-web.py --target ../my-guide` — it materializes the same web layer transactionally and records the new managed files in `.template-version` so `sync.py` doesn't later refuse them. `transforms.py` is **not** activated by default, since it is a SOURCE_FILE and would shift the version stamp; pass `--with-transforms` if the guide needs it, then re-baseline with `make release`.)
 
 Once enabled, the site builds with `make web` (→ `app/dist/`) and deploys to Cloudflare Workers Static Assets. `make dev` serves it locally (requires **Node ≥22**; run `npm install` in `app/` first — wrangler is pinned in `app/package.json`). `.github/workflows/deploy.yml` deploys automatically (push to `main` → production; PR → preview URL posted as a comment). `make deploy` is the manual one-off.
+
+**The deploy is gated on `make verify`.** The site ships a *copy* of the reference PDF baked in at `make web` time, so `deploy.yml` refuses to publish while the committed reference is stale — otherwise a content push would put new HTML and an old download side by side. In practice that means a push which edits `guide.md` shows a **failed deploy** until `baseline.yml` has refreshed the PDF; the deploy that `baseline.yml` then dispatches is the one that goes green. A red deploy straight after a content push is the gate doing its job, not a broken pipeline.
+
+The whole chain, end to end:
+
+```
+push guide.md
+  └─ verify.yml   RED (reference now stale) ──┐
+     deploy.yml   RED (staleness gate)        │ auto-dispatch
+                                              ▼
+     baseline.yml  macos-latest: make baseline → make verify → make smoke
+                   └─ commits the refreshed PDF, then dispatches:
+                      ├─ verify.yml   GREEN
+                      └─ deploy.yml   GREEN — site live with new HTML + PDF
+```
 
 CI deploys need two **GitHub Actions secrets**. Local `wrangler` auth on your machine does **not** carry into GitHub Actions — you must store these in the repo.
 

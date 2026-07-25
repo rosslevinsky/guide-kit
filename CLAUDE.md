@@ -163,8 +163,15 @@ committed.
 # 1. Edit guide.md / style.css / build.py / transforms.py / guide.toml
 # 2. make                          # render the working PDF (build/<slug>.pdf)
 # 3. Open it and eyeball the render. Right? If not, fix and goto 2.
-# 4. make release MSG="…"          # (on the canonical host) commit source + refresh reference
+# 4. git commit && git push        # CI re-renders the reference PDF on macOS
 ```
+
+Step 4 is a plain push from any platform. It leaves the committed reference stale, so `verify.yml`
+goes red and auto-dispatches `baseline.yml`, which re-renders on a macOS runner, smoke-checks,
+commits the refreshed PDF and redeploys the site. **Expect that one red verify run** — the commit
+behind it is the green one, and `deploy.yml` is gated on the same staleness check, so it stays red
+until the refreshed PDF lands. `make release MSG="…"` is the local equivalent of steps 2-4 and is
+the right tool **on the canonical host only**; it refuses to run anywhere else.
 
 `release.py` refuses to run with staged changes or modifications outside `SOURCE_FILES` — commit
 those with a plain `git commit` first. Doc-only edits (`README.md`, this file, `LICENSE`,
