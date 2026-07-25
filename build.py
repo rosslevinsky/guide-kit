@@ -46,6 +46,7 @@ Pandoc options:
 import argparse
 import importlib.util
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -326,13 +327,112 @@ WEB_CHROME_CSS = """
 @media print {
   .site-topbar { display: none; }
 }
+
+/* ---- Wide-content breakout ----------------------------------------------
+   The prose measure (--max-width, ~46rem) is CORRECT and is not touched here:
+   at this font size that is roughly 75-90 characters per line, which is the
+   readable measure. Widening body text past it makes the eye lose its place on
+   the return sweep.
+
+   Tables are the problem. They were `width: 100%` inside that measure with NO
+   overflow escape, so a wide reference table was compressed into the prose
+   column and wrapped into stacks — git-guide's widest row carries 179
+   characters of text across 50 rows, and accounting's journal tables are
+   similar. Code was already fine: the widest code line in the family is 90
+   characters and `pre` already scrolls.
+
+   So this is a per-element breakout, not a global widening. `.wide-block`
+   centres a wider box on the prose column using the translate pattern rather
+   than negative margins, and is capped against the VIEWPORT (not just a rem
+   value) so it can never push the page into horizontal scrolling — the classic
+   bug with breakout hacks. Inside it, `overflow-x: auto` means anything still
+   too wide scrolls in its own box instead of overflowing the page.
+
+   Emitted from the kit rather than added to each guide's style-screen.css,
+   which is target-owned: all seven are byte-identical here today, and seven
+   hand-copies would be free to drift from the moment they were made. */
+:root {
+  --wide-width: 64rem;
+}
+.wide-block {
+  width: min(var(--wide-width), calc(100vw - 2.5rem));
+  margin-left: 50%;
+  transform: translateX(-50%);
+  overflow-x: auto;
+  /* A scroll container is a focusable region for keyboard users; without this
+     they cannot reach it to scroll. tabindex is set on the element by build.py. */
+  margin-block: 1.25rem;
+}
+.wide-block > table {
+  margin: 0;
+  /* min-width keeps columns from collapsing to unreadable widths inside the
+     scroll container: below this the table scrolls instead of squeezing. */
+  min-width: 32rem;
+}
+.wide-block:focus-visible {
+  outline: 2px solid var(--accent, #0b5394);
+  outline-offset: 2px;
+}
+/* Never break out in print. The PDF is rendered from style.css, not this file,
+   but `make html` produces a browser-printable page from the SCREEN CSS, and a
+   translated, viewport-sized box paginates badly. */
+@media print {
+  .wide-block {
+    width: auto;
+    margin-left: 0;
+    transform: none;
+    overflow-x: visible;
+  }
+}
+/* Narrow viewports: the breakout is already viewport-capped, so it collapses to
+   the content width on its own. Drop the centring maths to avoid sub-pixel
+   drift at small sizes. */
+@media (max-width: 48rem) {
+  .wide-block {
+    width: 100%;
+    margin-left: 0;
+    transform: none;
+  }
+}
 """
+
+
+# A `<table>` that is NOT already immediately preceded by the breakout wrapper.
+# The negative lookbehind makes the transform IDEMPOTENT: applying it twice
+# cannot nest wrappers. That matters because the call site is one line in one
+# function today, and a future `transforms.py` or a second pass would otherwise
+# silently produce nested scroll containers — two focusable regions around one
+# table, and a table inside a scroll box inside a scroll box.
+_TABLE_OPEN_RE = re.compile(r'(?<!role="region">)<table(\s[^>]*)?>')
+
+
+def _wrap_wide_blocks(html: str) -> str:
+    """Wrap every `<table>` in a scrollable breakout container (screen only).
+
+    Pandoc emits a bare `<table>` with nowhere to hang `overflow-x`, and putting
+    it on the table itself requires `display: block`, which discards table layout
+    and so defeats the purpose. A wrapper is the only way to get "use more width,
+    and scroll if that is still not enough" while keeping real table rendering.
+
+    `tabindex="0"` is not decoration: a horizontally scrolling region is
+    unreachable by keyboard without it, so a wide table would be readable with a
+    mouse and not otherwise.
+
+    Deliberately NOT applied to `pre`: those already scroll inside the prose
+    measure, the widest code line in the family is 90 characters, and pulling
+    code blocks out of the text column would break the read-along flow that the
+    guides depend on.
+    """
+    return _TABLE_OPEN_RE.sub(
+        lambda m: f'<div class="wide-block" tabindex="0" role="region">{m.group(0)}',
+        html,
+    ).replace("</table>", "</table></div>")
 
 
 def render_web_html() -> str:
     """Render the SCREEN HTML: pandoc → web transforms → wrap with
     style-screen.css. Used for the website output only."""
-    body = _apply_transforms(_pandoc_body(), "web")
+    body = _wrap_wide_blocks(_apply_transforms(_pandoc_body(), "web"))
     # Top chrome: the same download affordance as the footer, ABOVE the guide
     # text. Without it the only way to get the PDF is to scroll the entire
     # document — which on the longest guide in this family means ~50 pages of
