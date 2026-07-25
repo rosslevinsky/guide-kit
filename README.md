@@ -71,9 +71,9 @@ Adding a web layer to an already-initialized guide is a separate one-shot: `pyth
 
 ### The guide family
 
-This template is the kit behind six guides. Four of them are terminal guides, collected by a hub
-site: **<https://terminal-guides.speedytuna.com>**. Between them they exercise the template's full
-range — with and without `transforms.py`, minimal and rich `style.css`, PDF-only and web-enabled.
+This template is the kit behind seven guides, all collected by a hub site:
+**<https://guides.speedytuna.com>**. Between them they exercise the template's full range — with
+and without `transforms.py`, minimal and rich `style.css`, PDF-only and web-enabled.
 
 | Guide | What it exercises | Read it |
 |---|---|---|
@@ -82,10 +82,11 @@ range — with and without `transforms.py`, minimal and rich `style.css`, PDF-on
 | **Windows PowerShell** | Written fresh around the object pipeline; split verification (executed in `pwsh`, cited where Windows-only). | [powershell.speedytuna.com](https://powershell.speedytuna.com) |
 | **Windows Command Prompt** | Re-framed rather than translated; verified by per-command citation, since `cmd.exe` has no Linux runtime. | [cmd.speedytuna.com](https://cmd.speedytuna.com) |
 | **Git & GitHub** | Richer `style.css` — CSS-counter TOC numbering, exercise blocks with difficulty pills, a separate `@page :first`. No `transforms.py`. | [git.speedytuna.com](https://git.speedytuna.com) |
-| **Financial accounting** | The closest example of using every escape hatch: a substantive `transforms.py` doing journal-entry classification, prose/figures table classification and glossary line breaks. | private repo |
+| **Financial accounting** | The closest example of using every escape hatch: a substantive `transforms.py` doing journal-entry classification, prose/figures table classification and glossary line breaks. | [accounting.speedytuna.com](https://accounting.speedytuna.com) |
+| **Japan trip advice** | The one guide that is not technical — proof the kit is not shaped around code samples. | [japan.speedytuna.com](https://japan.speedytuna.com) |
 
-Each guide is its own repo. Five publish public sites; only the accounting guide is unlinked, as
-it has no site yet.
+Each guide is its own repo, and every one now publishes a public site. The **sites** are public;
+the **repos** that build them are private, with this one — the kit — the exception.
 
 ---
 
