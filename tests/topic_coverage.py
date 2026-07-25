@@ -275,16 +275,30 @@ def _invocation(line: str) -> str | None:
 def _first_token_is(invocation: str, command: str) -> bool:
     """True when `command` is the thing being RUN, not merely mentioned.
 
-    Compares the first whitespace-delimited token, so `man rm`, `echo "run rm"`
-    and `rm` used as an argument do not count. Trailing punctuation is allowed
-    because `cd..` and `cd\\` are genuine cmd invocations.
+    Checks the first token of EVERY pipeline segment, not just the first token
+    of the line. In a pipeline shell the downstream commands are genuinely being
+    run — PowerShell's entire model is `Get-ChildItem | Where-Object ... |
+    Select-Object ...`, and requiring first-position would report its two most
+    characteristic cmdlets as never invoked. Splitting on `|` keeps the property
+    that matters: `man rm`, `echo "never run rm"` and `rm` as an argument still
+    do not count, because in each the command is not first in any segment.
+
+    Trailing punctuation is allowed because `cd..` and `cd\\` are genuine cmd
+    invocations. (A literal `|` inside a quoted string would over-split; that
+    errs toward permissive and has not arisen in these guides.)
     """
     if not invocation:
         return False
-    token = invocation.split()[0]
-    if token == command:
-        return True
-    return token.startswith(command) and token[len(command):len(command) + 1] in (".", "\\", "/")
+    for segment in invocation.split("|"):
+        parts = segment.split()
+        if not parts:
+            continue
+        token = parts[0]
+        if token == command:
+            return True
+        if token.startswith(command) and token[len(command):len(command) + 1] in (".", "\\", "/"):
+            return True
+    return False
 
 
 @dataclass

@@ -473,3 +473,25 @@ def test_assert_full_coverage_raises_with_path(tmp_path):
 def test_all_nine_subjects_are_declared():
     assert len(tc.SUBJECTS) == 9
     assert len({s.key for s in tc.SUBJECTS}) == 9
+
+
+def test_pipeline_downstream_commands_count_as_invoked():
+    """A cmdlet used downstream in a pipeline IS being run.
+
+    PowerShell's model is the pipeline, so requiring first-position on the line
+    would report Where-Object and Select-Object — its two most characteristic
+    cmdlets — as never invoked in a guide that teaches them properly.
+    """
+    md = ("```\nPS C:\\> Get-ChildItem | Where-Object Length -gt 10 | Select-Object Name\n"
+          "Name\n----\nlist.txt\n```\n")
+    for cmd in ("Get-ChildItem", "Where-Object", "Select-Object"):
+        no_ex, no_out = tc.check_commands(md, [cmd])
+        assert no_ex == [] and no_out == [], cmd
+
+
+def test_pipeline_split_does_not_excuse_a_mere_mention():
+    """Splitting on `|` must not weaken the mention checks."""
+    md = '```\n$ echo "never run rm -rf /"\nnever run rm -rf /\n```\n'
+    assert tc.check_commands(md, ["rm"])[0] == ["rm"]
+    md2 = "```\n$ man rm\nRM(1)\n```\n"
+    assert tc.check_commands(md2, ["rm"])[0] == ["rm"]
