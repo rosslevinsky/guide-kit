@@ -95,7 +95,16 @@ jobs:
 
   deploy:
     needs: guard
-    if: needs.guard.outputs.has_pdf == 'true'
+    # Dependabot PRs are excluded deliberately. GitHub withholds repository
+    # secrets from them by design, so CLOUDFLARE_API_TOKEN is empty and the
+    # preview upload cannot succeed — it fails on every single dependency PR,
+    # which trains everyone to ignore a red check on exactly the PRs worth
+    # reading. Skipping is honest: nothing was deployed and nothing pretended
+    # to be. The dependency bump is still validated by verify.yml (build smoke
+    # + staleness), which needs no secrets.
+    if: >-
+      needs.guard.outputs.has_pdf == 'true'
+      && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
