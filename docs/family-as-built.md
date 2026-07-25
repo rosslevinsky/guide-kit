@@ -187,18 +187,21 @@ them and needs no secrets, so the bump is still validated.
    `romance-languages` carry values predating this work — so at least two distinct tokens are in
    play. Minting one fresh token and rolling it across all of them would consolidate and retire the
    leaked value.
-2. **The old `terminal-guides` worker still exists.** The hub is live at
-   <https://guides.speedytuna.com>, but the superseded worker and its
-   `terminal-guides.speedytuna.com` binding were never removed — they still serve the old
-   four-guide page, so the family currently publishes two hubs, one of them stale. Removing it
-   needs a write-scoped Cloudflare token: the OAuth-backed Cloudflare MCP is **read-only** for
-   Workers (it enumerates scripts and domains but is refused `10000` on `assets-upload-session`,
-   and cannot mint a token — `9109`), so this is a `wrangler delete --name terminal-guides` for
-   whoever holds the token.
-3. **`romance-languages` has 17 open Dependabot alerts, 6 high** (`ws`, `brace-expansion`,
-   `fast-uri`, `@babel/plugin-transform-modules-systemjs`, plus medium `vite` and low `undici`). It
-   is not a kit target — its own Vite/React toolchain — so `sync.py` cannot reach it and it needs
-   its own bump plus a real build-and-test run. It is a public site linked from the hub.
+2. **Retired hub hostnames land on the wildcard, not a 404.** The old `terminal-guides` worker and
+   its domain binding are deleted (account is now 9 workers / 9 domains, all correctly mapped), but
+   because of defect 12 the retired `terminal-guides.speedytuna.com` answers **200 with the generic
+   "Speedy Tuna" placeholder** rather than telling anyone it moved. Any bookmark or inbound link to
+   a retired subdomain silently lands somewhere wrong. A Cloudflare **Redirect Rule** sending
+   `terminal-guides.speedytuna.com/*` → `https://guides.speedytuna.com/` would fix it, and the same
+   applies to any future hostname this family retires.
+3. ~~**`romance-languages` has 17 open Dependabot alerts.**~~ **Resolved.** `npm audit` 12 → 0.
+   Most cleared by resolving in-range (only the lockfile pinned the old versions). The rest was a
+   transitive chain with no direct dependency to bump — `vite-plugin-pwa → workbox-build → ejs →
+   jake → filelist` pulling `minimatch@5` and a vulnerable `brace-expansion@2` — fixed with an
+   override **scoped to `filelist`**, since a tree-wide one would silently change resolution for
+   `glob`. Two traps worth remembering: `npm audit fix --force` "fixed" this by *downgrading*
+   `vite-plugin-pwa`, and `npm install --package-lock-only` silently ignored the override until the
+   lock was rebuilt from scratch. Every repo in the family now reports **0 open alerts.**
 4. **The command inventory is self-declared.** Each guide's `COMMANDS` list is in its own test file
    and is not cross-checked against the guide's Quick Reference table. Empty lists are rejected,
    which closes the worst case, but a guide could still under-declare.
