@@ -167,6 +167,15 @@ lifecycle = "retained-in-kit"
 path = "kit-manifest.toml"
 lifecycle = "retained-in-kit"
 
+# The cross-guide concept matrix reconciling windows-powershell-guide and
+# windows-cmd-guide (authored in the Stage 13 join). Kit-only: it is a
+# MAINTAINER artifact about two specific guides, not reader-facing content and
+# not tooling any guide runs, so it is never projected into a target and
+# bootstrap prunes it from a fork.
+[[entry]]
+path = "windows-shell-concept-matrix.md"
+lifecycle = "retained-in-kit"
+
 [[entry]]
 path = "kitmanifest.py"
 lifecycle = "retained-in-kit"
