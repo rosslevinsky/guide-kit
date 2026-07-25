@@ -192,6 +192,18 @@ lifecycle = "retained-in-kit"
 path = "tests/**"
 lifecycle = "retained-in-kit"
 
+# Maintainer documentation ABOUT the family, not content for any one guide:
+# docs/family-as-built.md is the decision record (what shipped, what diverged
+# from plan, which defects were only ever caught by running things end to end).
+# Kit-only, so `_prune_kit_only` deletes docs/ from a fork — a new guide has no
+# use for the family's history and would publish it in its own repo.
+#
+# Glob, not a single path, so a second kit doc does not need a manifest edit
+# (the exhaustiveness test would otherwise fail on the commit that adds it).
+[[entry]]
+path = "docs/**"
+lifecycle = "retained-in-kit"
+
 # --- pre-declared kit files that later phases add (classified now so the
 #     exhaustiveness test does not break the moment they land — plan.md:61) ---
 [[entry]]

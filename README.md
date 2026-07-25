@@ -88,6 +88,9 @@ and without `transforms.py`, minimal and rich `style.css`, PDF-only and web-enab
 Each guide is its own repo, and every one now publishes a public site. The **sites** are public;
 the **repos** that build them are private, with this one — the kit — the exception.
 
+Why the family is shaped the way it is — what diverged from plan, and the defects that only ever
+turned up by running things end to end — is in [`docs/family-as-built.md`](docs/family-as-built.md).
+
 ---
 
 ## Quick start
@@ -166,6 +169,7 @@ The PDF is the default deliverable; the website is **opt-in**. On a PDF-only for
 | `templates/web/` | Opt-in web layer: the `app/` scaffold staging dir (`wrangler.jsonc`, `package.json` + lockfile, `public/.gitkeep`). `--with-web` copies it to `app/` with the slug substituted, then removes the staging copy. |
 | `.github/workflows/deploy.yml.example` | Opt-in web layer: inert deploy workflow (GitHub only runs `*.yml`). `--with-web` activates it as `deploy.yml`. |
 | `verify_web.py` | Opt-in web layer: asserts the per-output embed split (iframe on the site, watch-link in print). Skips cleanly when the web layer isn't enabled. |
+| `docs/` | Kit-only maintainer docs — currently [`family-as-built.md`](docs/family-as-built.md), the family's decision record. Pruned from a fork. |
 
 (The web-layer files above ship inert. A PDF-only fork has no `app/`, no `style-screen.css`, and no live `deploy.yml`. See [Website deploy (Cloudflare)](#website-deploy-cloudflare).)
 
