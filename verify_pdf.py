@@ -310,6 +310,158 @@ def render_canary(reference: Path, candidate: Path) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Render smoke check (make smoke)
+# ---------------------------------------------------------------------------
+#
+# WHAT GAP THIS CLOSES. `make verify` answers "does the stamp match the source",
+# which is a question about bytes, not about the document. `make verify-render`
+# compares a fresh render against the reference, so it is useless on an
+# intentional content edit (the text is SUPPOSED to differ). Between them,
+# nothing ever asked "does this PDF look like a finished guide?" — and the
+# family has already shipped a PDF where it did not: the page footer wrapped on
+# EVERY page of three guides, splitting the version stamp at its middle dot and
+# orphaning the hash. Every automated gate was green. It was found by a human
+# opening the file.
+#
+# That matters more now that baselining is automatic: the loop from "edit
+# guide.md" to "published PDF" has no human in it at all, so the only inspection
+# left is whatever is written down here.
+#
+# These assertions are deliberately coarse. A smoke check that tries to judge
+# typography will produce false alarms on every legitimate edit and be switched
+# off within a month; one that only catches catastrophes keeps its credibility.
+
+# The date-time half of the footer stamp. If THIS appears on a line but the
+# full stamp does not, the footer wrapped mid-stamp — which is exactly the
+# defect described above.
+_STAMP_DATE_RE = re.compile(r"\d{4}-\d\d-\d\d \d\d:\d\d:\d\d")
+
+# Placeholders that must never survive into a rendered guide. Sourced from the
+# template's own substitution vocabulary (bootstrap.py) plus build.py's CSS
+# tokens. build.py's hygiene check scans README.md and CLAUDE.md only, so a
+# placeholder left in guide.md or style.css reaches the PDF unchallenged —
+# this is the backstop for that (outstanding item: "guide.md hygiene check has
+# a blind spot").
+_PLACEHOLDERS = (
+    "{{GUIDE_NAME}}", "{{GUIDE_SLUG}}", "{{GUIDE_TITLE}}", "{{AUTHOR}}",
+    "<DESCRIBE YOUR GUIDE>", "__TITLE__", "__VERSION__", "TODO:", "FIXME:",
+    "Lorem ipsum",
+)
+
+MIN_PAGES = 2
+
+
+def _pdftotext_layout(pdf: Path) -> str:
+    """Extract text preserving physical layout. `-layout` is REQUIRED for the
+    footer-wrap check: without it pdftotext reflows, and a stamp that is broken
+    across two physical lines can be rejoined into one, hiding the very defect
+    this looks for."""
+    result = subprocess.run(
+        ["pdftotext", "-layout", str(pdf), "-"],
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    return result.stdout
+
+
+def smoke_failures(text: str, pages: int, title: str) -> list[str]:
+    """Every smoke assertion, as a PURE function over already-extracted text.
+
+    Split out from smoke_check so the assertions are testable without a
+    renderer — otherwise the only way to prove the footer-wrap detector works
+    would be to produce a PDF with a wrapped footer, and a check that has never
+    been shown to fail is not evidence of anything."""
+    failures: list[str] = []
+
+    # 1. A guide that renders to one page means the pipeline dropped the body.
+    if pages < MIN_PAGES:
+        failures.append(f"only {pages} page(s) — the body did not render")
+
+    # 2. Any page with no extractable text is a blank or image-only page.
+    #    pdftotext separates pages with \f, so an empty chunk is an empty page.
+    blank = [i for i, chunk in enumerate(text.split("\f")[:pages], start=1)
+             if not chunk.strip()]
+    if blank:
+        failures.append(
+            f"page(s) {', '.join(map(str, blank))} contain no extractable text"
+        )
+
+    # 3. The guide's own title must appear. Catches a render of the wrong
+    #    source, or a title-block that silently failed to render. Whitespace is
+    #    collapsed first: `-layout` pads with runs of spaces, and a title that
+    #    legitimately wraps in the rendered title-block would otherwise look
+    #    absent.
+    if title not in " ".join(text.split()):
+        failures.append(f"the guide title ({title!r}) does not appear in the text")
+
+    # 4. Un-substituted placeholders.
+    for marker in _PLACEHOLDERS:
+        if marker in text:
+            failures.append(f"unsubstituted placeholder {marker!r} is in the rendered text")
+
+    # 5. THE FOOTER-WRAP CHECK — the one that would have caught defect 8. On any
+    #    line carrying the stamp's date-time, the COMPLETE stamp must also be on
+    #    that line. When the footer wraps, the date lands on one line and the
+    #    hash on the next: the date matches, the full stamp does not.
+    #
+    #    Note this cannot be done with _STAMP_RE alone. That regex has `\s*`
+    #    around its separators precisely so it can span a pdftotext line break
+    #    (staleness wants the hash whether or not the footer wrapped), so
+    #    searching the whole text would happily match a wrapped stamp. The
+    #    detection has to be per-line.
+    wrapped = [
+        line.strip()
+        for line in text.splitlines()
+        if _STAMP_DATE_RE.search(line) and not _STAMP_RE.search(line)
+    ]
+    if wrapped:
+        failures.append(
+            f"the footer version stamp is split across lines on {len(wrapped)} line(s) "
+            f"— the footer is wrapping. First: {wrapped[0]!r}"
+        )
+
+    return failures
+
+
+def smoke_check(pdf: Path, root: Path = HERE) -> int:
+    """Assert a rendered PDF looks like a finished guide. Exit codes match the
+    rest of this module: 0 pass, 1 the PDF is bad, 2 environment/invocation
+    error (so a caller can tell "this render is wrong" from "I could not
+    tell")."""
+    _require(["pdfinfo", "pdftotext"])
+
+    try:
+        title = kitconfig.load(root).TITLE
+    except kitconfig.KitConfigError as exc:
+        sys.stderr.write(f"ERROR smoke: could not read guide.toml ({exc})\n")
+        return 2
+
+    if not pdf.exists():
+        sys.stderr.write(f"ERROR smoke: {pdf.name} does not exist\n")
+        return 2
+    if pdf.stat().st_size == 0:
+        sys.stderr.write(f"FAIL  smoke: {pdf.name} is zero bytes\n")
+        return 1
+
+    try:
+        pages = _page_count(pdf)
+        text = _pdftotext_layout(pdf)
+    except (subprocess.CalledProcessError, RuntimeError) as exc:
+        sys.stderr.write(f"ERROR smoke: could not read {pdf.name} ({exc})\n")
+        return 2
+
+    failures = smoke_failures(text, pages, title)
+
+    if failures:
+        sys.stderr.write(f"FAIL  smoke: {pdf.name} does not look like a finished guide\n")
+        for f in failures:
+            sys.stderr.write(f"        - {f}\n")
+        return 1
+
+    print(f"PASS  smoke: {pdf.name} — {pages} pages, title present, stamp intact, no placeholders")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -326,10 +478,23 @@ def main() -> int:
         help="Render canary: page count + stamp-excluded text (needs a build, "
              "platform-sensitive, canonical host only — never in CI)",
     )
+    mode.add_argument(
+        "--smoke", nargs="?", metavar="PDF", type=Path, const=None,
+        default=argparse.SUPPRESS,
+        help="Smoke check a rendered PDF: page count, no blank pages, title "
+             "present, no placeholders, footer stamp not wrapped. Defaults to "
+             "the committed reference PDF. Platform-independent; safe in CI.",
+    )
     args = p.parse_args()
 
     if args.staleness:
         return staleness_check(HERE)
+    if hasattr(args, "smoke"):
+        # `--smoke` with no argument checks the committed reference PDF, which is
+        # what CI wants; an explicit path lets `make baseline` check the FRESH
+        # render before it is promoted, which is the more valuable of the two.
+        target = args.smoke or (HERE / f"{kitconfig.load(HERE).OUTPUT_SLUG}.pdf")
+        return smoke_check(target)
     return render_canary(args.render[0], args.render[1])
 
 

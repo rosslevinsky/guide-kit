@@ -20,7 +20,7 @@ endif
 WORKING_PDF := build/$(OUTPUT_SLUG).pdf
 REFERENCE_PDF := $(OUTPUT_SLUG).pdf
 
-.PHONY: build help all install html web dev deploy verify verify-render baseline release clean
+.PHONY: build help all install html web dev deploy verify verify-render smoke baseline release clean
 
 # `build` is the FIRST non-.PHONY target, so bare `make` builds.
 # Rationale: the most common operation in a guide repo is "render after edit"; bare
@@ -94,6 +94,18 @@ verify:
 # environmental drift (a `pixi update` that shifts layout with no source change).
 verify-render: build
 	pixi run python verify_pdf.py --render $(REFERENCE_PDF) $(WORKING_PDF)
+
+# smoke asks the question the other two do not: does this PDF look like a
+# finished guide? `verify` compares hashes (a question about bytes) and
+# `verify-render` compares against the reference (useless on an intentional
+# content edit, where the text is SUPPOSED to differ). Neither would have caught
+# the footer wrapping on every page of three shipped guides.
+#
+# Platform-independent and build-free, so unlike verify-render this IS safe in
+# CI. Checks the committed reference by default; pass PDF=<path> to check a
+# fresh render before promoting it.
+smoke:
+	pixi run python verify_pdf.py --smoke $(PDF)
 
 # baseline promotes the fresh render onto the committed reference PDF, guarded:
 # baseline.py refuses a platform mismatch (sys.platform != guide.toml's

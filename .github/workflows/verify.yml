@@ -66,8 +66,24 @@ on:
       - '.github/workflows/verify.yml'
   workflow_dispatch:
 
+# Least privilege, plus exactly what the auto-baseline step needs.
+# `actions: write` is required to dispatch baseline.yml; without it the dispatch
+# fails and the step's error annotation tells the operator to run it by hand.
+# `contents: read` only — this workflow never writes to the repo. The refreshed
+# reference PDF is committed by baseline.yml, which declares its own
+# `contents: write`.
+permissions:
+  contents: read
+  actions: write
+
 # Cancel in-flight runs on the same ref when a new commit comes in. Keeps PR
 # iteration loops snappy and saves CI minutes.
+#
+# NOTE the interaction with auto-baseline: cancel-in-progress can kill a verify
+# run before it dispatches. That is safe rather than lossy — the newer commit
+# that caused the cancellation runs its own verify, and if the reference is still
+# stale that run dispatches instead. The dispatch is tied to the staleness of the
+# tree, not to any single run surviving.
 concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
@@ -193,10 +209,96 @@ jobs:
             echo "web build smoke OK"
           fi
 
+      # Smoke-check the COMMITTED reference PDF: does the file readers download
+      # actually look like a finished guide? Platform-independent and build-free,
+      # so unlike `make verify-render` this is CI-safe. Skipped pre-first-release,
+      # where there is legitimately no reference PDF yet.
+      #
+      # Runs BEFORE the staleness gate on purpose. A stale reference is still a
+      # real PDF worth checking, and if both are wrong an operator should see
+      # both in one round rather than fix the stamp and only then discover the
+      # render is broken.
+      - name: make smoke (does the reference PDF look like a guide?)
+        run: |
+          set -euo pipefail
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          if [ -f "$SLUG.pdf" ]; then
+            make smoke
+          else
+            echo "::notice::pre-first-release — no reference PDF ($SLUG.pdf) yet; nothing to smoke-check"
+          fi
+
       # Staleness gate — is the committed reference PDF up to date with the source?
       # Platform-independent (no build, no render), so it runs in CI for the first
       # time. CI runs `make verify` and NEVER `make verify-render` (which builds and
       # is platform-sensitive — a canonical-host-only canary). Run LAST so the
       # build-smoke signal is still visible on a legitimately-stale (red) round.
+      #
+      # `continue-on-error` is NOT used and the outcome is NOT swallowed: a stale
+      # reference genuinely IS a failure at this commit, and the auto-baseline
+      # step below repairs it by pushing a NEW commit. Suppressing the red here
+      # would mean a silent pass whenever the dispatch itself failed.
       - name: make verify (staleness check)
-        run: make verify
+        id: staleness
+        # Call the checker DIRECTLY rather than through make: GNU make normalizes
+        # any recipe failure to exit 2, which would make "stale" (1) and
+        # "environment broken" (2) indistinguishable — the exact confusion that
+        # once made baseline.yml refuse to render on a plainly stale reference.
+        run: |
+          set +e
+          pixi run python verify_pdf.py --staleness
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      # ── Auto-baseline: rebuild the reference PDF when a content push made it
+      #    stale ───────────────────────────────────────────────────────────────
+      #
+      # WHY THIS EXISTS. Before this, editing guide.md and pushing left the branch
+      # red and the deployed site quietly serving the OLD PDF until someone
+      # remembered to run `gh workflow run baseline.yml` by hand. That is the
+      # family's most-repeated defect shape — a check nobody acts on plus a stale
+      # live artifact — and it was load-bearing on human memory.
+      #
+      # The historical argument for keeping it manual was that `make baseline`
+      # re-blesses whatever renders without anyone looking. That argument died
+      # when the macOS handoff moved into CI: baseline.yml already renders and
+      # commits unattended, so a manual DISPATCH bought no inspection, only
+      # delay. The inspection is now the `make smoke` step inside baseline.yml,
+      # which aborts before committing a bad render.
+      #
+      # Guards:
+      #   * only on a push to the default branch — a PR must not trigger a macOS
+      #     render, and could not push the result anyway
+      #   * only on rc == 1 (genuinely stale). rc == 2 is an environment error, and
+      #     rendering a baseline on the strength of a broken check is how a wrong
+      #     PDF would get blessed
+      #   * only if baseline.yml exists
+      #
+      # Termination: baseline.yml commits the refreshed PDF, which is a push
+      # touching '*.pdf', which re-runs this workflow — now fresh, so rc == 0 and
+      # no further dispatch. If a render can never satisfy the stamp, baseline's
+      # own "no change to commit" path stops the chain instead of looping.
+      - name: Rebuild the reference PDF (auto-dispatch baseline)
+        if: >-
+          failure()
+          && steps.staleness.outputs.rc == '1'
+          && github.event_name == 'push'
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref_name }}
+        run: |
+          if [ ! -f .github/workflows/baseline.yml ]; then
+            echo "::warning::reference PDF is stale and there is no baseline.yml to rebuild it"
+            exit 0
+          fi
+          # REF via env, not ${{ }} interpolation into the shell body: git permits
+          # ;, `, $, (, ), &, | and " in branch names.
+          if gh workflow run baseline.yml --ref "$REF" \
+               -f message="baseline: auto-refresh reference PDF (stale after push)"; then
+            echo "::notice::reference PDF was stale — dispatched baseline.yml to re-render it on macOS. This run stays red; the commit it pushes will be green."
+          else
+            echo "::error::reference PDF is stale and dispatching baseline.yml FAILED — run 'gh workflow run baseline.yml' by hand, or the site keeps serving the old PDF"
+          fi

@@ -108,6 +108,22 @@ jobs:
         if: steps.fresh.outputs.already_fresh == 'false'
         run: make verify
 
+      - name: Smoke-check the fresh baseline before committing it
+        if: steps.fresh.outputs.already_fresh == 'false'
+        # `make verify` above only proves the stamp matches the source — a
+        # question about bytes, not about the document. This asks whether the PDF
+        # looks like a finished guide: enough pages, no blank ones, the title
+        # present, no un-substituted placeholders, and the footer stamp not
+        # wrapped.
+        #
+        # It runs HERE, between rendering and committing, because this is the
+        # last point at which a bad render can still be stopped. Now that
+        # baselining is dispatched automatically on a stale push, nothing else
+        # between "edit guide.md" and "published PDF" ever looks at the file —
+        # this step is the only inspection left, so a failure must abort rather
+        # than warn.
+        run: make smoke
+
       - name: Commit and push the reference PDF
         if: steps.fresh.outputs.already_fresh == 'false'
         env:
