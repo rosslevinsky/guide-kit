@@ -57,6 +57,22 @@ jobs:
       - name: Skip if the reference PDF is already fresh
         id: fresh
         run: |
+          # A guide with NO reference PDF yet needs a baseline more than any
+          # other — but `make verify` PASSES in that state, by design, with a
+          # "pre-first-release" notice. Reading exit 0 as "already fresh" made
+          # this workflow able to refresh an existing baseline while being
+          # structurally incapable of creating the FIRST one, which is exactly
+          # what a new guide needs it for. Check existence before freshness.
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          if [ -z "$SLUG" ]; then
+            echo "::error::could not read OUTPUT_SLUG from guide.toml"; exit 1
+          fi
+          if [ ! -f "$SLUG.pdf" ]; then
+            echo "already_fresh=false" >> "$GITHUB_OUTPUT"
+            echo "No reference PDF yet ($SLUG.pdf) — rendering the first macOS baseline."
+            exit 0
+          fi
+
           set +e
           make verify
           rc=$?
