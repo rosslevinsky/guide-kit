@@ -107,10 +107,19 @@ to CI by construction.
 | 9 | Silent commands (`cd`, `mkdir`, `cp`, `mv`, `rm` — half a terminal guide's inventory) were **unsatisfiable** under the "records output" rule | Writing the first real command inventory |
 | 10 | A cmdlet used **downstream in a pipeline** counted as never invoked, so PowerShell's two most characteristic cmdlets failed a guide that teaches them properly | Writing the PowerShell guide |
 | 11 | `cloudflare/wrangler-action` installs **wrangler 3.90.0** when a repo has no local wrangler to detect — it predates assets-only Workers and fails with `Missing entry-point`. Node version is irrelevant; only `wranglerVersion` fixes it | First CI deploy of the hub, which has no `package.json` |
+| 12 | The `speedytuna.com` zone has a **wildcard DNS record**: every subdomain resolves and answers 200 with a "Speedy Tuna" placeholder, *including names bound to nothing*. Any deploy check asserting a 200 on a `*.speedytuna.com` hostname therefore verifies nothing — only page **content** distinguishes a bound worker from the placeholder | Probing `definitely-not-bound-xyz.speedytuna.com` while diagnosing #13 |
+| 13 | The zone's **managed WAF blocks GitHub Actions runner IPs**. A runner gets 403 on every request while the identical request from elsewhere gets 200 — so a workflow cannot read its own deployed site back. Diagnosed only after two wrong guesses (unset secret, then first-time domain provisioning) and a pointless retry-window widening | 15 CI attempts over 5 minutes all 403, against 10/10 200s from outside |
 
 Nos. 3–8 are all the same shape: **a green check that verified nothing.** None was reachable by the
 test suite, because each lived in workflow trigger semantics, exit-code plumbing, or rendered
 layout.
+
+Nos. 12–13 are the mirror image and worth naming separately: **a red check that means nothing.** A
+check that fails for a reason unrelated to the code teaches people to ignore it just as thoroughly
+as one that passes without looking. The resolution in both cases was to move the assertion to where
+it can actually run — the hub's content is now asserted against `dist/index.html` *before* the
+deploy, and reading the live page back is a bonus that strengthens the check when the runner is not
+blocked, rather than a gate that fails when it is.
 
 ---
 
@@ -143,7 +152,8 @@ Work done after the Phase 22 gate closed, so this file stays the single account 
 | `accounting-guide` gained a site | <https://accounting.speedytuna.com> — same sequence, plus accounting-specific screen CSS (`table.journal`, `pre.ledger` with `overflow-x`, `table.figures`) so the 14 journal tables and 11 ledger panels are styled on screen, not just in the PDF. `transforms.py` was untouched, so `make verify` stayed green and no re-baseline was needed. |
 | Hub renamed and widened | `terminal-guides` → `guides` (GitHub repo, local clone, and worker name moved together, per the workspace rule that all three match). The page now covers **all eight** public sites: the four terminal guides as one group, then Git & GitHub, accounting, Japan, and romance-languages as sections of their own. New host: `guides.speedytuna.com`. |
 | `romance-languages` joined the hub | It is **not** kit-built — a React quiz app, not a single document — so it is linked site-only with no PDF. Its worker sets `not_found_handling: single-page-application`, so *every* path under it returns 200 with the app's HTML; a PDF link there would have passed a link check while serving HTML. Recorded in the hub's README so it is not re-added later. |
-| Hub deploy moved into CI | The hub was the only site deployed by hand. It now has `.github/workflows/deploy.yml`, and its custom domain is declared in `wrangler.jsonc` (`routes` + `custom_domain: true`) instead of being bound out of band — a deliberate divergence from the guides, which each had their domain bound by hand. The workflow fetches the deployed page and asserts all eight hostnames are present, so it cannot be green while the site is wrong. |
+| Hub deploy moved into CI | The hub was the only site deployed by hand. It now has `.github/workflows/deploy.yml`, and its custom domain is declared in `wrangler.jsonc` (`routes` + `custom_domain: true`) instead of being bound out of band — a deliberate divergence from the guides, which each had their domain bound by hand, and the reason `guides.speedytuna.com` needed no separate API call. Verification is split because of defects 12–13: content is asserted against `dist/index.html` before the deploy, and reading the live page back afterwards strengthens the check when the runner is not WAF-blocked. |
+| Hub went live | <https://guides.speedytuna.com> — verified serving the hub (not the zone's wildcard placeholder), all 18 authored links returning 200, and every PDF link returning `application/pdf`. |
 | wrangler 4.103.0 → 4.114.0 | Cleared Dependabot's high-severity `sharp < 0.35.0` finding (four inherited libvips CVEs) across all eight kit repos at once — see [The Dependabot position](#the-dependabot-position). |
 
 **Repo visibility is unchanged and deliberate:** all eight guide *sites* are public; the *repos*
@@ -177,12 +187,14 @@ them and needs no secrets, so the bump is still validated.
    `romance-languages` carry values predating this work — so at least two distinct tokens are in
    play. Minting one fresh token and rolling it across all of them would consolidate and retire the
    leaked value.
-2. **The hub is not deployed.** `guides.speedytuna.com` does not exist yet; the repo, page,
-   workflow and config all landed, but the deploy needs a write-scoped Cloudflare token. The
-   OAuth-backed Cloudflare MCP is **read-only** for Workers — it enumerates scripts and domains but
-   is refused (`10000`) on `assets-upload-session`, and cannot mint a token (`9109`). Until it is
-   deployed, `terminal-guides.speedytuna.com` still serves the old four-guide page, and the old
-   worker plus its domain binding still need removing.
+2. **The old `terminal-guides` worker still exists.** The hub is live at
+   <https://guides.speedytuna.com>, but the superseded worker and its
+   `terminal-guides.speedytuna.com` binding were never removed — they still serve the old
+   four-guide page, so the family currently publishes two hubs, one of them stale. Removing it
+   needs a write-scoped Cloudflare token: the OAuth-backed Cloudflare MCP is **read-only** for
+   Workers (it enumerates scripts and domains but is refused `10000` on `assets-upload-session`,
+   and cannot mint a token — `9109`), so this is a `wrangler delete --name terminal-guides` for
+   whoever holds the token.
 3. **`romance-languages` has 17 open Dependabot alerts, 6 high** (`ws`, `brace-expansion`,
    `fast-uri`, `@babel/plugin-transform-modules-systemjs`, plus medium `vite` and low `undici`). It
    is not a kit target — its own Vite/React toolchain — so `sync.py` cannot reach it and it needs
