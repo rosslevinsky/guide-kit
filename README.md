@@ -81,11 +81,11 @@ range — with and without `transforms.py`, minimal and rich `style.css`, PDF-on
 | **Linux Terminal** | Same shape, adapted; every command executed in a container and its output copied exactly. | [linux-terminal.speedytuna.com](https://linux-terminal.speedytuna.com) |
 | **Windows PowerShell** | Written fresh around the object pipeline; split verification (executed in `pwsh`, cited where Windows-only). | [powershell.speedytuna.com](https://powershell.speedytuna.com) |
 | **Windows Command Prompt** | Re-framed rather than translated; verified by per-command citation, since `cmd.exe` has no Linux runtime. | [cmd.speedytuna.com](https://cmd.speedytuna.com) |
-| **Git & GitHub** | Richer `style.css` — CSS-counter TOC numbering, exercise blocks with difficulty pills, a separate `@page :first`. No `transforms.py`. | private repo |
+| **Git & GitHub** | Richer `style.css` — CSS-counter TOC numbering, exercise blocks with difficulty pills, a separate `@page :first`. No `transforms.py`. | [git.speedytuna.com](https://git.speedytuna.com) |
 | **Financial accounting** | The closest example of using every escape hatch: a substantive `transforms.py` doing journal-entry classification, prose/figures table classification and glossary line breaks. | private repo |
 
-Each guide is its own repo. The four terminal guides publish public sites; the other two are
-private, so they are listed for what they demonstrate rather than linked.
+Each guide is its own repo. Five publish public sites; only the accounting guide is unlinked, as
+it has no site yet.
 
 ---
 
