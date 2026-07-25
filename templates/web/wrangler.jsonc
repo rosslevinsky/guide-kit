@@ -13,13 +13,31 @@
   // NO SPA routing.
   //
   // A custom domain is NOT configured here — bind it separately via the
-  // Cloudflare dashboard (Workers > Custom Domains) if you want one. The
-  // worker name below doubles as the *.workers.dev subdomain.
+  // Cloudflare dashboard (Workers > Custom Domains) if you want one.
+  //
+  // `workers_dev: false` MUST stay here, and is not merely tidiness. Cloudflare's
+  // default is to serve every worker at <name>.<account>.workers.dev, and
+  // `wrangler deploy` RE-ASSERTS that default on every run unless the config says
+  // otherwise. Turning it off in the dashboard therefore does not stick: the next
+  // deploy silently switches it back on, and each guide ends up published at TWO
+  // public URLs — its custom domain and a workers.dev one that is outside the
+  // zone (so outside its WAF, its analytics, and its redirect rules). That is
+  // exactly what happened across this family: the intent was recorded in prose,
+  // never in config, and eight sites were quietly dual-published for weeks.
+  // Config is the only place a Cloudflare default can be durably overridden.
+  //
+  // `preview_urls` stays TRUE and is a SEPARATE toggle (the API reports
+  // `enabled` and `previews_enabled` independently). Per-version preview URLs
+  // are served on workers.dev, and deploy.yml's pull_request path uploads a
+  // version and comments the preview link on the PR — so disabling previews
+  // here would break PR previews. Production off, previews on is the intended
+  // combination.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "guide-template",
   "compatibility_date": "2026-04-23",
   "assets": {
     "directory": "./dist"
   },
+  "workers_dev": false,
   "preview_urls": true
 }
