@@ -289,23 +289,83 @@ def render_html() -> str:
     return _wrap_html(body, css)
 
 
+# Kit-owned screen chrome. This is CONCATENATED BEFORE each guide's
+# style-screen.css (which is target-owned — `never` in the manifest, so sync
+# must not write it). Order is deliberate: kit chrome first means a guide can
+# still override any of it from its own stylesheet, and putting these rules
+# here instead means adding them to seven separate per-guide stylesheets that
+# would then be free to drift apart.
+#
+# Only `--accent` and `--rule` are referenced, both with literal fallbacks, so
+# this degrades gracefully in a guide that has not defined them.
+WEB_CHROME_CSS = """
+.site-topbar {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 1rem;
+  margin: 0 0 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--rule, #e2e2e6);
+}
+.site-topbar .download-btn {
+  display: inline-block;
+  font-weight: 700;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--accent, #0b5394);
+  border-radius: 6px;
+  color: var(--accent, #0b5394);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.site-topbar .download-btn:hover {
+  background: var(--accent, #0b5394);
+  color: #fff;
+  text-decoration: none;
+}
+@media print {
+  .site-topbar { display: none; }
+}
+"""
+
+
 def render_web_html() -> str:
     """Render the SCREEN HTML: pandoc → web transforms → wrap with
     style-screen.css. Used for the website output only."""
     body = _apply_transforms(_pandoc_body(), "web")
+    # Top chrome: the same download affordance as the footer, ABOVE the guide
+    # text. Without it the only way to get the PDF is to scroll the entire
+    # document — which on the longest guide in this family means ~50 pages of
+    # scrolling to reach a link, so most readers never find it at all.
+    #
+    # `download` (on both this and the footer link) is what makes the button
+    # actually download. Cloudflare serves these with `Content-Type:
+    # application/pdf` and no `Content-Disposition`, so a plain link makes the
+    # browser's built-in viewer take over and render the PDF in a tab instead —
+    # which is not what a control labelled "Download as PDF" should do. The
+    # attribute is honoured because the PDF is served same-origin with the page.
+    # It is deliberately NOT done with a `Content-Disposition: attachment`
+    # header, which would also force a download for someone who navigated to the
+    # PDF URL directly and legitimately wanted to read it in the browser.
+    body = (
+        '<div class="site-topbar">'
+        f'<a class="download-btn" href="{OUTPUT_SLUG}.pdf" download>'
+        '⬇&nbsp;Download as PDF</a>'
+        '</div>'
+    ) + body
     # Footer chrome: a prominent PDF download link, the license/copyright (so
     # the website carries the same terms as the PDF), and the git-derived
     # version stamp (which commit the live site was built from).
     body += (
         '<footer class="site-footer">'
-        f'<p class="download"><a href="{OUTPUT_SLUG}.pdf">⬇&nbsp;Download as PDF</a></p>'
+        f'<p class="download"><a href="{OUTPUT_SLUG}.pdf" download>⬇&nbsp;Download as PDF</a></p>'
         f'<p>{COPYRIGHT} · Licensed under '
         f'<a href="{LICENSE_CONTENT_URL}">{LICENSE_CONTENT_NAME}</a>; '
         f'build tooling under <a href="{LICENSE_CODE_URL}">{LICENSE_CODE_NAME}</a>.</p>'
         f'<p class="stamp">{TITLE} · {_version_stamp()}</p>'
         '</footer>'
     )
-    css = STYLE_SCREEN.read_text(encoding="utf-8")
+    css = WEB_CHROME_CSS + STYLE_SCREEN.read_text(encoding="utf-8")
     css = css.replace("__TITLE__", TITLE).replace("__VERSION__", _version_stamp())
     return _wrap_html(body, css)
 
