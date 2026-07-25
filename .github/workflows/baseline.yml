@@ -73,8 +73,16 @@ jobs:
             exit 0
           fi
 
+          # Call the checker DIRECTLY, not through `make verify`. GNU make
+          # normalizes any recipe failure to exit 2, so a stale PDF (verify_pdf
+          # exit 1) arrives here as 2 and would be misread as a broken
+          # environment — which is exactly what happened: three baseline runs
+          # refused to render with "environment/invocation error" on a plain
+          # stale reference. The Makefile's verify target is precisely this
+          # command, so this is the same check without make's exit-code
+          # flattening.
           set +e
-          make verify
+          pixi run python verify_pdf.py --staleness
           rc=$?
           set -e
           # verify_pdf.py distinguishes its exit codes: 0 fresh, 1 stale,
