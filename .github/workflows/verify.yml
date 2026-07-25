@@ -127,7 +127,22 @@ jobs:
           # red at once with no commit in any of them, and a guide can never
           # reproduce yesterday's CI. This matters more now that the kit holds
           # shared assertion LOGIC (tests/topic_coverage.py), not just a runner.
+          # MUST be a full 40-char commit SHA, a tag, or a branch name.
+          # actions/checkout's `ref:` resolves branches and tags and accepts a
+          # FULL commit SHA — a SHORT SHA fails outright with "A branch or tag
+          # with the name '<sha>' could not be found", which is how this was
+          # found. Anything recording kit_version must write the full SHA.
           KITV=$(python3 -c "import json; print(json.load(open('.template-version')).get('kit_version') or '')")
+          case "$KITV" in
+            ????????????????????????????????????????) : ;;   # full 40-char SHA — fine
+            "") : ;;                                          # absent — default branch
+            *)
+              # A short SHA or unknown ref would fail the checkout below and take
+              # the whole verify run red. Fall back to the default branch and say
+              # so, rather than failing a guide's CI over its own metadata.
+              echo "::warning::kit_version '$KITV' is not a full commit SHA; borrowing the kit's default branch instead"
+              KITV="" ;;
+          esac
           echo "kit_version=$KITV" >> "$GITHUB_OUTPUT"
 
       - name: Check out kit test runner (targets only)
