@@ -104,8 +104,14 @@ differs from it (unless explicitly overridden). `make baseline` additionally **r
 release` instead **commits** your source edits itself and then refuses to promote a render whose
 stamp is `· dirty` or stale (the same freshness guard), so neither command can bless an
 unmatchable reference. The `.github/workflows/baseline.yml` workflow
-renders the reference PDF on a `macos-latest` runner and commits it — dispatch it
-(`gh workflow run baseline.yml`) instead of needing a physical Mac.
+renders the reference PDF on a `macos-latest` runner and commits it, so no physical Mac is
+needed. **You do not normally dispatch it yourself:** when a push to the default branch leaves
+the reference stale, `verify.yml` goes red and auto-dispatches `baseline.yml`, which renders,
+smoke-checks, commits the PDF, and then dispatches `deploy.yml` so the site stops serving the
+old download. That first red verify run is expected — the commit `baseline.yml` pushes is the
+green one. So the everyday flow for a content edit is just **commit and push `guide.md`**;
+`make release` is for refreshing the reference by hand on a canonical host, and
+`gh workflow run baseline.yml` is the repair path when a site drifted without a source change.
 
 ### The transforms hook (per-output)
 

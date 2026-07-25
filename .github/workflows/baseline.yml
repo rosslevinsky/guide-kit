@@ -9,11 +9,21 @@ name: baseline
 # guide.toml's `baseline_platform = "darwin"` guard passes NATIVELY (no override),
 # then proves the result is fresh with `make verify` and commits it.
 #
-# Manual only (workflow_dispatch): baselining is a deliberate act and macOS
-# runners bill at ~10x, so this never runs automatically. It is IDEMPOTENT — if
-# the reference PDF is already up to date it does nothing.
+# `workflow_dispatch` is this workflow's only `on:` trigger, but it does NOT
+# follow that baselining is a manual act. verify.yml AUTO-DISPATCHES this
+# workflow whenever a push to the default branch leaves the reference PDF stale
+# (its "Rebuild the reference PDF" step), so the normal path from `git push` to
+# a refreshed, redeployed PDF needs no human in it. Editing that step, or
+# dropping verify.yml's `actions: write` permission, silently returns the family
+# to the hand-dispatch era — where a red check nobody acted on left every site
+# serving a stale download.
 #
-# Trigger: Actions -> baseline -> Run workflow (or `gh workflow run baseline.yml`).
+# macOS runners bill at ~10x, so the spend is real and deliberate: one macOS run
+# per content push that actually changes the render. It is IDEMPOTENT — if the
+# reference PDF is already up to date it does nothing.
+#
+# Manual dispatch remains, for repairing a site that drifted without a source
+# change: Actions -> baseline -> Run workflow (or `gh workflow run baseline.yml`).
 
 on:
   workflow_dispatch:
