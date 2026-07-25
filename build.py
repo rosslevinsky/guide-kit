@@ -421,6 +421,38 @@ def build_web() -> None:
     shutil.copyfile(REFERENCE_PDF, WEB_DIR / REFERENCE_PDF.name)
     print(f"  WEB   ->  {WEB_DIR / REFERENCE_PDF.name}")
 
+    # `_headers` — Cloudflare Workers Static Assets reads this from the assets
+    # directory and applies it to matching responses.
+    #
+    # WHY A HEADER AND NOT JUST THE `download` ATTRIBUTE. The anchor's `download`
+    # attribute is enough on this guide's OWN page, where the PDF is same-origin.
+    # It is silently ignored cross-origin — a deliberate browser restriction — and
+    # the family hub at guides.speedytuna.com links every PDF from a DIFFERENT
+    # subdomain. So on the hub the attribute does nothing and a button labelled
+    # "PDF" opens the browser's viewer instead of downloading. Only a
+    # server-side Content-Disposition works from there.
+    #
+    # THE TRADE, stated because it is a real loss: this also makes a direct
+    # navigation to the PDF URL download rather than preview. That is accepted
+    # deliberately — the PDF is published as a downloadable deliverable, the
+    # readable version is the website itself, and a link labelled as a download
+    # doing something else is the worse failure.
+    #
+    # Written from build.py rather than tracked as a file because app/dist/ is
+    # generated and gitignored, and app/public/ is not copied into it. That makes
+    # this a SOURCE_FILES change, hence a re-baseline — worth it to keep the
+    # behaviour in code rather than as a Cloudflare dashboard rule. A zone-level
+    # Transform Rule would also work and need no re-baseline, but this family has
+    # already been bitten once this week by configuration that lived outside the
+    # repo (workers.dev, which a tool silently re-enabled on every deploy).
+    headers = WEB_DIR / "_headers"
+    headers.write_text(
+        f"/{REFERENCE_PDF.name}\n"
+        f'  Content-Disposition: attachment; filename="{REFERENCE_PDF.name}"\n',
+        encoding="utf-8",
+    )
+    print(f"  WEB   ->  {headers}")
+
 
 # ---------------------------------------------------------------------------
 # Template hygiene
