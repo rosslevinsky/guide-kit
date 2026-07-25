@@ -109,6 +109,8 @@ to CI by construction.
 | 11 | `cloudflare/wrangler-action` installs **wrangler 3.90.0** when a repo has no local wrangler to detect — it predates assets-only Workers and fails with `Missing entry-point`. Node version is irrelevant; only `wranglerVersion` fixes it | First CI deploy of the hub, which has no `package.json` |
 | 12 | The `speedytuna.com` zone has a **wildcard DNS record**: every subdomain resolves and answers 200 with a "Speedy Tuna" placeholder, *including names bound to nothing*. Any deploy check asserting a 200 on a `*.speedytuna.com` hostname therefore verifies nothing — only page **content** distinguishes a bound worker from the placeholder | Probing `definitely-not-bound-xyz.speedytuna.com` while diagnosing #13 |
 | 13 | The zone's **managed WAF blocks GitHub Actions runner IPs**. A runner gets 403 on every request while the identical request from elsewhere gets 200 — so a workflow cannot read its own deployed site back. Diagnosed only after two wrong guesses (unset secret, then first-time domain provisioning) and a pointless retry-window widening | 15 CI attempts over 5 minutes all 403, against 10/10 200s from outside |
+| 14 | **`workers.dev` was on for eight of nine workers**, publishing every guide at a second URL outside the zone. Cloudflare defaults it ON and `wrangler deploy` **re-asserts that default on every run** unless the config says `workers_dev: false` — so disabling it in the dashboard never sticks. The family's convention was recorded in prose (this file said workers.dev was disabled) and in nothing else, so the default silently won every deploy | Checking whether a runner could reach a site at all, which surfaced romance-languages' CI verifying against a `workers.dev` URL |
+| 15 | **"Download as PDF" did not download.** Cloudflare serves the PDF as `application/pdf` with no `Content-Disposition`, so a plain `<a href>` handed off to the browser's PDF viewer. Compounding it, the only download link was in the **footer** — ~50 pages of scrolling on the longest guide, so most readers never reached it | User report from actual use; no automated check covers "does this control do what its label says" |
 
 Nos. 3–8 are all the same shape: **a green check that verified nothing.** None was reachable by the
 test suite, because each lived in workflow trigger semantics, exit-code plumbing, or rendered
@@ -120,6 +122,25 @@ as one that passes without looking. The resolution in both cases was to move the
 it can actually run — the hub's content is now asserted against `dist/index.html` *before* the
 deploy, and reading the live page back is a bonus that strengthens the check when the runner is not
 blocked, rather than a gate that fails when it is.
+
+No. 14 is a third shape: **an intention recorded only in prose.** "workers.dev is disabled" was
+written in this file and described in the template's own comments, and was true at the moment
+someone typed it — but the setting lived where a tool re-asserts a default on every run, so the
+convention decayed silently and nothing noticed for weeks. A convention that a tool can overwrite
+has to live in that tool's config, not in documentation about it.
+
+No. 15 is a fourth: **nothing in the family checks that a control does what its label says.** The
+PDF link returned 200, served the right bytes, and passed every automated gate — while the button
+labelled "Download as PDF" did not download. That class of defect is only reachable by using the
+thing, which is how it was found.
+
+### The generalisation
+
+Nine of these fifteen are the same underlying error in different costumes: **the check and the
+claim were about different things.** `make verify` answers "is the stamp fresh", not "is the PDF
+right". A 200 answers "did something respond", not "is the right worker bound". A green
+`wrangler deploy` answers "did the upload succeed", not "is the site serving this". Whenever a
+check is cheap and the claim is broad, assume the gap is there and go look for it.
 
 ---
 
@@ -154,6 +175,9 @@ Work done after the Phase 22 gate closed, so this file stays the single account 
 | `romance-languages` joined the hub | It is **not** kit-built — a React quiz app, not a single document — so it is linked site-only with no PDF. Its worker sets `not_found_handling: single-page-application`, so *every* path under it returns 200 with the app's HTML; a PDF link there would have passed a link check while serving HTML. Recorded in the hub's README so it is not re-added later. |
 | Hub deploy moved into CI | The hub was the only site deployed by hand. It now has `.github/workflows/deploy.yml`, and its custom domain is declared in `wrangler.jsonc` (`routes` + `custom_domain: true`) instead of being bound out of band — a deliberate divergence from the guides, which each had their domain bound by hand, and the reason `guides.speedytuna.com` needed no separate API call. Verification is split because of defects 12–13: content is asserted against `dist/index.html` before the deploy, and reading the live page back afterwards strengthens the check when the runner is not WAF-blocked. |
 | Hub went live | <https://guides.speedytuna.com> — verified serving the hub (not the zone's wildcard placeholder), all 18 authored links returning 200, and every PDF link returning `application/pdf`. |
+| `workers.dev` turned off in config | `workers_dev: false` added to `templates/web/wrangler.jsonc` and synced to all seven guides. `preview_urls` stays **true** — it is an independent toggle and `deploy.yml`'s pull_request path depends on it for PR previews. Verified: all seven now 404 on `*.workers.dev`, all nine custom domains still 200. |
+| PDF download fixed | `download` on both links, plus a new `.site-topbar` above the guide text. Chrome CSS is emitted from `build.py` and concatenated *before* each guide's `style-screen.css`, because that file is target-owned and the alternative was the same rules hand-copied into seven stylesheets. Cost: `build.py` is a `SOURCE_FILES` entry, so all eight repos were re-baselined on macOS — content unchanged, stamp only. |
+| Hub PDF links relabelled | Browsers **ignore `download` cross-origin**, and every PDF on the hub is on a different origin from the hub itself. The attribute would have been inert while the label kept promising a download, so the links now say "PDF" — what clicking actually does — and the honest download lives one click further in, on the guide's own page. |
 | wrangler 4.103.0 → 4.114.0 | Cleared Dependabot's high-severity `sharp < 0.35.0` finding (four inherited libvips CVEs) across all eight kit repos at once — see [The Dependabot position](#the-dependabot-position). |
 
 **Repo visibility is unchanged and deliberate:** all eight guide *sites* are public; the *repos*
