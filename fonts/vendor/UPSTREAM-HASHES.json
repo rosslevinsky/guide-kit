@@ -1,0 +1,19 @@
+{
+  "faces": {
+    "DejaVuSans-Bold.ttf": "e6476c1b80502924294eed40894c5b18e06c181444ca953e5334262df9c27724",
+    "DejaVuSans.ttf": "7da195a74c55bef988d0d48f9508bd5d849425c1770dba5d7bfc6ce9ed848954",
+    "DejaVuSansMono-Bold.ttf": "bce60f1b4421acd9ea51ba6623d7024ecbe6817a953e3654df62a5e6bdf8f769",
+    "DejaVuSansMono-Oblique.ttf": "742097840c541870e8d6dc5c9b37bb1ceeea6c0dedd1d475faf903ef9df734b0",
+    "DejaVuSansMono.ttf": "b4a6c3e4faab8773f4ff761d56451646409f29abedd68f05d38c2df667d3c582",
+    "SourceSans3-It.otf": "430b9f0eb1170be0981706d14b6cf87122efba9d86c373bbdf69daf276421462",
+    "SourceSans3-Regular.otf": "08df266400933d3178d081a45f94a08814c3e55b4b7dd2e0ff69cb1329f13ab6",
+    "SourceSans3-Semibold.otf": "36f1cd2c344aa3109e64429bce41a41e4b2b923beb2db19b8dbf9bb56f05a4f9",
+    "SourceSans3-SemiboldIt.otf": "81204ed282543df2d93db214c98b5ec1c9ce735c4c82e4323d5ae5ee69c6b8b7",
+    "SourceSerif4-Bold.otf": "f5fb9a7b1611353fdfebcf8b1e46c7d9108470f25999b841816d8b643b1856ff",
+    "SourceSerif4-BoldIt.otf": "ebb5394e1e11e09480619c9bb10f020aded9530833edcbdb735a4702ae6fa09e",
+    "SourceSerif4-It.otf": "f8062257f4693e438a8e317c9fe2b4393f0d4eed84d897edcbfd733c30a1c1a1",
+    "SourceSerif4-Regular.otf": "edf160d0d584deee8a3bb2c3371b2a7624ca63580fbe02c57c1f4c91e84d8787"
+  },
+  "note": "sha256 of each vendored face, recorded from the binaries as bundled. Asserted BEFORE rendering: a silently different upstream build would otherwise change every guide's typography with no source change and no stamp movement to show for it.",
+  "schema_version": 1
+}

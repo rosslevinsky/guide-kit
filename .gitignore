@@ -1,0 +1,39 @@
+# Pixi managed env (pixi.lock IS committed for reproducibility)
+.pixi/
+
+# Working build directory — `make` writes the fresh render to
+# build/<slug>.pdf and (with `make html`) build/<slug>.html. The committed
+# reference PDF lives at the repo ROOT as <slug>.pdf (downloadable from
+# GitHub); nothing under build/ is tracked.
+build/
+
+# Opt-in web layer (present only after `bootstrap.py --with-web`). The site is
+# rendered to app/dist/ by `make web`; nothing under it is tracked. Node deps
+# for the wrangler dev/deploy wrapper live in app/node_modules — the lockfile
+# IS committed for reproducibility, but node_modules is not.
+app/dist/
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+.claude/
+
+# NOTE: `*-slides.pdf` was ignored here while the deck deliberately had no
+# committed reference. It does now — `baseline.py --artifact` plus baseline.yml's
+# per-artifact loop are what made that safe — so the reference must NOT be
+# ignored, or the one file the whole refresh path exists to maintain would be
+# silently unstageable.

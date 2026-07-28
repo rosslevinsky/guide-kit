@@ -1,0 +1,224 @@
+name: baseline
+
+# Generate the committed reference PDF on a Linux runner and commit it.
+#
+# The reference PDF is the reader-facing deliverable. It renders identically on
+# any host now — the repo bundles its own faces under fonts/vendor/ and ships
+# fontconfig/fonts.conf in place of the system config — so this runs `make
+# baseline` on the cheapest available runner, proves the result is fresh with
+# `make verify`, and commits it. There is no recorded platform and no platform
+# guard; verify.yml's drift canary measures host agreement instead.
+#
+# `workflow_dispatch` is this workflow's only `on:` trigger, but it does NOT
+# follow that baselining is a manual act. verify.yml AUTO-DISPATCHES this
+# workflow whenever a push to the default branch leaves the reference PDF stale
+# (its "Rebuild the reference PDF" step), so the normal path from `git push` to
+# a refreshed, redeployed PDF needs no human in it. Editing that step, or
+# dropping verify.yml's `actions: write` permission, silently returns the family
+# to the hand-dispatch era — where a red check nobody acted on left every site
+# serving a stale download.
+#
+# It is IDEMPOTENT — if the reference PDF is already up to date it does nothing.
+#
+# Manual dispatch remains, for repairing a site that drifted without a source
+# change: Actions -> baseline -> Run workflow (or `gh workflow run baseline.yml`).
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        description: "Commit message for the refreshed reference PDF"
+        required: false
+        default: "baseline: refresh reference PDF"
+
+permissions:
+  contents: write   # push the reference-PDF commit
+  actions: write    # dispatch verify.yml afterwards so its status reflects the fresh tree
+
+concurrency:
+  group: baseline-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  baseline:
+    # Linux, since bundling fonts made the render host-independent: the same
+    # commit produces a byte-identical PDF on macOS and Linux, measured across
+    # all eight repos (docs/determinism-evidence.md). macOS runners bill at 10x
+    # the Linux rate and bought nothing once typography stopped depending on the
+    # host.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          # Full history so `git status` sees the real tree state for the
+          # stamp's dirty marker, and so the refreshed PDF commit can be pushed.
+          fetch-depth: 0
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          frozen: true
+
+      - name: Skip if the reference PDF is already fresh
+        id: fresh
+        run: |
+          # A guide with NO reference PDF yet needs a baseline more than any
+          # other — but `make verify` PASSES in that state, by design, with a
+          # "pre-first-release" notice. Reading exit 0 as "already fresh" made
+          # this workflow able to refresh an existing baseline while being
+          # structurally incapable of creating the FIRST one, which is exactly
+          # what a new guide needs it for. Check existence before freshness.
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          if [ -z "$SLUG" ]; then
+            echo "::error::could not read OUTPUT_SLUG from guide.toml"; exit 1
+          fi
+          if [ ! -f "$SLUG.pdf" ]; then
+            echo "already_fresh=false" >> "$GITHUB_OUTPUT"
+            echo "No reference PDF yet ($SLUG.pdf) — rendering the first baseline."
+            exit 0
+          fi
+
+          # Call the checker DIRECTLY, not through `make verify`. GNU make
+          # normalizes any recipe failure to exit 2, so a stale PDF (verify_artifacts
+          # exit 1) arrives here as 2 and would be misread as a broken
+          # environment — which is exactly what happened: three baseline runs
+          # refused to render with "environment/invocation error" on a plain
+          # stale reference. The Makefile's verify target is precisely this
+          # command, so this is the same check without make's exit-code
+          # flattening.
+          set +e
+          pixi run python verify_artifacts.py --staleness
+          rc=$?
+          set -e
+          # verify_artifacts.py distinguishes its exit codes: 0 fresh, 1 stale,
+          # 2 environment/invocation error (missing pdftotext, unreadable PDF).
+          # Treating 2 as "stale" would silently render and PUSH a baseline on
+          # the strength of a broken check, so fail loudly instead.
+          if [ "$rc" -eq 0 ]; then
+            echo "already_fresh=true" >> "$GITHUB_OUTPUT"
+            echo "Reference PDF is already up to date — nothing to baseline."
+          elif [ "$rc" -eq 1 ]; then
+            echo "already_fresh=false" >> "$GITHUB_OUTPUT"
+            echo "Reference PDF is stale — rendering a fresh baseline."
+          else
+            echo "::error::make verify exited $rc (environment/invocation error, not staleness) — refusing to render a baseline on an unreliable check."
+            exit "$rc"
+          fi
+
+      - name: Render the baseline
+        if: steps.fresh.outputs.already_fresh == 'false'
+        # EVERY artifact that has a committed reference, not just the PDF.
+        #
+        # This loop is what makes a non-PDF reference safe to commit at all. The
+        # deck shares `_COMMON_FILES` (buildcore.py, kitconfig.py) with the PDF,
+        # so any change to those stales BOTH — and a refresher that only knew
+        # about the PDF would leave the deck stale with nothing able to fix it,
+        # i.e. a permanently red `verify`. That is why `ArtifactSpec.reference`
+        # was None for slides until this existed.
+        #
+        # `baseline.py --artifact X` is a no-op-with-a-reason for an artifact
+        # that is undeclared or has no reference (the site), so the loop needs no
+        # shape probing of its own.
+        run: |
+          set -euo pipefail
+          for artifact in $(pixi run python -c "import kitconfig; print(' '.join(kitconfig.ARTIFACT_NAMES))"); do
+            echo "--- baseline: $artifact"
+            pixi run python baseline.py --artifact "$artifact"
+          done
+
+      - name: Verify the fresh baseline
+        if: steps.fresh.outputs.already_fresh == 'false'
+        run: make verify
+
+      - name: Smoke-check the fresh baseline before committing it
+        if: steps.fresh.outputs.already_fresh == 'false'
+        # `make verify` above only proves the stamp matches the source — a
+        # question about bytes, not about the document. This asks whether the PDF
+        # looks like a finished guide: enough pages, no blank ones, the title
+        # present, no un-substituted placeholders, and the footer stamp not
+        # wrapped.
+        #
+        # It runs HERE, between rendering and committing, because this is the
+        # last point at which a bad render can still be stopped. Now that
+        # baselining is dispatched automatically on a stale push, nothing else
+        # between "edit guide.md" and "published PDF" ever looks at the file —
+        # this step is the only inspection left, so a failure must abort rather
+        # than warn.
+        run: make smoke
+
+      - name: Commit and push the reference PDF
+        if: steps.fresh.outputs.already_fresh == 'false'
+        env:
+          # Passed via env (not ${{ }} interpolation into the shell body) to harden
+          # against script injection from the dispatch input.
+          COMMIT_MSG: ${{ inputs.message }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Stage every reference this guide actually has, resolved from the
+          # ArtifactSpec table by baseline.py rather than from a `$SLUG.pdf`
+          # literal — the deck is `<slug>-slides.pdf` and a literal would never
+          # have picked it up.
+          pixi run python baseline.py --list-references | while read -r ref; do
+            if [ -f "$ref" ]; then
+              git add "$ref"
+              echo "staged $ref"
+            fi
+          done
+          if git diff --staged --quiet; then
+            echo "Render produced no change to any reference — nothing to commit."
+          else
+            git commit -m "$COMMIT_MSG"
+            git push
+            echo "Committed and pushed refreshed reference artifact(s)."
+          fi
+
+      - name: Refresh verify.yml status on the fresh tree
+        if: steps.fresh.outputs.already_fresh == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref_name }}
+        # A GITHUB_TOKEN push does not itself re-trigger workflows, so kick verify.yml
+        # once so its status reflects the now-fresh reference PDF. Best-effort.
+        # REF goes through env: rather than ${{ }} interpolation into the shell body —
+        # git permits ;, `, $, (, ), &, | and " in branch names, so an interpolated
+        # ref is a shell-injection vector. Same convention as the dispatch-input
+        # handling earlier in this file.
+        run: gh workflow run verify.yml --ref "$REF" || echo "::warning::could not dispatch verify.yml (non-fatal)"
+
+      - name: Redeploy the site with the refreshed PDF (web-enabled guides only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref_name }}
+        # Same GITHUB_TOKEN limitation as the verify kick above, and it bites harder
+        # here: the site serves a COPY of the reference PDF baked in at `make web`
+        # time, so without a redeploy the commit lands, verify goes green, and the
+        # deployed site keeps serving the OLD download — silently, since nothing
+        # downstream checks the served copy.
+        #
+        # Deliberately NOT gated on already_fresh. "PDF fresh but site stale" is
+        # exactly the state this exists to repair, and in that state already_fresh is
+        # TRUE — gating on it would make re-running baseline a no-op precisely when an
+        # operator runs it to fix the problem. deploy.yml is idempotent and re-gates
+        # itself (guard job + its own staleness gate), so an unnecessary dispatch is
+        # cheap and safe.
+        #
+        # Guarded on deploy.yml existing so PDF-only guides no-op. Non-fatal, but a
+        # dispatch failure (restricted actions: scope, workflow disabled, bad ref)
+        # reproduces the very bug this fixes, so it must be visible as an annotation
+        # rather than a plain echo. Note unset Cloudflare secrets do NOT fail here —
+        # the dispatch succeeds and the dispatched run goes red on its own.
+        run: |
+          if [ -f .github/workflows/deploy.yml ]; then
+            gh workflow run deploy.yml --ref "$REF" \
+              || echo "::warning::could not dispatch deploy.yml — the site may still be serving the previous PDF; run 'gh workflow run deploy.yml' by hand"
+          else
+            echo "no deploy.yml — PDF-only guide, nothing to redeploy"
+          fi

@@ -1,0 +1,30 @@
+/* style-slides.css — this guide's SLIDE deck override.
+ *
+ * Target-owned ([D10](../plans/guide-kit/decisions.md)): sync never writes it, and
+ * it is in the `slides` ArtifactSpec closure ONLY — editing it re-stales the deck
+ * and nothing else. That separation is the whole reason the closures were split:
+ * before it, touching a slides stylesheet re-staled all eight reference PDFs.
+ *
+ * Cascade position: LAST. `themes/<name>/print.css` then `slides.css` then
+ * `[theme.tokens]` come first, so everything here is the final word — and
+ * everything here should be a genuine slide-specific decision, not a copy of the
+ * theme's values.
+ */
+
+.slide {
+  font-family: var(--body-font);
+  font-size: var(--body-size);
+  line-height: var(--body-leading);
+  color: var(--ink);
+}
+
+.slide h1, .slide h2 {
+  font-family: var(--head-font);
+  font-size: var(--head-size);
+  color: var(--accent-dark);
+}
+
+.slide code, .slide pre {
+  font-family: var(--mono-font);
+  background: var(--code-bg);
+}

@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guides — free beginner's guides, online or as PDF</title>
+<meta name="description" content="Free beginner's guides: the command line on macOS, Linux and Windows; Git and GitHub; accounting; travelling in Japan; and a Romance-languages comparison. Read online or download the PDF.">
+<style>
+  :root {
+    --ink: #1f2933; --muted: #667381; --rule: #e3e8ee;
+    --accent: #2f80ed; --accent-dark: #1c5fb8;
+    --card: #ffffff; --bg: #f7f9fc; --warm: #fdf6ec; --warm-rule: #e8d9bf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 1.25rem 4rem;
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink); background: var(--bg);
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; }
+  header { padding: 3.5rem 0 2rem; border-bottom: 1px solid var(--rule); margin-bottom: 2.5rem; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 .6rem; letter-spacing: -0.015em; }
+  .tagline { margin: 0; color: var(--muted); font-size: 1.05rem; }
+  h2 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); margin: 2.75rem 0 .5rem; font-weight: 700;
+  }
+  .section-lede { margin: 0 0 1rem; font-size: .95rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--rule); border-radius: 10px;
+    padding: 1.15rem 1.25rem; margin: 0 0 .85rem;
+  }
+  .card h3 { margin: 0 0 .3rem; font-size: 1.12rem; }
+  .card h3 a { color: var(--accent-dark); text-decoration: none; }
+  .card h3 a:hover { text-decoration: underline; }
+  .card p { margin: 0 0 .7rem; color: var(--muted); font-size: .95rem; }
+  .links { display: flex; flex-wrap: wrap; gap: .5rem 1.1rem; font-size: .9rem; }
+  .links a { color: var(--accent-dark); text-decoration: none; font-weight: 600; }
+  .links a:hover { text-decoration: underline; }
+  .recommended {
+    border-color: #bcd6f7; box-shadow: 0 1px 3px rgba(47,128,237,.08);
+  }
+  .badge {
+    display: inline-block; font-size: .68rem; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; color: #fff; background: var(--accent);
+    padding: .16rem .45rem; border-radius: 4px; margin-left: .5rem; vertical-align: 2px;
+  }
+  .secondary { background: var(--warm); border-color: var(--warm-rule); }
+  .secondary h3 { font-size: 1rem; }
+  .note { font-size: .88rem; color: var(--muted); margin: .55rem 0 0; }
+  footer {
+    margin-top: 3.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule);
+    font-size: .85rem; color: var(--muted);
+  }
+  footer a { color: var(--muted); }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #e6edf3; --muted: #9aa7b4; --rule: #2b333c;
+      --accent: #4a9eff; --accent-dark: #7cb9ff;
+      --card: #1a1f25; --bg: #12161a; --warm: #211d16; --warm-rule: #3d3527;
+    }
+    .recommended { border-color: #2f5580; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Guides</h1>
+  <p class="tagline">Short, complete beginner's guides. Read online, or download the PDF.</p>
+</header>
+
+<p>Each of these is one self-contained document that assumes no prior knowledge of its subject.
+They are free to read online and free to download.</p>
+
+{% for section in sections %}
+<h2>{{ section.name | safe }}</h2>
+{%- if section.lede %}
+<p class="section-lede">{{ section.lede | safe }}</p>
+{%- endif %}
+{% for card in section.cards %}
+<div class="card{% if card.kind %} {{ card.kind }}{% endif %}">
+  <h3><a href="{{ card.url }}">{{ card.title }}</a>{% if card.badge %}<span class="badge">{{ card.badge }}</span>{% endif %}</h3>
+  <p{% if card.kind == 'secondary' %} class="note"{% endif %}>{{ card.blurb | safe }}</p>
+  <div class="links">
+    <a href="{{ card.url }}">{{ card.link_label | safe }}</a>
+    {%- if card.pdf %}
+    <a href="{{ card.url }}/{{ card.pdf }}">Download PDF</a>
+    {%- endif %}
+  </div>
+</div>
+{% endfor %}
+{%- endfor %}
+<footer>
+  <p>Content licensed <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>;
+     the build tooling under <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache 2.0</a>.
+     The guides above are built with
+     <a href="https://github.com/rosslevinsky/guide-kit">guide-kit</a>.</p>
+</footer>
+
+</div>
+</body>
+</html>

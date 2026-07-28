@@ -1,0 +1,585 @@
+name: verify
+
+# CI (Ubuntu) runs: the kit test suite, `make verify` (the STALENESS check — is
+# the committed reference PDF up to date with the source?), `make` / `make web`
+# build smoke, and the DRIFT CANARY (a fresh render compared to the committed
+# reference by bytes and embedded-face list). It does not run `make verify-render`
+# — not because that is platform-sensitive, which it no longer is, but because the
+# canary is the same question asked more strongly and reuses the render already
+# built above. The old "CI is build-smoke only because the pixel harness doesn't
+# reproduce across machines" rule is long gone: the pixel check is gone, and
+# bundled fonts made the render reproduce everywhere.
+#
+# Cost controls (deliberate):
+#   * Ubuntu only. macOS runners bill at 10x and Windows at 2x the Linux rate.
+#   * paths filters. Doc-only / plan-only pushes (README, CLAUDE.md, LICENSE,
+#     plans/, .gitignore) change no rendered output, so they skip CI. The root
+#     reference PDF (`*.pdf`) IS filtered in: a commit touching only the
+#     reader-facing deliverable must still be gated by the staleness check.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'style-slides.css'
+      - 'themes/**'
+      - 'fontfaces.css'
+      - 'cascadecheck.py'
+      - 'build.py'
+      - 'buildcore.py'
+      - 'render_pdf.py'
+      - 'render_site.py'
+      - 'chapters.py'
+      - 'render_slides.py'
+      - 'transforms.py'
+      - 'fonts/**'
+      - 'assets/shared/**'
+      - 'assets/print/**'
+      - 'fontconfig/fonts.conf'
+      - 'verify_artifacts.py'
+      - 'baseline.py'
+      - 'release.py'
+      - 'bootstrap.py'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - 'kit-manifest.toml'
+      - 'kitmanifest.py'
+      - 'sync.py'
+      - 'driftcanary.py'
+      - 'tests/**'
+      - '*.pdf'
+      - '.github/workflows/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'style-slides.css'
+      - 'themes/**'
+      - 'fontfaces.css'
+      - 'cascadecheck.py'
+      - 'build.py'
+      - 'buildcore.py'
+      - 'render_pdf.py'
+      - 'render_site.py'
+      - 'chapters.py'
+      - 'render_slides.py'
+      - 'transforms.py'
+      - 'fonts/**'
+      - 'assets/shared/**'
+      - 'assets/print/**'
+      - 'fontconfig/fonts.conf'
+      - 'verify_artifacts.py'
+      - 'baseline.py'
+      - 'release.py'
+      - 'bootstrap.py'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - 'kit-manifest.toml'
+      - 'kitmanifest.py'
+      - 'sync.py'
+      - 'driftcanary.py'
+      - 'tests/**'
+      - '*.pdf'
+      - '.github/workflows/**'
+  # The drift canary's own trigger. A rebuilt runner image or a refreshed
+  # dependency environment produces NO push event of its own, so a push-only
+  # canary is structurally unable to see the drift class it exists for. Weekly,
+  # off the hour (GitHub drops scheduled runs at peak minute boundaries).
+  schedule:
+    - cron: '27 6 * * 1'
+  workflow_dispatch:
+
+# Least privilege, plus exactly what the auto-baseline step needs.
+# `actions: write` is required to dispatch baseline.yml; without it the dispatch
+# fails and the step's error annotation tells the operator to run it by hand.
+# `contents: read` only — this workflow never writes to the repo. The refreshed
+# reference PDF is committed by baseline.yml, which declares its own
+# `contents: write`.
+permissions:
+  contents: read
+  actions: write
+
+# Cancel in-flight runs on the same ref when a new commit comes in. Keeps PR
+# iteration loops snappy and saves CI minutes.
+#
+# NOTE the interaction with auto-baseline: cancel-in-progress can kill a verify
+# run before it dispatches. That is safe rather than lossy — the newer commit
+# that caused the cancellation runs its own verify, and if the reference is still
+# stale that run dispatches instead. The dispatch is tied to the staleness of the
+# tree, not to any single run surviving.
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        # Bash so the Makefile's awk-based OUTPUT_SLUG scrape works.
+        shell: bash
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+        with:
+          # Full history so `git status` sees the real tree state for the
+          # stamp's dirty marker, and so the reference PDF's own history is
+          # queryable (staleness distinguishes a never-released guide from a
+          # deleted deliverable). The stamp's DATE is authored in guide.toml and
+          # needs no history at all.
+          fetch-depth: 0
+
+      - name: Install pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          # pixi.lock pins exact versions per-platform for reproducible
+          # rendering. Don't run `pixi update` from CI — let major-bound
+          # changes happen via local PRs that refresh the committed reference PDF too.
+          cache: true
+          frozen: true
+
+      # The DOM harness for `tests/nav_dom.js`, which runs WEB_NAV_JS in jsdom.
+      # That script is the one part of the kit no Python test can execute — it is
+      # a string of JavaScript that only means anything once something has run it
+      # over a rendered page — and asserting it by searching the SOURCE for
+      # literals let a real `aria-current` regression through, because the
+      # literal was present and the logic around it was wrong.
+      #
+      # NODE IS PINNED rather than taken from whatever the runner image ships:
+      # jsdom 29 declares `^20.19 || ^22.13 || >=24`, so an image bump could put
+      # the runner outside that window with no commit in this repo — the same
+      # class of silent drift `frozen: true` exists to stop above.
+      #
+      # GUARDED ON A ROOT `package-lock.json`, which only the kit has. A target's
+      # node dependencies live under `app/` for the wrangler wrapper, so both
+      # steps are inert in all seven of them rather than failing on a manifest
+      # that is not there. `tests/**` never syncs either, so no target has the
+      # harness to run in the first place.
+      - name: Set up node (kit only)
+        if: hashFiles('package-lock.json') != ''
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install the DOM test harness (kit only)
+        if: hashFiles('package-lock.json') != ''
+        run: npm ci --no-audit --no-fund
+
+      # Kit test suite — one shared shape for the kit and all seven targets. The
+      # kit (the template repo — no `.template-version`) runs its OWN pixi `kit` env.
+      # A sync target has no `kit` env (pytest is a kit-only feature that never
+      # templates in), so it borrows the kit's env by checking the kit out to
+      # _kit/ and pointing pixi at its manifest. TWO INDEPENDENT guards — do not
+      # conflate them:
+      #   * checkout is guarded on `.template-version` EXISTING — only a target
+      #     needs to borrow the runner; the kit is the source and never has one.
+      #   * the test run is guarded on `tests/` EXISTING — true for the kit and for
+      #     five of seven targets; the rest skip rather than fail on empty collection.
+      # `.template-version` lands in targets in Phase 6, so the target branch is
+      # inert in the kit today; the kit branch works from Phase 1 onward.
+      - name: Resolve kit repo (targets only)
+        id: kit
+        if: hashFiles('.template-version') != ''
+        run: |
+          # source_repo is the upstream kit a target borrows its test runner from.
+          # .template-version is a JSON structured record (finalized in Phase 6).
+          SRC=$(python3 -c "import json; print(json.load(open('.template-version'))['source_repo'])")
+          echo "source_repo=$SRC" >> "$GITHUB_OUTPUT"
+          # Pin the borrowed runner to the kit version this guide actually
+          # adopted. Without a ref the checkout takes the kit's default-branch
+          # HEAD, so tightening a shared assertion in the kit turns every guide
+          # red at once with no commit in any of them, and a guide can never
+          # reproduce yesterday's CI. This matters more now that the kit holds
+          # shared assertion LOGIC (tests/topic_coverage.py), not just a runner.
+          # MUST be a full 40-char commit SHA, a tag, or a branch name.
+          # actions/checkout's `ref:` resolves branches and tags and accepts a
+          # FULL commit SHA — a SHORT SHA fails outright with "A branch or tag
+          # with the name '<sha>' could not be found", which is how this was
+          # found. Anything recording kit_version must write the full SHA.
+          KITV=$(python3 -c "import json; print(json.load(open('.template-version')).get('kit_version') or '')")
+          case "$KITV" in
+            ????????????????????????????????????????) : ;;   # full 40-char SHA — fine
+            "") : ;;                                          # absent — default branch
+            *)
+              # A short SHA or unknown ref would fail the checkout below and take
+              # the whole verify run red. Fall back to the default branch and say
+              # so, rather than failing a guide's CI over its own metadata.
+              echo "::warning::kit_version '$KITV' is not a full commit SHA; borrowing the kit's default branch instead"
+              KITV="" ;;
+          esac
+          echo "kit_version=$KITV" >> "$GITHUB_OUTPUT"
+
+      - name: Check out kit test runner (targets only)
+        if: steps.kit.outputs.source_repo != '' && hashFiles('tests/**') != ''
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.kit.outputs.source_repo }}
+          # Empty ref falls back to the default branch, which is the right
+          # behaviour for a guide whose record predates kit_version.
+          ref: ${{ steps.kit.outputs.kit_version }}
+          path: _kit
+          fetch-depth: 0
+
+      - name: kit test suite
+        if: hashFiles('tests/**') != ''
+        run: |
+          if [ -f .template-version ]; then
+            # pixi runs from the manifest's workspace root (_kit), so a bare
+            # `tests/` would resolve to _kit/tests (the KIT's suite). Use the
+            # absolute path to THIS repo's tests so the TARGET's own tests run in
+            # the borrowed kit env; the target's tests/conftest.py puts the target
+            # root on sys.path, so its modules import correctly.
+            pixi run --manifest-path _kit/pixi.toml -e kit pytest "$GITHUB_WORKSPACE/tests" -q
+          else
+            pixi run -e kit test
+          fi
+
+      # The declared shape decides which smokes apply. Read, never probed —
+      # the same rule kitmanifest follows.
+      - name: Read the declared shape
+        id: shape
+        run: |
+          awk -F'"' '/^site[[:space:]]*=/{print "site="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
+          awk -F'=' '/^pdf[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print "pdf="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
+
+      # PDF build smoke — catches "the pipeline crashes" regressions. Skipped for
+      # a shape that declares no PDF: `make` would be building an artifact the
+      # repo never asked for, and failing on its absence.
+      - name: make (PDF build smoke)
+        if: steps.shape.outputs.pdf == 'true'
+        run: make
+
+      # The hub's equivalent: build the page offline from the committed
+      # snapshot. Same purpose — catch a crash in the renderer — against the
+      # artifact this shape actually produces.
+      - name: hub build smoke (offline)
+        if: steps.shape.outputs.site == 'hub'
+        run: |
+          pixi run python hub.py build
+          test -s dist/index.html
+
+      # Web build smoke — confirm `make web` produces a nonzero index.html. Gated
+      # on web ENABLED (style-screen.css present) AND a reference PDF present:
+      # build_web() now HARD-FAILS on a missing reference PDF (no more 404 download
+      # link), and a web-enabled guide has zero root PDFs from bootstrap until its
+      # first release — so without the reference-PDF guard its CI
+      # would be red across that whole pre-first-release window. Skip with a notice.
+      # Gated on the DECLARATION, not on style-screen.css existing. The stylesheet
+      # is target-owned, so disabling a site deliberately leaves it behind — and a
+      # file-presence gate then entered this branch, `make web` no-opped because
+      # the site was undeclared, and the index.html assertion below failed on a
+      # guide that had correctly switched its site off.
+      - name: make web (web build smoke)
+        run: |
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          DECLARED=$(pixi run python -c "import kitconfig; from pathlib import Path; print('site' in kitconfig.load(Path('.')).outputs.declared)")
+          if [ "$DECLARED" != "True" ]; then
+            echo "web layer not declared ([outputs] site); skipping web smoke"
+          elif [ ! -f "$SLUG.pdf" ]; then
+            echo "pre-first-release — no reference PDF ($SLUG.pdf) yet; web smoke skipped"
+          else
+            make web
+            test -s app/dist/index.html || { echo "app/dist/index.html missing or empty"; exit 1; }
+            echo "web build smoke OK"
+          fi
+
+      # Smoke-check the COMMITTED reference PDF: does the file readers download
+      # actually look like a finished guide? Platform-independent and build-free,
+      # so unlike `make verify-render` this is CI-safe. Skipped pre-first-release,
+      # where there is legitimately no reference PDF yet.
+      #
+      # Runs BEFORE the staleness gate on purpose. A stale reference is still a
+      # real PDF worth checking, and if both are wrong an operator should see
+      # both in one round rather than fix the stamp and only then discover the
+      # render is broken.
+      - name: make smoke (does the reference PDF look like a guide?)
+        run: |
+          set -euo pipefail
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          if [ -f "$SLUG.pdf" ]; then
+            make smoke
+          else
+            echo "::notice::pre-first-release — no reference PDF ($SLUG.pdf) yet; nothing to smoke-check"
+          fi
+
+      # Staleness gate — is the committed reference PDF up to date with the source?
+      # No build, no render, so it is milliseconds. Run LAST so the
+      # build-smoke signal is still visible on a legitimately-stale (red) round.
+      #
+      # A STALE REFERENCE AFTER A PUSH TO THE DEFAULT BRANCH IS NOT A FAILURE.
+      # It is the EXPECTED intermediate state, and this is the one thing this
+      # workflow used to get wrong.
+      #
+      # The reference PDF is a build artifact committed to the repo and stamped
+      # with a hash of its own sources, so ANY source push makes it stale by
+      # construction. Reporting that as a failed run meant every content edit
+      # emailed the maintainer about a condition the next step was already
+      # repairing — and the family's own record says it best: a red check that
+      # means nothing teaches people to ignore it exactly as thoroughly as a
+      # green one that checked nothing.
+      #
+      # So the verdict is still computed exactly as before and still drives the
+      # rebuild; what changed is who it is reported TO. On a push to the default
+      # branch: dispatch the rebuild and exit 0. If the rebuild cannot produce a
+      # good render, `baseline.yml` fails — loudly, with an email, about a real
+      # problem.
+      #
+      # EVERYWHERE ELSE IT STILL FAILS, and that is not a hedge:
+      #   * on a pull request, staleness is actionable by the author and nothing
+      #     can auto-commit to their branch;
+      #   * on a scheduled or dispatched run there is no push to repair, so a
+      #     stale reference is a genuine standing defect;
+      #   * rc == 2 (a broken check) always fails — rendering a baseline on the
+      #     strength of a check that did not work is how a wrong PDF gets blessed.
+      - name: make verify (staleness check)
+        id: staleness
+        # Call the checker DIRECTLY rather than through make: GNU make normalizes
+        # any recipe failure to exit 2, which would make "stale" (1) and
+        # "environment broken" (2) indistinguishable — the exact confusion that
+        # once made baseline.yml refuse to render on a plainly stale reference.
+        run: |
+          set +e
+          pixi run python verify_artifacts.py --staleness
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          # A NON-NUMERIC restatement of the same verdict, and it exists for a
+          # specific reason. GitHub's `==` is LOOSE: when the operand types
+          # differ it casts both to numbers, and an unset output — which is what
+          # a SKIPPED step yields — is the empty string, which casts to 0. So
+          # `steps.staleness.outputs.rc == '0'` is TRUE when this step never ran,
+          # and the drift canary below fired on a tree that had never been
+          # rendered. Measured on a real runner, not reasoned about: the step
+          # failed with "toolchain drift" against a stale build/ artifact.
+          # 'fresh' cannot be cast to a number, so `'' == 'fresh'` stays a string
+          # comparison and is correctly false.
+          case "$rc" in
+            0) state=fresh ;;
+            1) state=not-fresh ;;
+            *) state=broken ;;
+          esac
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+
+          # The verdict is unchanged and still recorded above; only the EXIT is
+          # conditional. `rc == 1` on a push to the default branch is the
+          # expected post-push state and the rebuild below repairs it, so this
+          # run does not go red for it. Any other combination still exits
+          # nonzero.
+          if [ "$rc" = "1" ] && [ "$EXPECTED_STALE" = "true" ]; then
+            echo "::notice::reference is stale after this push — dispatching the rebuild. This is the expected flow, not a failure."
+            exit 0
+          fi
+          exit "$rc"
+        env:
+          # Computed in the expression layer, where the event and ref are
+          # trustworthy, rather than re-derived in shell.
+          EXPECTED_STALE: >-
+            ${{ github.event_name == 'push'
+                && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      # ── Drift canary (D29) ───────────────────────────────────────────────
+      #
+      # `make verify` above asks "did the SOURCE change?". It hashes SOURCE_FILES,
+      # and `pixi.lock` is not in that list — so a dependency bump that shifts how
+      # WeasyPrint or fontconfig lays out text moves the reader-facing PDF while
+      # the staleness check stays correctly green. Nothing in CI closed that gap.
+      # The control the family used to name for it, `make verify-render`, was not
+      # one: CI never ran it, and it compares page count plus extracted text, so a
+      # face substitution with identical text and pagination passes it.
+      #
+      # This renders afresh and compares BYTES plus the `pdffonts` face list. It
+      # reuses the render `make` already produced above — that is the whole reason
+      # D29 calls this cheap; it is one comparison against an artifact already in
+      # the workspace, not a second build.
+      #
+      # `steps.staleness.outputs.rc == '0'` is load-bearing, not an optimisation.
+      # On a STALE reference a fresh render is SUPPOSED to differ, and calling
+      # that drift would make this red on every ordinary content edit until the
+      # baseline caught up — which is how a check gets ignored. Drift is the
+      # combination "source unchanged AND the render moved anyway", so it can only
+      # be judged when staleness has already passed.
+      #
+      # `!cancelled()` rather than a bare `if:` because the staleness step above
+      # FAILS the job on a stale tree, which would skip this step by default — and
+      # rather than `always()`, which also runs on a cancelled run: this workflow
+      # sets `cancel-in-progress`, so PR iteration cancels routinely and there is
+      # nothing to learn from a canary on a superseded commit.
+      #
+      # TWO conditions, and neither is redundant. `outcome == 'success'` proves
+      # the staleness step actually RAN and passed; `outputs.state == 'fresh'`
+      # proves what it concluded. The obvious spelling — `outputs.rc == '0'` —
+      # is BROKEN, and was shipped and caught on a real runner: GitHub's `==`
+      # casts to numbers when the operand types differ, an unset output is the
+      # empty string, and the empty string casts to 0 — so `rc == '0'` is TRUE
+      # for a step that never ran. When an earlier step failed and skipped
+      # staleness, this canary ran anyway, compared a stale `build/` artifact to
+      # the reference, and reported "toolchain drift" that did not exist.
+      # Never compare a possibly-unset output against a numeric-looking string.
+      #
+      # The weekly `schedule` trigger runs on the DEFAULT BRANCH only (GitHub's
+      # rule, not ours), which is the right scope: it is the published deliverable
+      # whose environment can drift underneath it.
+      - name: Drift canary (fresh render vs committed reference)
+        if: >-
+          ${{ !cancelled()
+             && steps.staleness.outcome == 'success'
+             && steps.staleness.outputs.state == 'fresh' }}
+        run: |
+          set -euo pipefail
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          pixi run python driftcanary.py --fresh "build/$SLUG.pdf"
+
+      # ── Auto-baseline: rebuild the reference PDF when a content push made it
+      #    stale ───────────────────────────────────────────────────────────────
+      #
+      # NOTE THE CONDITION BELOW KEYS ON `staleness`, NEVER ON THE CANARY, and
+      # that separation is the point of D29 rather than an accident of ordering.
+      # A stale reference is repaired by re-baselining. Drift must NOT be: the
+      # difference the canary found IS the finding, and committing a fresh render
+      # over it would put the drift straight into the deliverable and turn the
+      # check that caught it into the mechanism that laundered it. If you are
+      # ever tempted to add `|| canary failed` here, that is the bug.
+      #
+      # WHY THIS EXISTS. Before this, editing guide.md and pushing left the branch
+      # red and the deployed site quietly serving the OLD PDF until someone
+      # remembered to run `gh workflow run baseline.yml` by hand. That is the
+      # family's most-repeated defect shape — a check nobody acts on plus a stale
+      # live artifact — and it was load-bearing on human memory.
+      #
+      # The historical argument for keeping it manual was that `make baseline`
+      # re-blesses whatever renders without anyone looking. That argument died
+      # when the baseline handoff moved into CI: baseline.yml already renders and
+      # commits unattended, so a manual DISPATCH bought no inspection, only
+      # delay. The inspection is now the `make smoke` step inside baseline.yml,
+      # which aborts before committing a bad render.
+      #
+      # Guards:
+      #   * only on a push to the default branch — a PR must not trigger a
+      #     baseline render, and could not push the result anyway
+      #   * only on rc == 1 (genuinely stale). rc == 2 is an environment error, and
+      #     rendering a baseline on the strength of a broken check is how a wrong
+      #     PDF would get blessed
+      #   * only if baseline.yml exists
+      #
+      # Termination: baseline.yml commits the refreshed PDF, which is a push
+      # touching '*.pdf', which re-runs this workflow — now fresh, so rc == 0 and
+      # no further dispatch. If a render can never satisfy the stamp, baseline's
+      # own "no change to commit" path stops the chain instead of looping.
+      # `!cancelled()`, NOT `failure()`. This used to key on the run having
+      # failed, because a stale reference failed the step above — and the moment
+      # that step stopped failing on this path, `failure()` would have been false
+      # and the rebuild would silently never have been dispatched. The workflow
+      # would have gone green while the reference stayed stale forever: a green
+      # check that verified nothing, produced by the change that removed a red
+      # check that meant nothing.
+      #
+      # The condition now keys on the VERDICT (`rc == '1'`), which is what it was
+      # always really about.
+      - name: Rebuild the reference PDF (auto-dispatch baseline)
+        if: >-
+          !cancelled()
+          && steps.staleness.outputs.rc == '1'
+          && github.event_name == 'push'
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        # REF is passed through env: rather than interpolated into the shell body,
+        # because git permits ;, `, $, (, ), &, | and " in branch names. This note
+        # lives HERE, as a YAML comment, and NOT inside the run: block below —
+        # GitHub evaluates expression syntax anywhere in a run: value, INCLUDING
+        # inside shell comments, so writing the literal expression delimiters in
+        # that prose makes them an empty expression and invalidates the whole
+        # workflow file. That is exactly how this step first shipped broken.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ github.ref_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          # Also a hard failure, for the same reason as the dispatch below: the
+          # reference IS stale, and with no baseline.yml nothing in this repo will
+          # ever refresh it. Warning-and-exit-0 was correct only while the
+          # staleness step's own red carried the signal. Now it would be the only
+          # thing standing between a stale deliverable and an all-green repo.
+          if [ ! -f .github/workflows/baseline.yml ]; then
+            echo "::error::reference PDF is stale and there is no baseline.yml to rebuild it — re-baseline by hand with 'make baseline'"
+            exit 1
+          fi
+          # REFUSE to auto-baseline a push that also moved pixi.lock. This is the
+          # laundering path D29 names: on a MIXED push (content + a dependency
+          # bump) the reference is legitimately stale, so the drift canary skips —
+          # a fresh render is supposed to differ — and baseline.yml would then
+          # render and commit, folding the dependency-driven typography change
+          # into the deliverable alongside the content change. Nothing would ever
+          # report it: the next canary compares against the new reference and
+          # passes. Separating the two is not something CI can do (there is only
+          # one toolchain here), so the correct move is to stop and make a human
+          # look, which is exactly what a re-baseline after a lock bump deserves.
+          # FAIL CLOSED when the range cannot be resolved. `github.event.before`
+          # is the all-zero SHA on a branch's first push and points at a
+          # discarded commit after a force-push; in both cases `git diff` errors.
+          # Swallowing that error and continuing would auto-baseline precisely
+          # when we CANNOT show the lock is unchanged — the guard inverted. The
+          # cost of refusing here is one manual `make baseline`, and it is close
+          # to never: a first push to the default branch has no reference PDF at
+          # all (staleness passes pre-first-release, so this step is unreachable),
+          # and force-pushing the default branch is already a deliberate act.
+          if ! CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" 2>&1); then
+            echo "::error::the reference PDF is stale, but this push's commit range"
+            echo "::error::($BEFORE..$AFTER) cannot be resolved, so it is not possible to"
+            echo "::error::tell whether pixi.lock moved with it. Refusing to auto-baseline"
+            echo "::error::rather than risk folding toolchain drift into the deliverable."
+            echo "::error::Re-baseline by hand with 'make baseline' after checking the render."
+            exit 1
+          fi
+          # A HERE-STRING, not `printf ... | grep`. GitHub runs `shell: bash` as
+          # `bash --noprofile --norc -eo pipefail`, and under `pipefail` that
+          # pipeline FAILS OPEN: `grep -q` exits the moment it matches, `printf`
+          # takes SIGPIPE, and the pipeline's status becomes 141 — so the `if` is
+          # FALSE precisely when pixi.lock WAS found. Measured, not theorised: a
+          # 3.7MB changed-file list with the match early returns "guard fired"
+          # under plain `bash` and "guard bypassed, rc=141" under the runner's
+          # actual shell. It needs a push large enough to fill the pipe buffer
+          # (~64KB of paths) before the match, which is rare and entirely
+          # possible — and the failure is a re-baseline that launders a
+          # dependency bump into the deliverable, i.e. the exact thing this guard
+          # exists to stop. A here-string has no pipe and no SIGPIPE.
+          if grep -qx 'pixi.lock' <<< "$CHANGED"; then
+            echo "::error::the reference PDF is stale AND pixi.lock changed in this push."
+            echo "::error::Refusing to auto-baseline: a re-render now would commit any"
+            echo "::error::dependency-driven typography change together with your content"
+            echo "::error::change, and no check would ever report it. Re-baseline by hand"
+            echo "::error::('make baseline') after comparing the render, or split the lock"
+            echo "::error::bump into its own commit so the drift canary can judge it alone."
+            exit 1
+          fi
+          # This `if` must END in `exit 1` on the failure branch, and that is not a
+          # style preference. A bare `echo` in an else-branch makes the branch's
+          # status 0, so the STEP succeeds. That was survivable only while the
+          # staleness step still exited 1 — the job was red anyway, for the other
+          # reason. Removing the expected-stale red (above) took that cover away
+          # and left the exact hole this whole mechanism exists to close: dispatch
+          # fails, verify reports GREEN, no rebuild runs, deploy stays gated on a
+          # reference that nothing will ever refresh, and the site serves the old
+          # PDF forever with every check passing.
+          if gh workflow run baseline.yml --ref "$REF" \
+               -f message="baseline: auto-refresh reference PDF (stale after push)"; then
+            echo "::notice::reference PDF was stale — dispatched baseline.yml to re-render it. This run is green on purpose; the rebuild it just queued is what refreshes the reference."
+          else
+            echo "::error::reference PDF is stale and dispatching baseline.yml FAILED — run 'gh workflow run baseline.yml' by hand, or the site keeps serving the old PDF"
+            exit 1
+          fi

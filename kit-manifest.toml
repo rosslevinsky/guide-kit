@@ -1,0 +1,610 @@
+# kit-manifest.toml — the two-axis file classification for the guide kit.
+#
+# THE RULE (enforced by tests/test_manifest_roles.py, which enumerates
+# `git ls-files`): every git-tracked file in the template MUST be classified
+# here, in the SAME commit that adds it. An unclassified file fails CI.
+#
+# Two INDEPENDENT axes — never collapse them (a single list made deploy.yml
+# unsyncable, defeating the kit's purpose):
+#
+#   lifecycle  (required on every entry) — the file's role IN THE KIT:
+#     retained-in-kit  a canonical source authored/maintained in the kit
+#                      (whether or not it is projected into a target)
+#     bootstrap-source a staging file (.example / templates/) materialized into
+#                      a live destination by bootstrap --with-web / adopt-web
+#     generated        a build/resolution output, not a hand-authored source
+#
+#   destination policy (present ONLY if the file has a projected live path in a
+#   target — `projects_to` + `policy` travel together) — what SYNC does to that
+#   live path:
+#     identical      copied verbatim, kit -> target
+#     templated      copied with guide.toml values substituted
+#     managed-region only the <!-- kit:begin -->..<!-- kit:end --> block replaced
+#     never          the path exists in the target but sync NEVER writes it
+#                    (target-owned content, e.g. guide.md, the reference PDF)
+#
+#   A file with no `projects_to`/`policy` is kit-only: it has no live path in a
+#   target at all (bootstrap.py, sync.py, tests/, plans/, the sentinel).
+#
+# Per-target shape: destination policy is evaluated per shape. A PDF-only guide
+# has no app/ or deploy.yml destinations, so the bootstrap-source (web-layer)
+# entries are INERT for it, not missing-and-refused. The resolver
+# (kitmanifest.py) treats every bootstrap-source entry as web-only.
+#
+# pixi.lock — DECLARED OWNER + UPDATE STRATEGY: it is
+# per-target and never synced (`generated` + `never`). Each guide owns its own
+# lock and regenerates it with `pixi install` when a genuinely SHARED dependency
+# changes (the Python floor, a new shared dep). It is a RENDERING input — the
+# family's locks already diverge on fontconfig (guide-kit 2.18.0 vs
+# mac/git 2.17.1) — so it is never overwritten kit->target; doing so could shift
+# a guide's PDF output. CI installs `frozen: true`, so a guide's lock must match
+# its own rendered pixi.toml.
+
+# ============================ retained-in-kit ============================
+# --- identical: synced verbatim ---
+[[entry]]
+path = "build.py"
+lifecycle = "retained-in-kit"
+projects_to = "build.py"
+policy = "identical"
+
+# The build pipeline, split by artifact. `build.py` is now only the CLI;
+# `buildcore.py` is the artifact-neutral pipeline and each `render_*.py` owns one
+# artifact. All are `identical` for the same reason `build.py` always was — every
+# guide gets the whole kit and simply does not call the renderers it has not
+# declared. The split is about DEPENDENCY CLOSURES (see kitconfig.ArtifactSpec),
+# not about which files a target receives: before it, a website change re-staled
+# all eight reference PDFs because the web chrome lived in a PDF stamp input.
+[[entry]]
+path = "buildcore.py"
+lifecycle = "retained-in-kit"
+projects_to = "buildcore.py"
+policy = "identical"
+
+[[entry]]
+path = "render_pdf.py"
+lifecycle = "retained-in-kit"
+projects_to = "render_pdf.py"
+policy = "identical"
+
+[[entry]]
+path = "render_site.py"
+lifecycle = "retained-in-kit"
+projects_to = "render_site.py"
+policy = "identical"
+
+[[entry]]
+# The hub's renderer: `hub update` (network) and `hub build` (offline). Synced
+# into the hub like any other kit tool, which is the whole reason the hub is a
+# target — otherwise `hub build` would have to run from a guide-kit
+# checkout, and an outside adopter of the kit would get no working hub at all.
+path = "hub.py"
+lifecycle = "retained-in-kit"
+projects_to = "hub.py"
+policy = "identical"
+
+[[entry]]
+# The hub's page template. `never` — the manifest's existing word for "this path
+# exists in the target and sync NEVER writes it", the same tier all seven guides
+# use for their own style-screen.css. This is what makes the hub's appearance
+# permanently the hub's while the machinery still arrives by sync.
+#
+# There is no kit-side copy: the kit is not a hub and has no page to template.
+# The entry exists to CLASSIFY the destination, which is what keeps
+# test_manifest_roles' exhaustiveness rule satisfied without sync ever writing
+# it.
+path = "templates/hub/hub-template.html"
+lifecycle = "bootstrap-source"
+projects_to = "hub-template.html"
+policy = "never"
+
+[[entry]]
+# The hub's editorial data — which guides, sections, order, badges, blurbs. It
+# is the hub's judgement ABOUT guides, which no guide can supply, so the target
+# owns it outright.
+path = "templates/hub/registry.toml"
+lifecycle = "bootstrap-source"
+projects_to = "registry.toml"
+policy = "never"
+
+[[entry]]
+# The committed snapshot `hub update` writes and `hub build` reads. Generated
+# and target-owned, like pixi.lock.
+path = "templates/hub/guides.snapshot.json"
+lifecycle = "generated"
+projects_to = "guides.snapshot.json"
+policy = "never"
+
+[[entry]]
+# The three ASSET namespaces. Target-owned (`never`): a guide's images are its
+# own, exactly as its style-screen.css is, and the kit ships none.
+#
+# SIBLINGS, never nested — the same rule `fonts/vendor` and `fonts/generated`
+# follow. Nested, the enclosing tree's expansion can erase the inner one; here it
+# would also put a screen-only image into the PDF's closure, which is the single
+# thing the split exists to prevent.
+#
+#   assets/shared/**  both outputs        assets/print/**  the PDF only
+#   assets/web/**     the site only
+path = "templates/assets/shared/.gitkeep"
+lifecycle = "bootstrap-source"
+projects_to = "assets/shared/.gitkeep"
+policy = "never"
+
+[[entry]]
+path = "templates/assets/print/.gitkeep"
+lifecycle = "bootstrap-source"
+projects_to = "assets/print/.gitkeep"
+policy = "never"
+
+[[entry]]
+path = "templates/assets/web/.gitkeep"
+lifecycle = "bootstrap-source"
+projects_to = "assets/web/.gitkeep"
+policy = "never"
+
+[[entry]]
+# Chapter resolution over the Pandoc AST. A SITE and SLIDES input, deliberately
+# not a PDF one — it is absent from the pdf ArtifactSpec's file_deps, so a
+# multipage change cannot re-stale eight reference PDFs.
+path = "chapters.py"
+lifecycle = "retained-in-kit"
+projects_to = "chapters.py"
+policy = "identical"
+
+[[entry]]
+# The Cloudflare adapter: `_headers` and the wrangler contract. Synced into every
+# target because each one GENERATES its own app/wrangler.jsonc from its own
+# guide.toml — the generator is the kit-owned half of that arrangement, and the
+# file it writes is the target-owned half.
+path = "cfadapter.py"
+lifecycle = "retained-in-kit"
+projects_to = "cfadapter.py"
+policy = "identical"
+
+[[entry]]
+path = "render_slides.py"
+lifecycle = "retained-in-kit"
+projects_to = "render_slides.py"
+policy = "identical"
+
+[[entry]]
+path = "release.py"
+lifecycle = "retained-in-kit"
+projects_to = "release.py"
+policy = "identical"
+
+[[entry]]
+path = "verify_artifacts.py"
+lifecycle = "retained-in-kit"
+projects_to = "verify_artifacts.py"
+policy = "identical"
+
+[[entry]]
+path = "verify_web.py"
+lifecycle = "retained-in-kit"
+projects_to = "verify_web.py"
+policy = "identical"
+
+# The drift canary. `identical` rather than kit-only because every target's
+# verify.yml invokes it: tests/** is never synced, so canary logic left in the
+# workflow YAML would mean seven repos running shell that no test covers.
+[[entry]]
+path = "driftcanary.py"
+lifecycle = "retained-in-kit"
+projects_to = "driftcanary.py"
+policy = "identical"
+
+[[entry]]
+path = "kitconfig.py"
+lifecycle = "retained-in-kit"
+projects_to = "kitconfig.py"
+policy = "identical"
+
+[[entry]]
+path = "baseline.py"
+lifecycle = "retained-in-kit"
+projects_to = "baseline.py"
+policy = "identical"
+
+[[entry]]
+path = "Makefile"
+lifecycle = "retained-in-kit"
+projects_to = "Makefile"
+policy = "identical"
+
+[[entry]]
+path = "LICENSE"
+lifecycle = "retained-in-kit"
+projects_to = "LICENSE"
+policy = "identical"
+
+[[entry]]
+path = "LICENSE-CONTENT"
+lifecycle = "retained-in-kit"
+projects_to = "LICENSE-CONTENT"
+policy = "identical"
+
+[[entry]]
+# baseline.yml carries no slug (reads guide.toml via awk at runtime), so it is
+# byte-identical across guides — every guide gets the same baseline workflow.
+path = ".github/workflows/baseline.yml"
+lifecycle = "retained-in-kit"
+projects_to = ".github/workflows/baseline.yml"
+policy = "identical"
+
+# --- templated: synced with guide.toml substitution ---
+[[entry]]
+path = "pixi.toml"
+lifecycle = "retained-in-kit"
+projects_to = "pixi.toml"
+policy = "templated"
+
+[[entry]]
+path = ".github/workflows/verify.yml"
+lifecycle = "retained-in-kit"
+projects_to = ".github/workflows/verify.yml"
+policy = "templated"
+
+# The one-time PDF font-table audit. Kit-only: it answers a question the
+# permanent checks cannot (which face a run actually SELECTED) and is run once
+# per boundary, not on every build, so no target needs it.
+[[entry]]
+path = "pdfaudit.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "cascadecheck.py"
+lifecycle = "retained-in-kit"
+projects_to = "cascadecheck.py"
+policy = "identical"
+
+# The bundled @font-face declarations. KIT-OWNED and synced: guides name
+# families, they do not define them — which is what lets the override guard
+# refuse @font-face absolutely.
+[[entry]]
+path = "fontfaces.css"
+lifecycle = "retained-in-kit"
+projects_to = "fontfaces.css"
+policy = "identical"
+
+# --- identical: the theme layer ---
+# Every theme ships to every guide, and a guide simply does not select the ones it
+# is not using. `identical`, because a theme is the kit's definition of an
+# appearance: a per-guide fork of one would make `theme.name` mean something
+# different in each repository, which is exactly what naming an appearance is
+# supposed to prevent. Per-guide adjustment is `[theme.tokens]` in guide.toml —
+# the middle cascade layer — not an edited theme.
+[[entry]]
+path = "themes/**"
+lifecycle = "retained-in-kit"
+projects_to = "themes/**"
+policy = "identical"
+
+# --- identical: font tooling ---
+# The subsetter is PROJECTED, not kit-only: its output lands in the target's own
+# `fonts/generated/`, which is target-owned, so each guide runs it and owns the
+# result. The kit ships the tool; it does not ship the subsets.
+[[entry]]
+path = "tools/subset-cjk.py"
+lifecycle = "retained-in-kit"
+projects_to = "tools/subset-cjk.py"
+policy = "identical"
+
+# --- identical: the hermetic font environment ---
+# The Fontconfig TEMPLATE. Synced verbatim: font resolution must be the same
+# question in every guide, and a per-guide fontconfig is exactly how one guide
+# quietly starts rendering from the host's fonts. The RESOLVED copy (absolute
+# paths substituted at build time) is written under build/ and never tracked.
+[[entry]]
+path = "fontconfig/fonts.conf"
+lifecycle = "retained-in-kit"
+projects_to = "fontconfig/fonts.conf"
+policy = "identical"
+
+# --- the bundled font faces, in TWO NON-NESTING namespaces ---
+# A DIRECTORY-TREE projection. The faces were enumerated one entry per file,
+# because sync resolved `projects_to` as a literal path and a glob destination
+# made it try to read a file named "fonts/**" — so adding a face meant adding a
+# line here in the same commit, the paired edit the glob was meant to avoid.
+# sync.py projects trees now, so the enumeration is gone.
+#
+#   fonts/vendor/**     kit-owned upstream binaries + their licences, synced
+#   fonts/generated/**  target-owned build output (subset faces), never written
+#
+# They are SIBLINGS, neither inside the other, and that is a correctness property
+# rather than tidiness. While `fonts/**` was an outer namespace, a target-owned
+# generated subset lived INSIDE a kit-managed tree, and the only things keeping a
+# sync from erasing it were longest-match precedence and a carve-out in the
+# deletion guard — two mechanisms holding back a mistake the layout can simply
+# not permit.
+#
+# vendor/ is IDENTICAL, not `never` — the opposite of style.css. A guide owns its
+# stylesheet, because typography choices are the guide's; it does not own the font
+# BINARIES, because the point of bundling is that every guide renders from the
+# same bytes.
+[[entry]]
+path = "fonts/vendor/**"
+lifecycle = "retained-in-kit"
+projects_to = "fonts/vendor/**"
+policy = "identical"
+
+# `generated` + `never`: a subset face is produced by the target's own build from
+# the vendor faces, so the kit has no authoritative bytes for it and must neither
+# write one nor delete one.
+[[entry]]
+path = "fonts/generated/**"
+lifecycle = "generated"
+projects_to = "fonts/generated/**"
+policy = "never"
+
+
+# --- managed-region: only the marked block is replaced ---
+[[entry]]
+path = "CLAUDE.md"
+lifecycle = "retained-in-kit"
+projects_to = "CLAUDE.md"
+policy = "managed-region"
+
+# --- never: exists in the target but sync leaves it alone (target-owned) ---
+[[entry]]
+path = "guide.md"
+lifecycle = "retained-in-kit"
+projects_to = "guide.md"
+policy = "never"
+
+[[entry]]
+path = "style.css"
+lifecycle = "retained-in-kit"
+projects_to = "style.css"
+policy = "never"
+
+[[entry]]
+# per-target configuration: sync READS guide.toml to render templated files, but
+# must NEVER write it. never (not no-destination) so the exhaustiveness test
+# cannot accept a policy that clobbers it.
+path = "guide.toml"
+lifecycle = "retained-in-kit"
+projects_to = "guide.toml"
+policy = "never"
+
+[[entry]]
+path = "README.md"
+lifecycle = "retained-in-kit"
+projects_to = "README.md"
+policy = "never"
+
+[[entry]]
+path = ".gitignore"
+lifecycle = "retained-in-kit"
+projects_to = ".gitignore"
+policy = "never"
+
+# --- kit-only: no live path in a target (no destination) ---
+[[entry]]
+path = "bootstrap.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "kit-manifest.toml"
+lifecycle = "retained-in-kit"
+
+# The cross-guide concept matrix reconciling windows-powershell-guide and
+# windows-cmd-guide (authored in the Stage 13 join). Kit-only: it is a
+# MAINTAINER artifact about two specific guides, not reader-facing content and
+# not tooling any guide runs, so it is never projected into a target and
+# bootstrap prunes it from a fork.
+[[entry]]
+path = "windows-shell-concept-matrix.md"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "kitmanifest.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = ".template-uninitialized"
+lifecycle = "retained-in-kit"
+
+# MATCHES NOTHING TODAY, and is kept deliberately. `plans/web-layer-backport/`
+# was the one plan set ever committed here; it was removed once the backport had
+# shipped, because the convention this family follows is that plan documents stay
+# outside version control and `docs/family-as-built.md` is the record that
+# survives. The entry stays so that a plan set added again is kit-only from the
+# first commit — classified for the exhaustiveness rule and pruned from forks —
+# rather than turning up in every new guide as somebody else's working notes.
+[[entry]]
+path = "plans/**"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "tests/**"
+lifecycle = "retained-in-kit"
+
+# The DOM test harness's node manifest and lockfile. Kit-only, and every part of
+# that is deliberate:
+#
+#   * `tests/**` never syncs, so no target has `tests/nav_dom.js` to run and none
+#     of them needs the dependency it imports.
+#   * a target already has node dependencies under `app/` for the wrangler
+#     wrapper; putting a SECOND package.json at a guide's root would collide with
+#     that in every tool that walks upward looking for one.
+#   * nothing here is in any artifact's closure — jsdom renders no PDF and no
+#     page, it only reads one — so this cannot move a version stamp.
+#
+# `verify.yml` guards its `npm ci` on the ROOT lockfile existing, which is what
+# keeps the step inert in the seven targets it is synced to.
+[[entry]]
+path = "package.json"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+path = "package-lock.json"
+lifecycle = "retained-in-kit"
+
+# Maintainer documentation ABOUT the family, not content for any one guide:
+# docs/family-as-built.md is the decision record (what shipped, what diverged
+# from plan, which defects were only ever caught by running things end to end).
+# Kit-only, so `_prune_kit_only` deletes docs/ from a fork — a new guide has no
+# use for the family's history and would publish it in its own repo.
+#
+# Glob, not a single path, so a second kit doc does not need a manifest edit
+# (the exhaustiveness test would otherwise fail on the commit that adds it).
+[[entry]]
+path = "docs/**"
+lifecycle = "retained-in-kit"
+
+# CONTRIBUTING.md is about contributing to THE KIT — pixi, the suite, the manifest's
+# own exhaustiveness rule, the re-baseline sequence. None of that is a guide's
+# contribution process, which is "edit guide.md, push"; the README already covers it.
+# So this is kit-only (no `projects_to`), which means `_prune_kit_only` removes it
+# from a fork automatically and a guide never ships instructions for the wrong repo.
+[[entry]]
+path = "CONTRIBUTING.md"
+lifecycle = "retained-in-kit"
+
+# --- pre-declared kit files that later phases add (classified now so the
+#     exhaustiveness test does not break the moment they land) ---
+[[entry]]
+# Run FROM the kit against a target; never copied into one.
+path = "sync.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+# Two-root (kit_root + --target); never copied into a target.
+path = "adopt-web.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+# The output-generic successor to adopt-web.py: `--output <name> --enable/--disable`
+# as a state transition for a target that is already adopted and applied. Kit-only
+# for the same reason its ancestor is — it is run FROM the kit AGAINST a guide.
+path = "adopt.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+# The scheduled drift check must reach EVERY guide, and it
+# interpolates the target's own identity, so it projects as `templated`. Confirm
+# against what the workflow actually substitutes.
+path = ".github/workflows/kit-drift.yml"
+lifecycle = "retained-in-kit"
+projects_to = ".github/workflows/kit-drift.yml"
+policy = "templated"
+
+# ============================ bootstrap-source ============================
+# The web layer. Every bootstrap-source entry is web-only: its destination is
+# materialized by bootstrap --with-web / adopt-web and is INERT in a PDF-only
+# target. Their destination POLICIES are set independently:
+# deploy.yml is identical, but seeded style-screen.css / transforms.py are
+# `never` (target-owned once written — sync must not clobber a guide's own).
+[[entry]]
+path = "style-screen.css.example"
+lifecycle = "bootstrap-source"
+projects_to = "style-screen.css"
+policy = "never"
+
+[[entry]]
+path = "transforms.py.example"
+lifecycle = "bootstrap-source"
+projects_to = "transforms.py"
+policy = "never"
+
+[[entry]]
+path = ".github/workflows/deploy.yml.example"
+lifecycle = "bootstrap-source"
+projects_to = ".github/workflows/deploy.yml"
+policy = "identical"
+
+
+
+
+[[entry]]
+# The cold-start CLI and its persona-aware preflight. KIT-ONLY: a guide that
+# already exists has nothing to cold-start, and shipping the initializer into
+# every target would put a `bootstrap.py` driver in repos where bootstrap has
+# already run and must not run again.
+path = "guidekit.py"
+lifecycle = "retained-in-kit"
+
+[[entry]]
+# wrangler.jsonc is GENERATED from the target's own guide.toml by cfadapter.py
+# (`make wrangler`), so its destination is target-owned — `never`, like pixi.lock
+# and the reference PDF.
+#
+# It was `templated` until the deploy config had to carry a `routes` block. That
+# block is conditional STRUCTURE — present only when [deploy] domain is set,
+# absent for the no-zone stranger the kit exists to serve — and sync's templated
+# tier is pure value substitution, which cannot express it. A second
+# shape-selected template was the alternative and would have added a manifest
+# axis for one file.
+#
+# Kit control is not lost, it changes form: cfadapter.py IS synced, and
+# tests/test_wrangler_generated.py fails when a target's committed file differs
+# from what the generator produces. Propagation becomes a red check rather than a
+# silent overwrite.
+#
+# The entry STAYS rather than being deleted. Removing it would make sync's
+# literal-entry deletion path remove app/wrangler.jsonc in all 7 targets; a
+# reclassification to `never` instead emits a `forget`, which drops the recorded
+# checksum and leaves the file with the guide — which is the whole point.
+path = "templates/web/wrangler.jsonc"
+lifecycle = "bootstrap-source"
+projects_to = "app/wrangler.jsonc"
+policy = "never"
+
+[[entry]]
+path = "templates/web/package.json"
+lifecycle = "bootstrap-source"
+projects_to = "app/package.json"
+policy = "identical"
+
+[[entry]]
+path = "templates/web/package-lock.json"
+lifecycle = "bootstrap-source"
+projects_to = "app/package-lock.json"
+policy = "identical"
+
+[[entry]]
+path = "templates/web/public/.gitkeep"
+lifecycle = "bootstrap-source"
+projects_to = "app/public/.gitkeep"
+policy = "identical"
+
+# ============================ generated ============================
+[[entry]]
+# The committed reference PDF: a build output. In a target it is <slug>.pdf and
+# is target-owned (each guide's own rendered deliverable) — sync never writes it.
+path = "guide-template.pdf"
+lifecycle = "generated"
+projects_to = "<slug>.pdf"
+policy = "never"
+
+[[entry]]
+# The committed reference DECK. Target-owned and generated, exactly like the
+# reference PDF beside it: each guide renders its own, and the kit never writes
+# one into a target.
+#
+# It exists now because something can finally refresh it — `baseline.py
+# --artifact` plus baseline.yml's per-artifact loop. Before those, committing it
+# was a trap: the deck shares `_COMMON_FILES` with the PDF, so any buildcore or
+# kitconfig change stales BOTH, and a PDF-only refresher would have left it
+# permanently red.
+path = "guide-template-slides.pdf"
+lifecycle = "generated"
+projects_to = "<slug>-slides.pdf"
+policy = "never"
+
+[[entry]]
+# per-target resolution output; each guide regenerates its own (see header).
+path = "pixi.lock"
+lifecycle = "generated"
+projects_to = "pixi.lock"
+policy = "never"
+
+# The slides override, target-owned like style.css and style-screen.css.
+# In the `slides` closure ONLY, so editing it re-stales the deck and nothing else.
+[[entry]]
+path = "style-slides.css"
+lifecycle = "retained-in-kit"
+projects_to = "style-slides.css"
+policy = "never"

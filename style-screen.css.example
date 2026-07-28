@@ -1,0 +1,251 @@
+/* style-screen.css.example — screen stylesheet starter for the WEBSITE output.
+ *
+ * This is the OPT-IN web layer's stylesheet template. It is inert until
+ * `bootstrap.py --with-web` copies it to `style-screen.css`, which is what the
+ * web build (`build.py --web`) loads. The presence of `style-screen.css` is
+ * also the signal that the web layer is enabled — without it, `make web`
+ * no-ops. The PDF always uses `style.css`, never this file.
+ *
+ * Deliberately NOT in build.py's SOURCE_FILES: editing the screen stylesheet
+ * changes only the website, never the rendered PDF, so it must not bump the
+ * PDF version stamp or break `make verify`. Plain `git commit`.
+ *
+ * Placeholders substituted at build time by build.py (same as style.css):
+ *   __TITLE__    — document title
+ *   __VERSION__  — version stamp (shown in the footer)
+ *
+ * Single static page: a long readable column. The same HTML islands the PDF
+ * uses (callouts, title-block, page-break) are restyled here for screen; the
+ * .embed rules handle responsive YouTube iframes (see transforms.py.example).
+ */
+
+:root {
+  --ink: #1a1a1a;
+  --muted: #555;
+  --accent: #0b5394;
+  --rule: #e2e2e6;
+  --max-width: 53rem;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  font-size: 17px;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* The BODY fills the window; the PROSE is what carries a measure.
+
+   It used to be the other way round — the body was a centred 46rem column and
+   everything lived inside it. That reads fine for paragraphs and badly for
+   everything else: a table, a diagram or a video has no reason to be 46rem, and
+   once the kit grew a sidebar the column sat in a thin strip beside it.
+
+   So the cap moved off the container and onto the elements that want one. Wide
+   content sizes itself; only running text is held to a comfortable line. */
+body {
+  font-family: var(--body-font, "Guide Sans", "Guide Fallback");
+  line-height: 1.65;
+  color: var(--ink);
+  max-width: none;
+  margin: 0;
+  padding: 2.5rem 1rem 4rem;
+  background: #fff;
+}
+
+/* Modest gutters once there is room for them; the sidebar appears at 1100px and
+   the text starts after it. */
+@media (min-width: 700px) {
+  body { padding-left: 2.5rem; padding-right: 2.5rem; }
+}
+@media (min-width: 1100px) {
+  /* Room for the kit's fixed sidebar, plus a gap. `--guide-nav-space` is
+     published by the kit and drops to zero when the reader collapses the
+     sidebar, so this reclaims the space instead of leaving an empty margin.
+     Reading the variable rather than hardcoding the width also means the kit can
+     change the panel without every guide needing an edit. */
+  body {
+    padding-left: calc(var(--guide-nav-space, 15rem) + 2rem + 2.5rem);
+    padding-right: 4rem;
+    transition: padding-left 0.2s ease;
+  }
+}
+
+/* The measure, applied to running text only. Anything inside a table or a wide
+   block opts back out — it is being sized by its container, not by this. */
+p, ul, ol, dl, blockquote, pre,
+h1, h2, h3, h4, h5, h6,
+.callout, .exercise {
+  max-width: var(--max-width);
+}
+:is(table, .wide-block) :is(p, ul, ol, dl, blockquote, pre) { max-width: none; }
+
+/* ---- Title block ---- */
+.title-block { margin-bottom: 2.5rem; }
+.title-block h1 {
+  font-size: 2.4rem;
+  line-height: 1.15;
+  font-weight: 800;
+  margin: 0 0 0.4rem;
+  border: none;
+}
+.title-block p {
+  font-size: 1.2rem;
+  font-style: italic;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ---- Headings ---- */
+h1 {
+  font-size: 1.7rem;
+  color: var(--accent);
+  font-weight: 800;
+  margin: 2.4rem 0 0.6rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+}
+.title-block h1 { padding-top: 0; border-top: none; }
+h2 { font-size: 1.3rem; font-weight: 700; margin: 1.8rem 0 0.5rem; }
+h3 { font-size: 1.1rem; font-weight: 700; color: #333; margin: 1.4rem 0 0.4rem; }
+
+p { margin: 0.6rem 0 0.9rem; }
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---- Contents block (the manual TOC under "# Contents") ---- */
+/* The first h1 is "Contents"; its following list is the nav. Give it a card
+ * look so it reads as a table of contents rather than body text. */
+#contents > ul, #contents + ul {
+  background: #f6f8fb;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 1rem 1.25rem 1rem 2rem;
+  list-style: none;
+  margin: 0.5rem 0 1.5rem;
+}
+#contents > ul ul, #contents + ul ul { list-style: none; }
+#contents > ul a, #contents + ul a { color: var(--ink); }
+#contents > ul a:hover, #contents + ul a:hover { color: var(--accent); }
+
+/* ---- Lists ---- */
+ul, ol { margin: 0.5rem 0 1rem; padding-left: 1.4rem; }
+li { margin-bottom: 0.3rem; }
+
+/* ---- Code ---- */
+code {
+  font-family: var(--mono-font, "Guide Mono", "Guide Fallback");
+  font-size: 0.9em;
+  background: #f4f4f6;
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+pre {
+  background: #f4f4f6;
+  padding: 0.9rem 1.1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+pre code { background: transparent; padding: 0; }
+
+/* ---- Callouts (shared islands with the PDF) ---- */
+.callout {
+  padding: 0.85rem 1.1rem;
+  margin: 1.2rem 0;
+  border-radius: 6px;
+}
+.callout p { margin: 0.4rem 0; }
+.callout p:first-child { margin-top: 0; }
+.callout p:last-child { margin-bottom: 0; }
+.callout.warn { background: #fff4e5; border: 1px solid #cc7a00; }
+.callout.warn p:first-child strong:first-child { color: #cc7a00; }
+.callout.tip { background: #eaf4ef; border-left: 4px solid #2a8a5f; }
+.callout.tip p:first-child strong:first-child { color: #2a8a5f; }
+.callout.accent { background: #e8eef7; border-left: 3px solid var(--accent); }
+
+/* ---- Exercise boxes ---- */
+.exercise {
+  border: 1px solid #2e7d32;
+  background: #f0f5f0;
+  border-radius: 6px;
+  margin: 1.2rem 0;
+}
+.exercise p { margin: 0.4rem 0; padding: 0 1.1rem; }
+.exercise p:first-child {
+  font-weight: 700; color: #2e7d32;
+  border-bottom: 1px solid #2e7d32;
+  margin: 0; padding: 0.6rem 1.1rem;
+}
+
+/* ---- Tables ---- */
+/* `width: auto`, not `100%`. A table should ask for the space its content needs
+   — `100%` gives every table the whole window however little is in it, and the
+   slack lands in whichever column happens to be able to stretch. `max-width`
+   keeps a genuinely wide one inside its scroll container (see `.wide-block` in
+   the kit's chrome CSS) rather than pushing the page sideways. */
+table { width: auto; max-width: 100%; border-collapse: collapse; margin: 1rem 0; }
+th { background: var(--accent); color: #fff; text-align: left; padding: 0.5rem 0.75rem; }
+td { padding: 0.5rem 0.75rem; border: 1px solid var(--rule); vertical-align: top; }
+tr:nth-child(even) td { background: #f7f7f9; }
+
+/* ---- Blockquotes ---- */
+blockquote {
+  border-left: 3px solid #ccc;
+  padding: 0.4rem 1rem;
+  margin: 1rem 0;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ---- ASCII diagrams ---- */
+pre.diagram {
+  background: #faf8f4;
+  border: 1px solid #d9d3c5;
+  border-radius: 6px;
+}
+
+/* ---- Embeds (responsive 16:9 iframes; see transforms.py.example) ---- */
+.embed {
+  margin: 1.4rem 0;
+  /* A video is something you LOOK at, not something you scan, so it gains
+     nothing from filling a wide window. Held to the prose measure so it reads as
+     part of the document and lines up with the paragraphs around it. */
+  max-width: var(--max-width);
+}
+.embed iframe {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  border: 0;
+  border-radius: 8px;
+}
+
+/* The print-only page-break island has no meaning on screen. */
+.page-break { display: none; }
+
+/* ---- Footer (PDF download link, license, version stamp) ---- */
+.site-footer {
+  margin-top: 3rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.site-footer p { margin: 0.4rem 0; }
+/* No `.site-footer .download` rule: the footer no longer renders a download
+   link. The sticky header carries the only copy, on every page and at every
+   scroll position. */
+/* No download-link rules here at all. The footer stopped rendering one: the
+   sticky header carries the only copy, on every page. The rules that used to sit
+   here styled it by WHERE IT SAT rather than by what it is, which is how two
+   copies of one control drifted into two different appearances. */
+.site-footer .stamp { color: #888; }
+
+/* ---- Small screens ---- */
+@media (max-width: 34rem) {
+  html { font-size: 16px; }
+  body { padding: 1.5rem 1rem 3rem; }
+  .title-block h1 { font-size: 1.9rem; }
+}

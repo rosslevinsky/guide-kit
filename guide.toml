@@ -1,0 +1,64 @@
+# Per-guide values — the single place a fork edits to describe itself.
+#
+# Everything here was previously a hardcoded literal in the build script.
+# kitconfig.py is the ONLY reader of this file; it validates every value before
+# any consumer sees it, and REJECTS unknown keys, so a retired or misspelled key
+# fails loudly instead of silently doing nothing. The four LICENSE_* values
+# deliberately stay in buildcore.py as identical-tier constants and are NOT moved
+# here — licensing is fixed for this family, and they are overwrite-managed by
+# sync.
+#
+# COPYRIGHT is DERIVED in buildcore.py as f"© {COPYRIGHT_YEAR} {AUTHOR}"; the
+# stored value is the year (an integer constant, never a clock read) so renders
+# stay deterministic and `make verify` is stable.
+
+TITLE = "Guide Template"
+OUTPUT_SLUG = "guide-template"
+AUTHOR = "Ross Levinsky"
+DESCRIPTION = "Template repository for single-document beginner-guide PDF projects. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/"
+KEYWORDS = "guide, template, pandoc, weasyprint, CC-BY-4.0"
+COPYRIGHT_YEAR = 2026
+
+# ---------------------------------------------------------------------------
+# Declared shape
+#
+# What this guide BUILDS, stated rather than inferred from which files happen
+# to exist. The kit itself has no site: it ships style-screen.css.example, not
+# style-screen.css, so under the old file-presence rule it resolved to
+# "pdf-only" by accident of naming. Now it says so.
+# ---------------------------------------------------------------------------
+[outputs]
+pdf = true
+site = "none"
+slides = true
+
+# ---------------------------------------------------------------------------
+# Appearance
+#
+# A theme is a TOKEN SET, not a stylesheet: themes/<name>/ supplies the values
+# and each guide's own style.css reads them through var(). EXPLICIT rather than
+# defaulted, so no guide ever inherits a new appearance from a kit change.
+#
+# The kit is SERIF (its body type was "Guide Serif" before the tokens existed),
+# so it selects editorial rather than the family default of classic-sans.
+# ---------------------------------------------------------------------------
+[theme]
+name = "editorial"
+
+# ---------------------------------------------------------------------------
+# Per-artifact EDITION dates
+#
+# One table per declared output, and the loader refuses a guide that declares an
+# output without one. The date is authored, not derived from git history over a
+# path: git cannot tell a [deploy] edit from a [theme] edit inside one
+# guide.toml, so a path-derived date moves the rendered bytes for either. It is
+# an *edition* date — release.py writes it, from the release transaction's
+# admission instant — and staleness keys on the stamp's hash, not on this.
+# ---------------------------------------------------------------------------
+[artifacts.pdf]
+date = "2026-07-26"
+
+[artifacts.slides]
+# The deck's own edition date. Separate from the PDF's precisely so releasing
+# one leaves the other byte-identical.
+date = "2026-07-27"

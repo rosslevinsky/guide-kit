@@ -1,0 +1,332 @@
+name: deploy
+
+# OPT-IN deploy workflow for the website output.
+#
+# This file is INERT in the template: GitHub only runs workflows named `*.yml`,
+# and this is `*.yml.example`. `bootstrap.py --with-web` renames it to
+# deploy.yml to activate it. A PDF-only fork never gets a live deploy workflow
+# that would fail on missing Cloudflare secrets.
+#
+# Behavior once active:
+#   Push to main      → production deploy via `wrangler deploy`.
+#   Pull request      → build check only, with NO Cloudflare credentials in the
+#                       job. See "why a pull request gets no credentials" below.
+#
+# The site is built by `make web` (pixi/Python → app/dist/), then wrangler
+# serves app/dist/ as Workers Static Assets. The worker name comes from
+# app/wrangler.jsonc (set by bootstrap to the guide slug) — it is NOT hardcoded
+# here. Requires repo secrets CLOUDFLARE_API_TOKEN (Workers Scripts edit) and
+# CLOUDFLARE_ACCOUNT_ID — see README "Website deploy".
+#
+# WHY A PULL REQUEST GETS NO CLOUDFLARE CREDENTIALS. This used to upload a
+# preview version on every PR, and that path is REMOVED rather than hardened,
+# because it cannot be hardened here. The reasoning is worth keeping, since the
+# obvious fixes all look like they work:
+#
+#   * Fork PRs never receive repository secrets, so they were never the risk. A
+#     SAME-REPOSITORY pull request does receive them.
+#
+#   * The job ran `npm ci` and `make web` — a postinstall script, an edited
+#     `render_site.py`, a planted `node_modules/.bin/wrangler` — and then handed
+#     the Cloudflare token to `wrangler-action` in the same job. So "can push a
+#     branch" was equivalent to "can use the account", with no review and
+#     without touching protected `main`.
+#
+#   * Splitting build from publish and passing a built ARTIFACT between them is
+#     NOT sufficient. `wrangler.jsonc` is itself PR-authored, and a custom
+#     `build.command` in it executes during `versions upload` with the token
+#     already exported into the environment.
+#
+#   * Validating that config in the credentialed job is not sufficient EITHER,
+#     and this is the part that settles it: for `pull_request`, GitHub runs the
+#     workflow file from the MERGE COMMIT — the pull request's own version. A PR
+#     can therefore delete the validation in the same commit that adds the
+#     payload. `pull_request_target` is the event that reads the workflow from
+#     the base branch, and it is not usable here because it would run against
+#     the base tree, which is not what a preview is for.
+#
+# There is no arrangement of jobs, artifacts or checks inside this file that
+# makes a same-repository PR safe to give the token to. So it does not get it.
+# The pull-request path builds, and the build is a real check; publishing needs
+# a push to `main`.
+#
+# `[deploy] preview_urls` still means what it says — it controls whether
+# Cloudflare mints preview URLs for versions at all — and no longer implies a
+# per-PR deploy from CI.
+
+on:
+  # paths filters: only deploy when something that changes the served site
+  # actually changed. Doc-only / plan-only pushes (README, CLAUDE.md, LICENSE,
+  # plans/, .gitignore) skip the deploy and don't burn Actions minutes.
+  push:
+    branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'style-slides.css'
+      - 'themes/**'
+      - 'fontfaces.css'
+      - 'cascadecheck.py'
+      - 'build.py'
+      - 'buildcore.py'
+      - 'render_site.py'
+      - 'cfadapter.py'
+      - 'chapters.py'
+      - 'transforms.py'
+      - 'fonts/**'
+      - 'assets/shared/**'
+      - 'assets/web/**'
+      - 'fontconfig/fonts.conf'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - '*.pdf'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'guide.md'
+      - 'style.css'
+      - 'style-screen.css'
+      - 'style-slides.css'
+      - 'themes/**'
+      - 'fontfaces.css'
+      - 'cascadecheck.py'
+      - 'build.py'
+      - 'buildcore.py'
+      - 'render_site.py'
+      - 'cfadapter.py'
+      - 'chapters.py'
+      - 'transforms.py'
+      - 'fonts/**'
+      - 'assets/shared/**'
+      - 'assets/web/**'
+      - 'fontconfig/fonts.conf'
+      - 'Makefile'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'app/**'
+      - 'guide.toml'
+      - 'kitconfig.py'
+      - '*.pdf'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:
+
+# Don't let concurrent deploys against the same ref clobber each other.
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# `pull-requests: write` was here for the preview-URL comment, and outlived it.
+# A same-repository PR controls this workflow's body, `npm`, `make` and the
+# Python it runs — so a token permission with no consumer is a capability handed
+# to that code for nothing. Removed with the step that used it.
+permissions:
+  contents: read
+
+jobs:
+  # Pre-first-release guard: a web-enabled guide has zero root PDFs from bootstrap
+  # until its first release, and build_web() now HARD-FAILS on a
+  # missing reference PDF (no 404 download link). Without this, the deploy workflow
+  # would be red on every push from scaffolding through the first baseline. The
+  # deploy job is SKIPPED (not failed) until a reference PDF exists, so the workflow
+  # stays green across that pre-first-release window.
+  guard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      has_pdf: ${{ steps.check.outputs.has_pdf }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check for a reference PDF
+        id: check
+        run: |
+          # Check the EXACT reference filename (<OUTPUT_SLUG>.pdf), not any root
+          # *.pdf — an unrelated appendix.pdf must not fool the guard into the
+          # build/deploy path where build_web() would then hard-fail.
+          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
+          PDF=$(awk -F'=' '/^pdf[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' guide.toml)
+          if [ "$PDF" != "true" ]; then
+            # A shape that declares NO pdf has nothing to wait for. Without this
+            # the guard is looking for a reference PDF that will never exist, so
+            # the deploy job is skipped forever and the site never ships — a
+            # green check on a workflow that deployed nothing.
+            echo "has_pdf=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::[outputs] pdf = false — no reference PDF to gate on"
+          elif [ -f "$SLUG.pdf" ]; then
+            echo "has_pdf=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pdf=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::pre-first-release — no reference PDF ($SLUG.pdf) yet; skipping build + deploy"
+          fi
+
+  deploy:
+    needs: guard
+    # Dependabot PRs are excluded deliberately. Not for the credential reason
+    # any more — no pull request reaches a credentialed step now — but because
+    # a dependency PR does not need the site rebuilt to be validated, and
+    # verify.yml (build smoke + staleness) already does that without secrets.
+    # Skipping is honest: nothing was deployed and nothing pretended to be.
+    if: >-
+      needs.guard.outputs.has_pdf == 'true'
+      && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so `git status` sees the real tree state for the
+          # stamp's dirty marker. The stamp's DATE and SOURCE_DATE_EPOCH are both
+          # derived from guide.toml's authored artifact date, so neither needs
+          # history (same reason verify.yml checks out in full).
+          fetch-depth: 0
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.8.1
+        with:
+          cache: true
+          frozen: true
+
+      - name: Read the declared shape
+        id: shape
+        run: |
+          # The deploy differs by SHAPE, and the shape is declared, never probed.
+          # A hub has no PDF to gate on and is not built by `make web`.
+          awk -F'"' '/^site[[:space:]]*=/{print "site="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
+          awk -F'=' '/^pdf[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print "pdf="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
+
+      - name: Staleness gate — never deploy a stale reference PDF
+        id: stale_gate
+        # The downloadable PDF is part of the deployed site; don't ship one that
+        # is out of date with the source. Platform-independent (no build).
+        # SKIPPED for a shape with no PDF: `make verify` would be gating on an
+        # artifact the guide never declared.
+        #
+        # STALE STOPS THE DEPLOY WITHOUT FAILING THE RUN. The gate's job is to
+        # keep a stale PDF off the site, and it still does that — but a push that
+        # changed source is stale BY CONSTRUCTION, so failing here emailed the
+        # maintainer on every content edit about a state `verify.yml` was already
+        # repairing. `baseline.yml` commits the refreshed PDF and dispatches this
+        # workflow again; that run deploys.
+        #
+        # A genuine problem still goes red: `rc == 2` is a broken check (an
+        # unreadable stamp, a missing toolchain), which is not the expected
+        # post-push state and must not be mistaken for one.
+        if: steps.shape.outputs.pdf == 'true'
+        run: |
+          set +e
+          pixi run python verify_artifacts.py --staleness
+          rc=$?
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          if [ "$rc" = "1" ]; then
+            echo "::notice::reference PDF is stale — skipping this deploy. baseline.yml is refreshing it and will dispatch a deploy that ships the new one."
+            exit 0
+          fi
+          exit "$rc"
+
+      - name: Set up Node 22
+        # The hub has no app/package-lock.json to cache against, so the cache
+        # inputs are only set for a guide.
+        uses: actions/setup-node@v4
+        with:
+          # Wrangler 4.x requires Node >=22.
+          #
+          # The parenthetical that used to follow — "Node 20 silently breaks
+          # Workers Static Assets (cloudflare/wrangler-action falls back to
+          # wrangler 3)" — was FALSE and is corrected here rather than deleted,
+          # because it was synced into all seven guides and someone will
+          # otherwise reinstate it. The fallback is a DETECTION failure, not a
+          # Node one: with no local wrangler to find, the action installs its own
+          # default (3.90.0, which predates assets-only Workers) and fails with
+          # "Missing entry-point" — a v3 wrangler reads a config carrying
+          # `assets` but no `main` as a Worker missing its script. The Node
+          # version has nothing to do with it.
+          #
+          # A guide cannot hit that path at all: `app/package.json` pins
+          # `wrangler: ^4.114.0`, so `npm ci` below puts a v4 wrangler where the
+          # action will detect it. The family hub CAN — it has no package.json —
+          # which is why `guides/.github/workflows/deploy.yml` pins
+          # `wranglerVersion: '4'` and states the cause correctly. That fix was
+          # made once, in the hub, and never travelled back here.
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install app deps (wrangler)
+        if: steps.shape.outputs.site != 'hub'
+        run: npm ci
+        working-directory: ./app
+
+      - name: Build website (make web)
+        if: steps.shape.outputs.site != 'hub'
+        run: make web
+
+      - name: Build the hub (offline, from the committed snapshot)
+        # `hub build` deliberately does not reach the network: the page is
+        # rendered from the snapshot in the repo, so this commit always produces
+        # this page. Refreshing the snapshot is `hub update`, run by hand.
+        if: steps.shape.outputs.site == 'hub'
+        run: pixi run python hub.py build
+
+      # ── Production: push to main, or a manual/automated dispatch ──────────
+      # workflow_dispatch MUST be included here. It is a declared trigger (see
+      # `on:` above) and is how baseline.yml redeploys after refreshing the
+      # reference PDF — but a dispatched run matches neither `push` nor
+      # `pull_request`, so without it the job builds the site, skips the deploy
+      # step below, and still reports SUCCESS. That is the worst kind of
+      # failure: green check, nothing deployed, site silently serving the old
+      # PDF. (It said "both deploy steps" while there was a preview step too;
+      # there is one now.)
+      - name: Wrangler deploy (production)
+        id: deploy_prod
+        # `!= '1'` and not `== '0'`, deliberately. A SKIPPED step's output is the
+        # empty string, GitHub's loose `==` casts both sides to numbers, and ''
+        # casts to 0 — so `== '0'` is TRUE for a gate that never ran. Here the
+        # gate is skipped for a shape with no PDF, which must still deploy:
+        # '' != '1' is 0 != 1, correctly true. Written the other way round this
+        # would have been right by accident and wrong the moment a shape changed.
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && github.ref == 'refs/heads/main'
+          && steps.stale_gate.outputs.rc != '1'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # A guide's wrangler config lives in app/; a hub's is at the repo root.
+          workingDirectory: ${{ steps.shape.outputs.site == 'hub' && '.' || './app' }}
+          # NOT optional for the hub. With no local wrangler to detect (no
+          # package.json — there is nothing to build), the action installs its
+          # own default, still wrangler 3.90.0, which predates assets-only
+          # Workers. It does not warn: it fails with "Missing entry-point",
+          # because a v3 wrangler reads a config with `assets` and no `main` as a
+          # Worker missing its script. A guide pins wrangler 4 in
+          # app/package.json and never hits this.
+          wranglerVersion: ${{ steps.shape.outputs.site == 'hub' && '4' || '' }}
+          command: deploy
+
+      - name: Resolve deployed URL
+        id: url
+        # The `if:` MUST match the one on deploy_prod above. When they drift, a
+        # run that deployed nothing reports a URL — or a real production deploy
+        # is logged as an empty one, which is the recorded defect this condition
+        # exists to prevent.
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && github.ref == 'refs/heads/main'
+          && steps.stale_gate.outputs.rc != '1'
+        # Outputs are passed via env: (not ${{ }} interpolation into the shell
+        # body) as hardening against script injection from upstream output.
+        env:
+          PROD_URL: ${{ steps.deploy_prod.outputs.deployment-url }}
+        run: |
+          set -euo pipefail
+          echo "DEPLOY_URL=$PROD_URL" >> "$GITHUB_ENV"
+          echo "Deployed to production: $PROD_URL"

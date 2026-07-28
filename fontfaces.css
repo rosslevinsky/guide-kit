@@ -1,0 +1,102 @@
+/* fontfaces.css — the bundled @font-face declarations. KIT-OWNED.
+ *
+ * These lived in each guide's style.css, which made the print override the one
+ * file that both DEFINED the families and consumed them. That is the hole the
+ * override guard exists to close: an override that declares a face points at a
+ * file the kit never vetted, and the hermetic Fontconfig environment cannot see
+ * it — so it either renders nothing or reintroduces a host binary.
+ *
+ * The kit bundles the faces, so the kit declares them. Guides name families;
+ * they do not define them. `cascadecheck.check_override()` refuses `@font-face`
+ * in any override file, and this is why that rule can be absolute.
+ *
+ * Cascade position: FIRST, ahead of the theme — a theme names these families in
+ * its tokens, so they must already exist.
+ *
+ * The `src` urls are relative to the repository root, which is WeasyPrint's
+ * base_url, so they resolve identically from every layer.
+ */
+
+@font-face {
+  font-family: "Guide Serif";
+  src: url("fonts/vendor/SourceSerif4-Regular.otf") format("opentype");
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: "Guide Serif";
+  src: url("fonts/vendor/SourceSerif4-It.otf") format("opentype");
+  font-weight: 400; font-style: italic;
+}
+@font-face {
+  font-family: "Guide Serif";
+  src: url("fonts/vendor/SourceSerif4-Bold.otf") format("opentype");
+  font-weight: 700; font-style: normal;
+}
+@font-face {
+  font-family: "Guide Serif";
+  src: url("fonts/vendor/SourceSerif4-BoldIt.otf") format("opentype");
+  font-weight: 700; font-style: italic;
+}
+
+@font-face {
+  font-family: "Guide Sans";
+  src: url("fonts/vendor/SourceSans3-Regular.otf") format("opentype");
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: "Guide Sans";
+  src: url("fonts/vendor/SourceSans3-It.otf") format("opentype");
+  font-weight: 400; font-style: italic;
+}
+@font-face {
+  font-family: "Guide Sans";
+  src: url("fonts/vendor/SourceSans3-Semibold.otf") format("opentype");
+  font-weight: 700; font-style: normal;
+}
+/* Semibold Italic completes the four-way Roman/Italic × Regular/Bold set. It is
+   not decoration: six of the seven guides set BODY text in Guide Sans, and an
+   <em> inside anything CSS has made bold — a table header, a callout header, a
+   heading — asks for 700 italic. Without this face WeasyPrint matches style
+   first, lands on the 400 italic, and smears a synthetic bold over it. That is
+   deterministic, so it never breaks the render, which is exactly why it went
+   unnoticed: the only symptom is type that looks slightly wrong. */
+@font-face {
+  font-family: "Guide Sans";
+  src: url("fonts/vendor/SourceSans3-SemiboldIt.otf") format("opentype");
+  font-weight: 700; font-style: italic;
+}
+
+/* Box-drawing (U+2500-257F) at exact monospace advance width is the reason
+ * this is DejaVu and not one of the Source families: <pre class="diagram">
+ * panels need adjacent box characters to connect seamlessly, and most
+ * programming fonts have gaps in that range. */
+@font-face {
+  font-family: "Guide Mono";
+  src: url("fonts/vendor/DejaVuSansMono.ttf") format("truetype");
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: "Guide Mono";
+  src: url("fonts/vendor/DejaVuSansMono-Bold.ttf") format("truetype");
+  font-weight: 700; font-style: normal;
+}
+@font-face {
+  font-family: "Guide Mono";
+  src: url("fonts/vendor/DejaVuSansMono-Oblique.ttf") format("truetype");
+  font-weight: 400; font-style: italic;
+}
+
+/* Terminal fallback for arrows (U+2190-21FF) and assorted symbols the Source
+ * families do not carry. Every stack below ends here, NOT in a generic
+ * family — a generic would let the host's fonts back in through the door
+ * this whole arrangement exists to close. */
+@font-face {
+  font-family: "Guide Fallback";
+  src: url("fonts/vendor/DejaVuSans.ttf") format("truetype");
+  font-weight: 400; font-style: normal;
+}
+@font-face {
+  font-family: "Guide Fallback";
+  src: url("fonts/vendor/DejaVuSans-Bold.ttf") format("truetype");
+  font-weight: 700; font-style: normal;
+}

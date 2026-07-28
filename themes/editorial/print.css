@@ -1,0 +1,37 @@
+/* editorial — the serif alternative
+ *
+ * A THEME IS A TOKEN SET, not a stylesheet. It defines custom properties and
+ * nothing else, which is what makes `[theme] name` a real choice: the guide's own
+ * sheet supplies structure and reads these values through `var()`, so switching
+ * themes restyles a render without either side knowing about the other.
+ *
+ * Cascade position: FIRST. This is concatenated ahead of `[theme.tokens]` from
+ * guide.toml and then the guide's own override file, so every value here can be
+ * retinted per guide and overridden outright per output.
+ *
+ * For guides whose body type is serif. `git-guide` selects this: its
+ * style.css sets "Guide Serif" where its six siblings set "Guide Sans",
+ * so inheriting the family default would silently restyle it.
+ *
+ * The PDF's tokens. Only this sheet enters the PDF closure — a theme's
+ * screen.css and slides.css never re-stale a reference PDF.
+ *
+ * Only BUNDLED families appear in the font stacks. "Guide Fallback" (DejaVu Sans)
+ * is last in every stack because it carries the arrows, box drawing and
+ * mathematical operators the Source families do not.
+ */
+:root {
+  --body-font: "Guide Serif", "Guide Fallback";
+  --head-font: "Guide Serif", "Guide Fallback";
+  --mono-font: "Guide Mono", "Guide Fallback";
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --accent: #8a4b2a;
+  --accent-dark: #63341c;
+  --rule: #e6e0d8;
+  --rule-strong: #c4b8a8;
+  --quote-bg: #faf6f0;
+  --code-bg: #f7f4ef;
+  --body-size: 11.5pt;
+  --body-leading: 1.55;
+}

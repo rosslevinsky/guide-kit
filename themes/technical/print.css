@@ -1,0 +1,37 @@
+/* technical — high-contrast, mono-forward, for command-line material
+ *
+ * A THEME IS A TOKEN SET, not a stylesheet. It defines custom properties and
+ * nothing else, which is what makes `[theme] name` a real choice: the guide's own
+ * sheet supplies structure and reads these values through `var()`, so switching
+ * themes restyles a render without either side knowing about the other.
+ *
+ * Cascade position: FIRST. This is concatenated ahead of `[theme.tokens]` from
+ * guide.toml and then the guide's own override file, so every value here can be
+ * retinted per guide and overridden outright per output.
+ *
+ * Denser and cooler than classic-sans, with a monospace heading face.
+ * Intended for terminal and reference guides, where code is the majority
+ * of the page rather than an interruption to prose.
+ *
+ * The PDF's tokens. Only this sheet enters the PDF closure — a theme's
+ * screen.css and slides.css never re-stale a reference PDF.
+ *
+ * Only BUNDLED families appear in the font stacks. "Guide Fallback" (DejaVu Sans)
+ * is last in every stack because it carries the arrows, box drawing and
+ * mathematical operators the Source families do not.
+ */
+:root {
+  --body-font: "Guide Sans", "Guide Fallback";
+  --head-font: "Guide Mono", "Guide Fallback";
+  --mono-font: "Guide Mono", "Guide Fallback";
+  --ink: #101418;
+  --ink-soft: #3d474f;
+  --accent: #0b7285;
+  --accent-dark: #075c6b;
+  --rule: #dfe4e8;
+  --rule-strong: #9aa7b1;
+  --quote-bg: #eef4f6;
+  --code-bg: #f2f5f7;
+  --body-size: 10pt;
+  --body-leading: 1.45;
+}

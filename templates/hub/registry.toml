@@ -1,0 +1,53 @@
+# registry.toml — the hub's OWN data about the guides it lists.
+#
+# STARTER FILE. It ships as scaffolding for a new hub and is `policy = "never"`,
+# so sync copies it once and never touches it again. Replace these entries with
+# your own; the example.com hosts are placeholders, not defaults.
+#
+# The split this file exists to make: a guide's `/guide.json` knows what the
+# guide IS (its title, whether it has a PDF). It cannot know what the HUB thinks
+# ABOUT it — which section it belongs in, whether it comes first, whether it
+# carries a badge, or how to introduce it. That judgement is the hub's.
+#
+# Deliberately NOT here: titles and PDF filenames. Those come from each guide's
+# manifest at `hub update` time. Retyping them is how a hand-written index
+# drifts away from the guides it describes.
+#
+# `kind` becomes the card's CSS class, so your stylesheet decides what
+# `recommended` and `secondary` look like.
+
+[[guide]]
+slug = "first-guide"
+url = "https://first.example.com"
+section = "A section"
+section_order = 1
+section_lede = "An optional line introducing the section."
+order = 10
+blurb = "What this guide covers, in the hub's words rather than the guide's."
+
+[[guide]]
+slug = "second-guide"
+url = "https://second.example.com"
+section = "A section"
+section_order = 1
+order = 20
+kind = "recommended"
+badge = "Start here"
+blurb = "Another guide. Remove these and add your own."
+
+# A site that is NOT a kit guide publishes no `/guide.json`, so state its facts
+# here instead. Omitting `pdf` is what suppresses its download link — the
+# no-PDF rule enforced by data rather than by prose.
+#
+#   [[guide]]
+#   slug = "an-app"
+#   url = "https://app.example.com"
+#   section = "Other"
+#   section_order = 2
+#   order = 10
+#   link_label = "Open the site &rarr;"
+#   blurb = "An interactive site rather than a document."
+#
+#   [guide.manual]
+#   title = "An App"
+#   site = "app"
