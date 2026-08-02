@@ -95,6 +95,94 @@ def _head_sha(root: Path) -> str:
         return ""
 
 
+BREAKING_FILE = "BREAKING.md"
+
+# `## <40-hex> — YYYY-MM-DD`, then the summary line. Em dash or hyphen, because a
+# file people hand-edit should not fail on which one they typed.
+_BREAKING_RE = re.compile(
+    r"^##[ \t]+([0-9a-f]{40})[ \t]*[—-][ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$",
+    re.M)
+
+
+def parse_breaking(kit_root: Path) -> list[dict]:
+    """Every entry in BREAKING.md, in file order (newest first by convention).
+
+    Absent file means no entries — the kit predates this, or a fork removed it.
+    """
+    path = kit_root / BREAKING_FILE
+    if not path.is_file():
+        return []
+    text = path.read_text(encoding="utf-8")
+    hits = list(_BREAKING_RE.finditer(text))
+    out = []
+    for i, m in enumerate(hits):
+        end = hits[i + 1].start() if i + 1 < len(hits) else len(text)
+        body = text[m.end():end].strip()
+        summary = body.splitlines()[0].strip() if body else ""
+        out.append({"sha": m.group(1), "date": m.group(2),
+                    "summary": summary, "body": body})
+    return out
+
+
+def breaking_since(kit_root: Path, recorded: str) -> tuple[list[dict], str | None]:
+    """The entries a guide at `recorded` has not passed yet.
+
+    Returns (entries, caveat). A caveat is a sentence to print instead of
+    claiming precision the answer does not have.
+
+    THE RANGE IS ASKED OF GIT, not inferred from dates or file order. `git
+    rev-list recorded..HEAD` is exactly "commits the guide has not taken", which
+    is the question, and it stays right through merges and rebases where an
+    ordering heuristic would not.
+
+    FAILS TOWARD SHOWING TOO MUCH. If the recorded version is missing, is not a
+    full SHA, or names a commit this checkout does not contain (a shallow clone,
+    a rewritten history), the range cannot be computed — and the safe answer is
+    every entry plus a note saying why, not silence. Under-reporting here
+    reproduces the exact failure the file exists to prevent.
+    """
+    entries = parse_breaking(kit_root)
+    if not entries:
+        return [], None
+    if not re.fullmatch(r"[0-9a-f]{40}", recorded or ""):
+        return entries, ("this guide records no usable kit version, so every "
+                         "entry is listed — some may already be handled")
+    try:
+        in_range = set(_git(kit_root, "rev-list", f"{recorded}..HEAD").split())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return entries, (f"the recorded kit version {recorded[:8]} is not in this "
+                         f"checkout's history, so every entry is listed")
+    return [e for e in entries if e["sha"] in in_range], None
+
+
+def report_breaking(kit_root: Path, tv: dict | None) -> None:
+    """Print the entries this guide has not seen. Called BEFORE anything writes.
+
+    Before, and not after, is the whole point: printed afterwards this is a
+    post-mortem for a build that has already broken, naming a file the sync did
+    not touch.
+
+    IT PRINTS AND DOES NOT PROMPT. An interactive confirmation was the obvious
+    shape and is the wrong one here — `--apply` is already the deliberate act,
+    and a prompt would hang any unattended caller (a family sweep, a scheduled
+    run) on a question nobody is there to answer.
+    """
+    entries, caveat = breaking_since(kit_root, (tv or {}).get("kit_version", ""))
+    if not entries:
+        return
+    n = len(entries)
+    noun, verb = ("changes", "need") if n > 1 else ("change", "needs")
+    print()
+    print(f"  !! {n} breaking {noun} since this guide's last sync {verb} "
+          f"your attention:")
+    if caveat:
+        print(f"     ({caveat})")
+    for e in entries:
+        print(f"     {e['sha'][:8]}  {e['date']}  {e['summary']}")
+    print(f"     Full detail in the kit's {BREAKING_FILE}.")
+    print()
+
+
 def _is_dirty(root: Path) -> bool:
     try:
         return bool(_git(root, "status", "--porcelain").strip())
@@ -963,6 +1051,9 @@ def run_sync(kit_root: Path, target: Path, apply: bool) -> int:
             sys.stderr.write(f"{target.name}: {len(refusals)} refusal(s); resolve before syncing.\n")
             return EXIT_DRIFT
         if updates:
+            # The dry run is where someone decides whether to apply, so this is
+            # the more useful of the two places it prints.
+            report_breaking(kit_root, tv)
             print(f"{target.name}: {len(updates)} file(s) drifted (dry-run — nothing written). Re-run with --apply.")
             return EXIT_DRIFT
         print(f"{target.name}: in sync — nothing to do.")
@@ -974,6 +1065,9 @@ def run_sync(kit_root: Path, target: Path, apply: bool) -> int:
             sys.stderr.write(f"  REFUSE {it.dest_rel} — {it.reason}\n")
         sys.stderr.write(f"{target.name}: refusing to apply — resolve the above first.\n")
         return EXIT_DRIFT
+    # BEFORE `_apply`, because `_apply` advances `kit_version` — read it after
+    # and the range is empty, every time, and the notice never appears at all.
+    report_breaking(kit_root, tv)
     _apply(kit_root, target, updates, tv, kit_digest)
     print(f"{target.name}: applied {len(updates)} update(s).")
     return EXIT_OK

@@ -71,6 +71,12 @@ on:
       - 'hub.py'
       - 'adopt.py'
       - 'guidekit.py'
+      # Kit-only, like sync.py and kit-manifest.toml above it, and listed
+      # for the same reason: a guide never has the file so it never
+      # matches, while in the kit an edit here must run CI. It is a TOOL
+      # INPUT, not prose — sync.py parses it, and tests assert its heading
+      # format and that every SHA it names resolves to a real commit.
+      - 'BREAKING.md'
       - 'verify_web.py'
       - 'pdfaudit.py'
       - 'tools/**'
@@ -127,6 +133,12 @@ on:
       - 'hub.py'
       - 'adopt.py'
       - 'guidekit.py'
+      # Kit-only, like sync.py and kit-manifest.toml above it, and listed
+      # for the same reason: a guide never has the file so it never
+      # matches, while in the kit an edit here must run CI. It is a TOOL
+      # INPUT, not prose — sync.py parses it, and tests assert its heading
+      # format and that every SHA it names resolves to a real commit.
+      - 'BREAKING.md'
       - 'verify_web.py'
       - 'pdfaudit.py'
       - 'tools/**'

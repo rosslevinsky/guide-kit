@@ -454,6 +454,15 @@ lifecycle = "retained-in-kit"
 path = "CONTRIBUTING.md"
 lifecycle = "retained-in-kit"
 
+# BREAKING.md is kit-only (no `projects_to`) for a reason that is easy to get
+# backwards: it is the KIT's record, and `sync.py` reads it out of the kit
+# checkout it runs from, never out of the target. Projecting it would put a copy
+# in every guide that nothing reads and that goes stale the moment the kit gains
+# an entry — and worse, would invite someone to edit the copy.
+[[entry]]
+path = "BREAKING.md"
+lifecycle = "retained-in-kit"
+
 # --- pre-declared kit files that later phases add (classified now so the
 #     exhaustiveness test does not break the moment they land) ---
 [[entry]]

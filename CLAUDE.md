@@ -599,6 +599,27 @@ are required; records pre-sync hashes; state `adopted_unapplied`); (5) commit `.
 (6) `sync.py <guide> --apply` (state → `applied`). A scheduled,
 warn-only `kit-drift.yml` reports when the kit's managed content moves.
 
+**A sync can hand you a change it cannot make for you, and it says so first.** Sync overwrites
+kit-owned files and never touches target-owned ones — `guide.toml`, `style.css` and
+`style-screen.css` are yours. So it can deliver a stricter `kitconfig.py` while leaving in place
+the `guide.toml` that version now rejects: the sync succeeds and reports success, the next `make`
+dies on `unknown key`, and the error names a file the sync did not write. Every step behaves
+correctly, which is exactly why nothing inside sync can catch it.
+
+So the kit keeps `BREAKING.md` — kit-only, read out of the kit checkout, never copied into a guide
+— and `sync.py` prints the entries **your** guide has not passed yet, before it writes anything:
+
+```
+  !! 1 breaking change since this guide's last sync needs your attention:
+     bcdb317e  2026-08-02  `[kit] min_version` removed; a `guide.toml` declaring `[kit]` now fails to load.
+     Full detail in the kit's BREAKING.md.
+```
+
+Which entries those are comes from `git rev-list <your recorded kit_version>..HEAD`, so it is the
+real set of commits you have not taken rather than a guess from dates. It **prints and does not
+prompt** — `--apply` is already the deliberate act, and a question would hang an unattended sweep.
+If the range cannot be worked out it lists everything with a caveat rather than nothing.
+
 ### When to run `make baseline` / `make release`
 
 Refresh a reference after any **intentional** change to that artifact's closure, from whatever
