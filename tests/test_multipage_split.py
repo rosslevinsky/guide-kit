@@ -251,7 +251,7 @@ def test_guide_json_lists_the_chapters_and_the_pdf(multipage):
 
 
 def test_guide_json_reports_an_absent_pdf_as_null(multipage):
-    """The hub's "romance-languages has no PDF" rule is enforced by DATA, so
+    """The hub's "this entry has no PDF" rule is enforced by DATA, so
     absence has to be expressible — and it must not be a dead link.
 
     Run INSIDE the fixture, not in the test process: `buildcore` resolves its
@@ -281,6 +281,33 @@ def test_guide_json_is_emitted_for_a_single_page_guide_too(guide_repo):
     m = json.loads((root / "app" / "dist" / "guide.json").read_text(encoding="utf-8"))
     assert m["site"] == "single"
     assert m["chapters"] == []
+
+
+def test_the_manifests_schema_id_is_not_a_fetchable_url(guide_repo):
+    """A schema authority nobody owns is a schema authority anybody can take.
+
+    It was `https://guide-kit.dev/schema/guide.v1.json`, written into the
+    manifest of every published site, and `guide-kit.dev` resolves NXDOMAIN
+    against both system DNS and 1.1.1.1 — unregistered, so available. Nothing
+    ever dereferenced it and there is no document at the other end, which makes
+    the `https://` pure liability: it promised a fetch, and what the fetch would
+    have returned was whoever bought the name.
+
+    Asserted as "not http(s)" rather than against the literal, because the
+    replacement is not the point — any URL in this field re-opens the question
+    of who serves it, and this manifest needs an identifier, not a location.
+    """
+    root, write_toml = guide_repo
+    write_toml(outputs={"pdf": True, "site": "single", "slides": False})
+    render(root)
+    shutil.copyfile(root / "build" / "probe-guide.pdf", root / "probe-guide.pdf")
+    render(root, "--web")
+    schema = json.loads(
+        (root / "app" / "dist" / "guide.json").read_text(encoding="utf-8"))["schema"]
+    assert schema and not schema.startswith(("http://", "https://")), (
+        f"guide.json advertises {schema!r} as its schema authority; a site must "
+        f"not point at a host the project does not control"
+    )
 
 
 # ----- ceilings ---------------------------------------------------------------

@@ -36,11 +36,16 @@ help:
 	@echo "  make                       Build the PDF (default; writes $(WORKING_PDF))"
 	@echo "  make html                  Render a standalone HTML for browser preview (in build/)"
 	@echo "  make web                   Build the deployable website into app/dist/ (opt-in web layer)"
+	@echo "  make slides                Build the 16:9 deck into build/$(OUTPUT_SLUG)-slides.pdf (opt-in)"
+	@echo "  make slides-coverage       Report which chapters have no slide (always exits 0)"
+	@echo "  make wrangler              Regenerate app/wrangler.jsonc from guide.toml (needs a declared site)"
 	@echo "  make dev                   Build the site and serve it locally (wrangler dev; needs app/)"
 	@echo "  make deploy                Build and deploy the site to Cloudflare (manual; needs app/)"
 	@echo "  make verify                Staleness check: is $(REFERENCE_PDF) up to date with source? (no build; CI-safe)"
 	@echo "  make verify-render         Local render canary: page count + stamp-excluded text (needs a build)"
 	@echo "  make drift-canary          Drift canary: PDF bytes + embedded-face list vs the reference (needs a build)"
+	@echo "  make smoke [ARTIFACT=x]    Does each committed reference look finished? (no build; CI-safe)"
+	@echo "                             (PDF=<path> inspects one file instead)"
 	@echo "  make baseline [ARTIFACT=x] Promote a fresh render onto its committed reference (pdf|slides)"
 	@echo "  make release MSG=\"...\"     Stage source + refresh reference + amend, in one commit"
 	@echo "                             (add ARTIFACT=slides to release the deck)"
@@ -60,7 +65,9 @@ html:
 # web builds the deployable website into app/dist/ (index.html with inlined
 # screen CSS + a copy of the committed reference PDF). Served by Cloudflare
 # Workers Static Assets. Does NOT touch the PDF pipeline or the reference PDF.
-# On a PDF-only fork (no style-screen.css) `build.py --web` no-ops cleanly.
+# On a guide that DECLARES no site, `build.py --web` no-ops cleanly. The trigger
+# is the `[outputs] site` declaration, not the presence of style-screen.css —
+# that stylesheet is target-owned, so it survives a site being switched off.
 web:
 	pixi run web
 
@@ -80,15 +87,29 @@ slides-coverage:
 # [deploy] domain, and commit the result. The kit's own test suite fails when a
 # guide's committed file has drifted from what this produces.
 wrangler:
-	pixi run python -c "import pathlib, cfadapter, kitconfig; \
-	print('  WRANGLER ->', cfadapter.write_wrangler(pathlib.Path('app'), kitconfig.load()))"
+	pixi run python -c "import pathlib, cfadapter, kitconfig; cfg = kitconfig.load(); \
+	print('  WRANGLER ->', cfadapter.write_wrangler(pathlib.Path('.' if cfg.outputs.site == 'hub' else 'app'), cfg))"
 
 # dev serves the site locally via wrangler. The app/ scaffold (package.json +
-# wrangler config) only exists after `bootstrap.py --with-web`, so guard on it
-# and error clearly on PDF-only forks before building or invoking wrangler.
+# wrangler config) only exists once the web layer is enabled, so guard on it and
+# error clearly on PDF-only guides before building or invoking wrangler.
 # Requires Node >=22 and `npm install` in app/ (wrangler is pinned there).
+#
+# THE REMEDY NAMES A COMMAND THAT EXISTS WHERE THE MESSAGE FIRES. It used to say
+# "run bootstrap.py --with-web", and this message can only ever appear in an
+# initialized guide — where `bootstrap.py` has deleted itself and `adopt.py` was
+# pruned. The reachable path is the kit checkout beside the guide, which is how
+# `adopt.py` is documented everywhere else.
+#
+# NO BACKTICKS in the message: it is expanded into a `sh` command line, where a
+# backtick opens a command substitution. The first draft shipped a guard whose
+# error message ran `site` as a program and printed "site: not found" above
+# itself.
+WEB_OFF_MSG := web layer not enabled. Declare 'site' in [outputs] (and add an \
+[artifacts.site] table) in guide.toml, commit that, then from a guide-kit \
+checkout: python guide-kit/adopt.py --target . --output site --enable
 dev:
-	@test -d app || { echo "web layer not enabled; run bootstrap.py --with-web"; exit 1; }
+	@test -d app || { echo "$(WEB_OFF_MSG)"; exit 1; }
 	pixi run web
 	cd app && npx wrangler dev
 
@@ -96,7 +117,7 @@ dev:
 # handled by .github/workflows/deploy.yml on web-enabled forks). Same app/
 # guard as dev.
 deploy:
-	@test -d app || { echo "web layer not enabled; run bootstrap.py --with-web"; exit 1; }
+	@test -d app || { echo "$(WEB_OFF_MSG)"; exit 1; }
 	pixi run web
 	cd app && npx wrangler deploy
 
@@ -121,6 +142,10 @@ verify-render: build
 # while the staleness check stays correctly green. It SKIPS (does not fail) when
 # the reference is stale — a fresh render is supposed to differ then, and that is
 # `verify`'s finding, not drift. It must never trigger a re-baseline.
+#
+# EVERY declared artifact with a committed reference, not just the PDF. The deck
+# shares `_COMMON_FILES` with it, so the drift class this exists for reaches both.
+# `--fresh` hands over the render `build` just made, so only the deck is built here.
 drift-canary: build
 	pixi run python driftcanary.py --fresh $(WORKING_PDF)
 
@@ -131,10 +156,20 @@ drift-canary: build
 # the footer wrapping on every page of three shipped guides.
 #
 # Platform-independent and build-free, so unlike verify-render this IS safe in
-# CI. Checks the committed reference by default; pass PDF=<path> to check a
-# fresh render before promoting it.
+# CI. Checks EVERY declared artifact's committed reference — `--smoke` used to
+# ignore `--artifact` and resolve the guide PDF whatever it was asked for, so the
+# slide deck was committed, pushed and published having never been inspected.
+# ARTIFACT=<pdf|slides|site> narrows it; PDF=<path> checks one file instead,
+# which is how `make baseline` and `make release` inspect a FRESH render before
+# promoting it. The two PAIR UP: a deck named by path still needs ARTIFACT=slides,
+# or it is judged against the guide's assertions and fails on a title a deck is
+# not supposed to carry.
+#
+# A guide with no reference artifact yet PASSES with a pre-first-release notice,
+# matching `verify`. It used to exit 2 on the missing file, which made this the
+# one command in the README's build block a brand-new fork could not run.
 smoke:
-	pixi run python verify_artifacts.py --smoke $(PDF)
+	pixi run python verify_artifacts.py --smoke $(PDF) --artifact $(or $(ARTIFACT),all)
 
 # baseline promotes the fresh render onto the committed reference PDF, guarded:
 # baseline.py refuses a dirty SOURCE_FILES tree BEFORE building or copying,

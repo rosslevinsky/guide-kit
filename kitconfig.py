@@ -114,7 +114,7 @@ _REQUIRED: dict[str, type] = {
 
 # "none" is the PDF-only guide; "single" is the predecessor's one-page website;
 # "multipage" is the chapter-split site; "app" is an externally-built SPA the kit
-# only deploys (romance-languages); "hub" is the omnibus index (guides/).
+# only deploys; "hub" is the omnibus index that lists a family of guides.
 SITE_SHAPES = ("none", "single", "multipage", "app", "hub")
 
 # ...of which the renderer actually IMPLEMENTS these. The enum above is wider on
@@ -125,7 +125,13 @@ SITE_SHAPES = ("none", "single", "multipage", "app", "hub")
 # `site = "multipage"` once passed validation and silently rendered ONE page. So
 # `build_web()` REFUSES an unimplemented shape by name, and the wider enum can
 # document the whole vocabulary without lying about what builds today.
-IMPLEMENTED_SITE_SHAPES = ("none", "single", "multipage", "hub")
+# `hub` is NOT here, and that is the same rule the comment above states.
+# `build_web()` branches on "multipage" versus everything else, so a hub
+# declared here rendered as an ordinary SINGLE-page site — precisely the
+# "passed validation and silently rendered ONE page" failure this pair of
+# tuples exists to rule out. A hub is built by `hub.py build`, which
+# `deploy.yml` already routes to and CI already smokes separately.
+IMPLEMENTED_SITE_SHAPES = ("none", "single", "multipage")
 SLIDES_SOURCES = ("auto", "guide", "file")
 # Han unification: JP/SC/TC/KR share codepoints but need different regional
 # glyph shapes, so this is an ordered list of language selectors, not a boolean.
@@ -277,8 +283,9 @@ class Artifact:
 
 @dataclass(frozen=True)
 class KitConfig:
-    """The validated per-guide constants. Attribute names match build.py's
-    former literal names so consumers read them unchanged."""
+    """The validated per-guide constants. Attribute names match the former
+    module-level literal names (then in `build.py`, now nowhere) so consumers
+    read them unchanged."""
 
     TITLE: str
     OUTPUT_SLUG: str
@@ -604,8 +611,10 @@ def _validate(data: dict, base: Path) -> KitConfig:
     # repo root. _SLUG_RE (fullmatch) already forbids slashes, dots, and
     # newlines, so a traversal slug can't reach here — but asserting containment
     # on the ACTUAL derived paths makes the guarantee explicit and survives any
-    # future loosening of the grammar. These mirror build.py's
-    # REFERENCE_PDF (:103), OUT_PDF (:95), and OUT_HTML (:96). Symlinked output
+    # future loosening of the grammar. These mirror `buildcore.py`'s
+    # REFERENCE_PDF, OUT_PDF and OUT_HTML — named rather than cited by line,
+    # because the line numbers this comment used to carry were wrong within one
+    # commit of the split that moved them. Symlinked output
     # directories are an explicit Non-Goal, so plain is_relative_to
     # containment — not symlink refusal — is the right guard here.
     derived = [
@@ -700,18 +709,6 @@ def stamp_pathspec(artifact: str = "pdf", cfg: KitConfig | None = None) -> list[
     # and dirty checks while it stays in the hashed closure. Validation rejects
     # such values too; this is the second lock on the same door.
     return [f":(literal){p}" for p in literals] + globs
-
-
-def content_pathspec(artifact: str = "pdf", cfg: KitConfig | None = None) -> list[str]:
-    """`stamp_pathspec` minus `guide.toml` — the artifact's FILE inputs only.
-
-    This is the scope for "when did this artifact's content last change". The
-    config is deliberately excluded: it reaches the artifact key-level, and git
-    cannot scope to a key, so including the whole file would let a committed
-    `[deploy]`-only edit move the displayed date of a PDF that did not change by
-    one byte of content. The closure hash still covers every config key that
-    does matter, so nothing is lost by narrowing the DATE's scope."""
-    return [p for p in stamp_pathspec(artifact, cfg) if p != ":(literal)guide.toml"]
 
 
 def glob_matches(rel_path: str, pattern: str) -> bool:
@@ -889,7 +886,6 @@ class ArtifactSpec:
     generated_deps: tuple[str, ...]   # (c) edges onto other artifacts' output
     stamp: StampRule                  # (d)
     reference: str | None             # (e) committed reference artifact, if any
-    release_staging: tuple[str, ...]  # (f) what release.py may stage for it
     # Why (e) is None, in the artifact's own terms. `verify --staleness` prints
     # it verbatim on the no-reference path, and the reasons genuinely differ:
     # the site has no committed bytes to hash and never will, while the deck is
@@ -914,8 +910,6 @@ _ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
         generated_deps=(),
         stamp=_STAMPED,
         reference="<slug>.pdf",
-        release_staging=_COMMON_FILES + ("style.css", "render_pdf.py", "guide.toml",
-                                         "assets/shared/**", "assets/print/**"),
     ),
     "site": ArtifactSpec(
         name="site",
@@ -928,10 +922,14 @@ _ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
         # into every target without moving the site's closure hash — so nothing
         # would report the site stale and nothing would trigger a redeploy, while
         # production kept serving the previous build.
-        # chapters.py is a site input and deliberately NOT a pdf one: the split
-        # decides the page set, so a change to it changes the site — while a
-        # multipage change must never re-stale eight reference PDFs, which is
-        # the property the whole build.py split exists to create.
+        # chapters.py is a site AND slides input, and deliberately NOT a pdf one.
+        # For the site the split decides the page set; for the deck it builds the
+        # entire body (`render_slides.render_html` goes through
+        # `chapters.blocks_to_html`). What must not happen is a multipage change
+        # re-staling eight reference PDFs, which is the property the artifact
+        # split exists to create — "not the PDF" was the reasoning, and this
+        # comment used to state it as "the site", which is how the deck was left
+        # out of a closure it belongs in.
         file_deps=_COMMON_FILES + ("themes/<theme>/print.css",
                                    "themes/<theme>/screen.css", "style-screen.css",
                                    "render_site.py", "cfadapter.py", "chapters.py",
@@ -944,8 +942,6 @@ _ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
         no_reference_reason=("a site is deployed, not blessed into the repo — there are "
                              "no committed bytes to hash, so staleness is not a question "
                              "that can be asked of it here"),
-        release_staging=_COMMON_FILES + ("style-screen.css", "render_site.py",
-                                         "cfadapter.py", "chapters.py", "guide.toml"),
     ),
     "slides": ArtifactSpec(
         name="slides",
@@ -957,9 +953,19 @@ _ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
         # with source = "file" and file = "deck.md", a literal would leave the
         # real source outside the closure and deck.md edits would never re-stale
         # the deck.
+        # chapters.py is a RENDER INPUT here, not an incidental import:
+        # `render_slides.render_html` builds the deck's whole body through
+        # `chapters.blocks_to_html`, and reads the document, the split, the
+        # inline text and the authored ids through it as well. It was absent,
+        # and the consequence was measured — a one-line change inside
+        # `blocks_to_html` moved the deck PDF 39f9081675ff -> 487c86b884d2 while
+        # the closure hash sat still at 583347a3a506 and `--staleness --artifact
+        # slides` reported OK fresh. CI ran on the change (chapters.py is in
+        # verify.yml's paths filter) and affirmed the freshness of an artifact
+        # that had moved.
         file_deps=_COMMON_FILES + ("themes/<theme>/print.css",
                                    "themes/<theme>/slides.css", "style-slides.css",
-                                   "<slides_file>", "render_slides.py"),
+                                   "<slides_file>", "render_slides.py", "chapters.py"),
         generated_deps=(),
         stamp=_STAMPED,
         # The deck DOES have a committed reference now, and the thing that
@@ -973,7 +979,6 @@ _ARTIFACT_SPECS: dict[str, ArtifactSpec] = {
         # deployed rather than blessed into the repo, so there are no committed
         # bytes for staleness to be a question about.
         reference="<slug>-slides.pdf",
-        release_staging=_COMMON_FILES + ("style-slides.css", "<slides_file>", "render_slides.py", "guide.toml"),
     ),
 }
 

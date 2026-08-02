@@ -76,7 +76,8 @@ def test_release_end_to_end(tmp_path, monkeypatch):
     # Same reason: this exercises the release flow against a stub PDF, so the
     # document-level check has nothing valid to read. Covered by
     # tests/test_promotion_smokes.py and tests/test_smoke_check.py.
-    monkeypatch.setattr(verify_artifacts, "smoke_check", lambda p, r=None: 0)
+    monkeypatch.setattr(verify_artifacts, "smoke_check",
+                        lambda p, r=None, artifact="pdf": 0)
     monkeypatch.setattr(sys, "argv", ["release.py", "-m", "test release"])
 
     rc = release.main()
@@ -125,7 +126,8 @@ def test_release_accepts_a_guide_toml_change(tmp_path, monkeypatch):
     # Same reason: this exercises the release flow against a stub PDF, so the
     # document-level check has nothing valid to read. Covered by
     # tests/test_promotion_smokes.py and tests/test_smoke_check.py.
-    monkeypatch.setattr(verify_artifacts, "smoke_check", lambda p, r=None: 0)
+    monkeypatch.setattr(verify_artifacts, "smoke_check",
+                        lambda p, r=None, artifact="pdf": 0)
     monkeypatch.setattr(sys, "argv", ["release.py", "-m", "toml change"])
 
     assert release.main() == 0

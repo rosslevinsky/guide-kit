@@ -27,14 +27,16 @@ THREE KINDS OF DATA, AND ONLY ONE COMES FROM A GUIDE:
      `policy = "never"`: the kit ships the machinery, the hub owns its own
      appearance permanently.
 
-The "romance-languages has no PDF" rule is (1), not prose: its manifest carries
-`"pdf": null` and the template emits no download link. A rule written in a
-README is a rule nothing enforces.
+The "this entry has no PDF" rule is (1), not prose: such an entry's manifest
+carries `"pdf": null` and the template emits no download link. A rule written in
+a README is a rule nothing enforces. (A listed site need not be a kit guide at
+all — an ordinary web app can appear on a hub, and it has no PDF to offer.)
 """
 from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -49,6 +51,27 @@ import kitconfig
 
 ROOT = Path(__file__).parent.resolve()
 FETCH_TIMEOUT = 20
+
+# The upstream this hub credits in its footer, when its own `.template-version`
+# does not say. Only a fallback: a third-party fork of the kit records its own
+# `source_repo` at adoption, and the credit line is not the one place that
+# should still name this repository.
+DEFAULT_KIT_REPO = "rosslevinsky/guide-kit"
+
+
+def _kit_url(root: Path) -> str:
+    """The kit's GitHub URL, from this hub's own adoption record.
+
+    Best-effort by design: a hub with no `.template-version` (or an unreadable
+    one) falls back rather than failing a build over a footer link."""
+    try:
+        record = json.loads((root / ".template-version").read_text(encoding="utf-8"))
+        repo = str(record.get("source_repo") or "").strip()
+    except (OSError, ValueError):
+        repo = ""
+    if not re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", repo):
+        repo = DEFAULT_KIT_REPO
+    return f"https://github.com/{repo}"
 
 
 class HubError(Exception):
@@ -143,7 +166,7 @@ def update(root: Path, fetch=fetch_manifest) -> dict:
     for entry in registry["guide"]:
         slug, url = entry["slug"], entry["url"]
         if "manual" in entry:
-            # Not every listed site is a kit guide. `romance-languages` has its
+            # Not every listed site is a kit guide. Such a site has its
             # own Vite/React pipeline and publishes no `/guide.json`, so its
             # facts are stated in the registry instead of fetched. It is still
             # DATA — the absent `pdf` key is what suppresses its download link,
@@ -240,9 +263,15 @@ def build(root: Path) -> Path:
         autoescape=jinja2.select_autoescape(["html"]),
         undefined=jinja2.StrictUndefined,       # a typo'd field fails, never blanks
     )
+    # `kit_url` comes from the hub's OWN `.template-version` when it has one, so
+    # a third-party fork of the kit credits itself rather than this repository.
+    # The template hardcoded `github.com/rosslevinsky/guide-kit` while
+    # `--source-repo` was already forwardable everywhere else, which made the
+    # credit line the one place a fork could not be its own upstream.
     html = env.get_template(tpl_path.name).render(
         sections=sections, title=cfg.TITLE, description=cfg.DESCRIPTION,
         copyright=f"© {cfg.COPYRIGHT_YEAR} {cfg.AUTHOR}",
+        kit_url=_kit_url(root),
     )
     out = root / "dist" / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)

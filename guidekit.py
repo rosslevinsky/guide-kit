@@ -37,6 +37,7 @@ import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -156,7 +157,13 @@ def check_tools(probe) -> list[str]:
 
 
 def check_worker_name(name: str) -> list[str]:
-    if not name or not _LABEL_RE.fullmatch(name):
+    if not name:
+        return [
+            "no worker name to check — pass --worker-name, or run this from a "
+            "guide directory whose guide.toml declares OUTPUT_SLUG (that is what "
+            "actually becomes the worker name)"
+        ]
+    if not _LABEL_RE.fullmatch(name):
         return [
             f"worker name {name!r} is not a valid DNS label — it becomes part of "
             f"<worker>.<subdomain>.workers.dev, so it must be 1-63 characters of "
@@ -164,6 +171,29 @@ def check_worker_name(name: str) -> list[str]:
             f"with a hyphen"
         ]
     return []
+
+
+def declared_slug(root: Path | None = None) -> str:
+    """`OUTPUT_SLUG` from the guide.toml next to us, or "" if there isn't one.
+
+    Scraped rather than loaded through `kitconfig`, for the same reason the
+    Makefile scrapes it: this runs BEFORE a fork is initialized, when the file
+    on disk is still the kit's, and a strict load that raised here would turn a
+    preconditions check into a config error. A miss returns "" and the caller
+    reports it as the missing input it is.
+
+    THE DEFAULT MATTERS. `preflight --with-web` used to validate a `--worker-name`
+    that defaulted to `""`, so the README's own documented invocation could not
+    pass — it failed on `worker name '' is not a valid DNS label` no matter how
+    correct the account was. `init` never hit it because it passes its slug.
+    """
+    toml_path = (root or Path(__file__).resolve().parent) / "guide.toml"
+    try:
+        text = toml_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r'^\s*OUTPUT_SLUG\s*=\s*"([^"]*)"', text, re.M)
+    return match.group(1) if match else ""
 
 
 def check_workers_dev(probe, account_id: str) -> list[str]:
@@ -175,10 +205,17 @@ def check_workers_dev(probe, account_id: str) -> list[str]:
         problems.append(
             "no Cloudflare account id — set CLOUDFLARE_ACCOUNT_ID, or pass "
             "--account-id; `npx wrangler whoami` prints it")
+    # NAMES BOTH CASES, because the probe cannot tell them apart:
+    # `token_permissions()` returns an empty set when the token lacks the scope
+    # AND when there is no token at all. This said only "the API token lacks the
+    # permission", so a reader with no token was sent to widen the permissions of
+    # something that does not exist. Asking the probe for a second signal would
+    # be the other fix; it is not worth an interface for a sentence.
     if "workers_scripts:edit" not in probe.token_permissions():
         problems.append(
-            "the API token lacks the Workers Scripts:Edit permission — create a "
-            "token with it at https://dash.cloudflare.com/profile/api-tokens")
+            "no Cloudflare API token, or it lacks the Workers Scripts:Edit "
+            "permission — set CLOUDFLARE_API_TOKEN to a token that has it "
+            "(create one at https://dash.cloudflare.com/profile/api-tokens)")
     if not probe.account_subdomain(account_id):
         problems.append(
             "this account has no workers.dev subdomain configured — the site "
@@ -227,14 +264,21 @@ def preflight(probe, *, persona: str, account_id: str = "",
     ran unconditionally, so the README's first command — a bare `preflight`,
     documented as the way to start — demanded `gh`, `wrangler`, Node >= 22, a
     Cloudflare account id, a Workers Scripts token and a configured workers.dev
-    subdomain before it would let anyone build a PDF. `--worker-name` defaults
-    to `""` and was validated whatever you asked for, so it could not pass at
-    all. The suite could not see it because the test helper filled in a worker
-    name for every case.
+    subdomain before it would let anyone build a PDF.
 
     So the split is now about the OUTPUT, not only about the zone: a guide with
     no website is never asked a Cloudflare question, and a guide with one is
     asked all of them.
+
+    THE WORKER NAME WAS THE SAME DEFECT ONE LEVEL DOWN, and the output split did
+    not reach it. `--worker-name` defaults to `""` and is validated whenever the
+    web checks run, so `preflight --with-web` — the README's own documented
+    second command — failed on `worker name '' is not a valid DNS label` however
+    correct the account was. `init` never met it because it passes its slug. The
+    caller now falls back to `declared_slug()`, which is the string `cfadapter`
+    actually turns into the worker name. The suite could not see any of this
+    because the test helper filled in a worker name for every case; the tests
+    that exercise the DEFAULT are what keep it fixed.
     """
     if persona not in PERSONAS:
         raise ValueError(
@@ -270,8 +314,30 @@ def main(argv: list[str] | None = None) -> int:
     # documented invocation failed with an argparse error.
     init.add_argument("title", help="the guide's title")
     init.add_argument("slug", help="OUTPUT_SLUG (kebab-case)")
+    # THE IDENTITY FLAGS, and their absence was not a cosmetic gap. `init` used
+    # to forward title and slug alone, so `bootstrap.py` fell back to the KIT's
+    # AUTHOR/DESCRIPTION/KEYWORDS — and AUTHOR reaches the reader, as the PDF's
+    # `/Author` and as a visible `© <year> <author>` colophon. The documented
+    # cold start therefore published someone else's guide under the kit owner's
+    # copyright. `--author` is required here for the same reason bootstrap now
+    # requires it: there is no correct value to guess.
+    init.add_argument("--author", required=True,
+                      help="author name — appears in the PDF's copyright line")
+    init.add_argument("--description", help="guide.toml DESCRIPTION (PDF /Subject)")
+    init.add_argument("--keywords", help="comma-separated guide.toml KEYWORDS")
+    init.add_argument("--copyright-year", dest="copyright_year", type=int,
+                      help="copyright year (default: the current year)")
+    # Forwarded so a THIRD-PARTY fork of the kit records itself as the upstream.
+    # Without these, every guide bootstrapped through `init` recorded the
+    # original kit repo and `kit_version: unknown`.
+    init.add_argument("--source-repo",
+                      help="upstream kit repo recorded in .template-version")
+    init.add_argument("--kit-version",
+                      help="kit version label recorded in .template-version")
     init.add_argument("--with-web", action="store_true",
                       help="materialize the web layer (app/, deploy.yml)")
+    init.add_argument("--with-transforms", action="store_true",
+                      help="also activate transforms.py (only meaningful with --with-web)")
     init.add_argument("--skip-preflight", action="store_true",
                       help="initialize without checking preconditions")
     for p in (pf, init):
@@ -284,9 +350,27 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.cmd == "preflight":
+        # Fall back to the DECLARED slug, because that is what `cfadapter` turns
+        # into the worker name. An empty default made the documented `preflight
+        # --with-web` unpassable.
+        worker_name = args.worker_name or declared_slug()
+        if args.with_web and not args.worker_name:
+            # SAY WHICH STRING IS BEING CHECKED. In a pristine kit clone — the
+            # cold-start persona this command is written for — the declared slug
+            # is the KIT's `guide-template`, which is a valid DNS label, so the
+            # check can never fail for anyone following the README. The reader
+            # has not typed their own slug yet; there is nothing here to
+            # validate, and reporting a pass on someone else's string as though
+            # it were theirs is the previous "always fails" default's mirror
+            # image, not an improvement on it.
+            print(f"NOTE  checking the DECLARED slug {worker_name or '(none)'!r} "
+                  f"from guide.toml — not yours, if you have not written it yet. "
+                  f"Pass --worker-name <your-slug> to check the real one; "
+                  f"`init` validates the slug you give it either way.")
         problems = preflight(Probe(), persona=args.persona,
                              account_id=args.account_id,
-                             worker_name=args.worker_name, domain=args.domain,
+                             worker_name=worker_name,
+                             domain=args.domain,
                              with_web=args.with_web)
         for p in problems:
             print(f"FAIL  {p}", file=sys.stderr)
@@ -302,6 +386,17 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.cmd == "init":
+        # BEFORE preflight, because a blank author is the adopter's typo and not
+        # a Cloudflare fact: making them wait through the network probes to learn
+        # it is the wrong order. `required=True` above rejects the flag's absence
+        # and nothing about its value, so `--author ""` reached bootstrap and
+        # wrote an empty copyright holder. Duplicated rather than delegated
+        # because bootstrap refuses at the far end of a subprocess, after
+        # preflight has already run.
+        if not args.author.strip():
+            print("FAIL  --author cannot be blank — it becomes the PDF's /Author "
+                  'and its visible `© <year> <author>` colophon.', file=sys.stderr)
+            return 1
         # Preflight FIRST and by default. Bootstrapping is cheap to redo, but the
         # failure it protects against is not: without it the adopter discovers a
         # missing account subdomain after committing, pushing and watching a
@@ -329,10 +424,28 @@ def main(argv: list[str] | None = None) -> int:
         # POSITIONAL. `bootstrap.py` declares `title` and `slug` as positional
         # arguments, so the `--name`/`--slug` form this once used would have
         # failed on the very first real invocation with an argparse error.
-        cmd = [sys.executable, "bootstrap.py", args.title, args.slug]
+        cmd = [sys.executable, "bootstrap.py", args.title, args.slug,
+               "--author", args.author]
+        for flag, value in (("--description", args.description),
+                            ("--keywords", args.keywords),
+                            ("--source-repo", args.source_repo),
+                            ("--kit-version", args.kit_version)):
+            if value:
+                cmd += [flag, value]
+        if args.copyright_year is not None:
+            cmd += ["--copyright-year", str(args.copyright_year)]
         if args.with_web:
             cmd.append("--with-web")
-        print(f"  running {' '.join(cmd[1:])}")
+        if args.with_transforms:
+            cmd.append("--with-transforms")
+        # QUOTED, and FLUSHED. `' '.join` printed
+        # `bootstrap.py My Guide my-guide --author Jane Forker`, which is not the
+        # command that ran and is not one anybody can paste — the multi-word
+        # identity flags made that visible the moment they were forwarded.
+        # `shlex.join` is the shell-correct rendering. The flush matters for the
+        # same reason: stdout is block-buffered when piped, so the echo landed
+        # AFTER the child's own output and read as a report of what came next.
+        print(f"  running {shlex.join(cmd[1:])}", flush=True)
         rc = subprocess.run(cmd).returncode
         if rc != 0 or not args.domain:
             return rc
@@ -371,14 +484,17 @@ def apply_domain(domain: str) -> int:
         import kitconfig
         out = cfadapter.write_wrangler(Path("app"), kitconfig.load())
         print(f"  WRANGLER -> {out}")
-    except Exception as exc:
+    # SystemExit too, and not by accident: `write_wrangler` refuses a guide that
+    # declares no site with one, and SystemExit is a BaseException — so a bare
+    # `except Exception` would let it escape and take `init` down with a
+    # traceback after the domain had already been written. That is the case a
+    # `--domain` without `--with-web` produces.
+    except (Exception, SystemExit) as exc:
         print(f"guide-kit: wrote the domain but could not regenerate the wrangler "
               f"config ({exc}). Run `make wrangler` before deploying, or the site "
               f"will still publish on workers.dev.", file=sys.stderr)
         return 1
     return 0
-
-    return 2
 
 
 if __name__ == "__main__":

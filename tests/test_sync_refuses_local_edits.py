@@ -58,3 +58,44 @@ def test_existing_unrecorded_destination_is_refused(sync_env, capsys):
     assert sync.run_sync(env.kit, env.target, apply=True) == sync.EXIT_DRIFT
     err = capsys.readouterr().err
     assert "build.py" in err and "adopt" in err.lower()
+
+
+def test_an_edit_INSIDE_the_markers_is_overwritten_not_refused(sync_env, capsys):
+    """The one thing every guide's CLAUDE.md tells its reader about this block.
+
+    Both `CLAUDE.md` files say editing inside `kit:begin`/`kit:end` is "wasted
+    work — the next sync overwrites it". Sync refused the file instead — and
+    because one refusal aborts the whole run, an edited heading in the shared
+    block stopped every OTHER file's update from landing too. Measured: one
+    stray line inside the region blocked an unrelated `build.py` update.
+
+    Overwriting is the designed behaviour rather than a concession:
+    `_checkable_bytes` scopes the comparison to the marked block, which is
+    kit-owned, and `_render_managed` rebuilds it from the kit while preserving
+    every byte outside the markers. So this asserts BOTH — the region is reset,
+    and the guide's own sections are not touched.
+    """
+    env = sync_env()
+    p = env.target / "CLAUDE.md"
+    text = p.read_text(encoding="utf-8")
+    p.write_text(text.replace(sync.MARK_BEGIN,
+                              sync.MARK_BEGIN + "\nAN EDIT INSIDE THE SHARED BLOCK.\n"),
+                 encoding="utf-8")
+    # ...and an unrelated kit change, to prove the run is not aborted.
+    (env.kit / "build.py").write_text("# build.py v2\n", encoding="utf-8")
+    _commit(env.kit, "kit moves on")
+    _commit(env.target, "edit inside the managed region")
+
+    items, _, _ = sync.build_plan(env.kit, env.target)
+    by_dest = {it.dest_rel: it for it in items}
+    assert by_dest["CLAUDE.md"].action == "update", by_dest["CLAUDE.md"].action
+    assert "reset from the kit" in by_dest["CLAUDE.md"].reason, "the reset is silent"
+    assert by_dest["build.py"].action == "update", (
+        "one edited managed region still blocks an unrelated file's update")
+
+    assert sync.run_sync(env.kit, env.target, apply=True) == sync.EXIT_OK
+    after = p.read_text(encoding="utf-8")
+    assert "AN EDIT INSIDE THE SHARED BLOCK." not in after
+    assert "TARGET-OWNED section the guide maintains." in after, (
+        "the guide's own text outside the markers was destroyed")
+    assert (env.target / "build.py").read_text(encoding="utf-8") == "# build.py v2\n"

@@ -11,7 +11,7 @@
 #     retained-in-kit  a canonical source authored/maintained in the kit
 #                      (whether or not it is projected into a target)
 #     bootstrap-source a staging file (.example / templates/) materialized into
-#                      a live destination by bootstrap --with-web / adopt-web
+#                      a live destination by bootstrap --with-web / adopt --enable
 #     generated        a build/resolution output, not a hand-authored source
 #
 #   destination policy (present ONLY if the file has a projected live path in a
@@ -389,15 +389,6 @@ lifecycle = "retained-in-kit"
 path = "kit-manifest.toml"
 lifecycle = "retained-in-kit"
 
-# The cross-guide concept matrix reconciling windows-powershell-guide and
-# windows-cmd-guide (authored in the Stage 13 join). Kit-only: it is a
-# MAINTAINER artifact about two specific guides, not reader-facing content and
-# not tooling any guide runs, so it is never projected into a target and
-# bootstrap prunes it from a fork.
-[[entry]]
-path = "windows-shell-concept-matrix.md"
-lifecycle = "retained-in-kit"
-
 [[entry]]
 path = "kitmanifest.py"
 lifecycle = "retained-in-kit"
@@ -471,12 +462,7 @@ path = "sync.py"
 lifecycle = "retained-in-kit"
 
 [[entry]]
-# Two-root (kit_root + --target); never copied into a target.
-path = "adopt-web.py"
-lifecycle = "retained-in-kit"
-
-[[entry]]
-# The output-generic successor to adopt-web.py: `--output <name> --enable/--disable`
+# Turn a declared output on or off: `--output <name> --enable/--disable`
 # as a state transition for a target that is already adopted and applied. Kit-only
 # for the same reason its ancestor is — it is run FROM the kit AGAINST a guide.
 path = "adopt.py"
@@ -493,7 +479,7 @@ policy = "templated"
 
 # ============================ bootstrap-source ============================
 # The web layer. Every bootstrap-source entry is web-only: its destination is
-# materialized by bootstrap --with-web / adopt-web and is INERT in a PDF-only
+# materialized by bootstrap --with-web / adopt --enable and is INERT in a PDF-only
 # target. Their destination POLICIES are set independently:
 # deploy.yml is identical, but seeded style-screen.css / transforms.py are
 # `never` (target-owned once written — sync must not clobber a guide's own).

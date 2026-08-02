@@ -17,7 +17,7 @@ Edit `guide.md` to write your own guide. Run `make` to render the PDF (output la
 
 ## What this section is for
 
-This is an `h2` heading. If you change its color, weight, or margin, you'll see it when you eyeball the render; the `make verify-render` canary flags a resulting page-count or text shift.
+This is an `h2` heading. If you change its color, weight, or margin, you'll see it when you eyeball the render; `make drift-canary` flags the resulting change in the rendered bytes.
 
 ### And this is an h3
 
@@ -98,7 +98,7 @@ Exercises render in a green-bordered box with the title strip on top.
 
 **Exercise 1 — Hello world**
 
-Run `make` from this directory. Confirm `guide-template.pdf` appears at the repo root.
+Run `make` from this directory. Confirm `build/<slug>.pdf` appears — that is the working render. The committed reference at the repo root is refreshed by `make release`, not by `make`.
 
 You should see this exact text rendered in the green box.
 
@@ -114,14 +114,14 @@ The `<pre class="diagram">` element renders ASCII art in a tan-bordered monospac
                                                           qpdf canonicalize
                                                               |
                                                               v
-                                                       guide-template.pdf
+                                                       &lt;slug&gt;.pdf
 </pre>
 
 <div class="page-break"></div>
 
 # Section after a forced page break
 
-The `<div class="page-break"></div>` element forces a page break before this section. The `make verify-render` canary checks page count, so this forced break is exercised by that check too.
+The `<div class="page-break"></div>` element forces a page break before this section. `make drift-canary` compares the rendered bytes against the committed reference, so this forced break is exercised by that check too.
 
 ## More content here
 

@@ -116,26 +116,6 @@ def test_a_part_above_the_chapter_level_still_works(tmp_path):
     assert chapters._inline_text(chs[0].part["c"][2]) == "Part I — The Foundations"
 
 
-def test_front_matter_stops_at_a_part(tmp_path):
-    """Otherwise a part and its blurb are swallowed into the landing page's
-    opening. Belt and braces — usually the depth test stops first, but a part is
-    marked by class and may legitimately sit deeper."""
-    p = _md(tmp_path, """
-        Opening lede.
-
-        # Part I — The Basics {.part}
-
-        Blurb.
-
-        # 1. Chapter
-
-        Prose.
-        """)
-    fm = chapters.front_matter(p, chapter_level=1)
-    assert "Part I" not in chapters.blocks_to_html(fm, None)
-    assert "Opening lede" in chapters.blocks_to_html(fm, None)
-
-
 def test_is_part_reads_the_class_not_the_text(tmp_path):
     """"Part" is the concept, not the word. accounting-guide's divisions include
     three Appendices, which any `^# Part ` rule drops."""

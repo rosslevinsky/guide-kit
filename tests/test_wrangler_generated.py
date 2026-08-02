@@ -23,8 +23,26 @@ import cfadapter
 import kitconfig
 import buildcore
 
-TARGETS = ["accounting-guide", "git-guide", "japan-guide", "linux-terminal-guide",
-           "mac-terminal-guide", "windows-cmd-guide", "windows-powershell-guide"]
+def _sibling_guides():
+    """Every guide repo sitting beside this one, DISCOVERED not listed.
+
+    This was a hardcoded list of the seven repos in the author's own workspace.
+    Two things were wrong with that in a public toolkit: an outside clone has
+    none of them, so the parametrized cases silently reduced to nothing while
+    still reporting as passed; and the kit's test suite named seven private
+    repositories that no reader of it can open. Discovery keeps the check
+    meaningful wherever it runs — beside a full family it covers all of them,
+    beside nothing it covers nothing and says so.
+    """
+    workspace = buildcore.ROOT.parent
+    if not workspace.is_dir():
+        return []
+    return sorted(d.name for d in workspace.iterdir()
+                  if d.is_dir() and d.name != buildcore.ROOT.name
+                  and (d / "guide.toml").is_file())
+
+
+TARGETS = _sibling_guides()
 
 
 def _strip_jsonc(text: str) -> str:
@@ -269,3 +287,32 @@ def test_no_account_ids_or_personal_hostnames_in_kit_code_or_templates():
     assert not offenders, (
         "kit code/templates must carry no account ID, zone or personal hostname:\n  "
         + "\n  ".join(offenders))
+
+
+def test_wrangler_refuses_a_guide_that_declares_no_site(tmp_path):
+    """`make wrangler` on a PDF-only guide used to CREATE `app/`.
+
+    `write_wrangler` did an unconditional `mkdir(parents=True, exist_ok=True)`, so
+    the command produced a directory holding a config for a Worker the guide will
+    never deploy. Two things follow, and the second is worse than the tidiness
+    complaint: it contradicts the README's "nothing under `app/` exists until you
+    opt in", and it DEFEATS the `test -d app` guard `make dev` and `make deploy`
+    use — those stop reporting that the web layer is off and start invoking
+    wrangler against a tree with no `package.json` in it.
+    """
+    cfg = _cfg_with_domain(tmp_path, None)          # [outputs] site = "single"
+    app = tmp_path / "app"
+    cfadapter.write_wrangler(app, cfg)              # declared: writes
+    assert (app / cfadapter.WRANGLER_FILENAME).exists()
+
+    pdf_only = tmp_path / "pdf-only"
+    pdf_only.mkdir()
+    (pdf_only / "guide.toml").write_text(
+        'TITLE = "Probe"\nOUTPUT_SLUG = "probe-guide"\nAUTHOR = "A"\n'
+        'DESCRIPTION = "d"\nKEYWORDS = "k"\nCOPYRIGHT_YEAR = 2026\n'
+        '[outputs]\npdf = true\nsite = "none"\nslides = false\n'
+        '[artifacts.pdf]\ndate = "2026-07-26"\n', encoding="utf-8")
+    with pytest.raises(SystemExit, match="declares no site"):
+        cfadapter.write_wrangler(pdf_only / "app", kitconfig.load(pdf_only))
+    assert not (pdf_only / "app").exists(), (
+        "the refusal still created app/, which is the whole defect")

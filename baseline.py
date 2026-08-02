@@ -33,7 +33,7 @@ import verify_artifacts
 ROOT = Path(__file__).parent.resolve()
 
 
-def _dirty_source_files(cfg: kitconfig.KitConfig) -> list[str]:
+def _dirty_source_files(cfg: kitconfig.KitConfig, artifact: str) -> list[str]:
     # Scoped to stamp_pathspec(), not SOURCE_FILES: the bundled faces feed
     # content_hash(), so an uncommitted face swap yields a render this guard
     # must refuse to bless — a reference PDF no committed state reproduces.
@@ -51,10 +51,14 @@ def _dirty_source_files(cfg: kitconfig.KitConfig) -> list[str]:
     # refused it. But that turned a documented "refuses BEFORE building" into a
     # wasted build plus a late, unspecific error, and left the whole guarantee
     # resting on the stamp path alone. The same shape bites `<slides_file>` for a
-    # guide whose deck is not the default `slides.md`.
+    # guide whose deck is not the default `slides.md`. Which is exactly what
+    # this function then did: it hardcoded `stamp_pathspec("pdf", cfg)` for every
+    # artifact, so `--artifact slides` never saw a dirty `style-slides.css` or a
+    # dirty deck source. The comment predicted the bug the code had.
     try:
         out = subprocess.run(
-            ["git", "status", "--porcelain", "--", *kitconfig.stamp_pathspec("pdf", cfg)],
+            ["git", "status", "--porcelain", "--",
+             *kitconfig.stamp_pathspec(artifact, cfg)],
             cwd=ROOT, capture_output=True, text=True, encoding="utf-8", check=True,
         ).stdout
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
@@ -107,7 +111,7 @@ def main() -> int:
 
     # The guard: a dirty stamp-input tree (SOURCE_FILES plus the bundled faces).
     # Fires before anything is mutated.
-    dirty = _dirty_source_files(cfg)
+    dirty = _dirty_source_files(cfg, artifact)
     if dirty:
         sys.exit(
             "make baseline refused: stamp-input tree is dirty — a `· dirty` stamp would\n"
@@ -148,13 +152,17 @@ def main() -> int:
     # true of the CI path, false of this one. Two paths doing the same job with
     # different guarantees is how recorded defect 8 (a footer wrapping on every
     # page of three shipped guides) reaches a reader.
-    # The smoke check asks "does this look like a finished GUIDE" — enough pages,
-    # a title, no placeholders, an unwrapped footer. That is a question about a
-    # prose document, and a slide deck answers it wrongly by construction: two
-    # slides is a legitimate deck and a broken guide. Applying it here would make
-    # every deck unpromotable, so it runs for the PDF, which is what it was
-    # written about.
-    if artifact == "pdf" and verify_artifacts.smoke_check(working, ROOT) != 0:
+    # RUNS FOR THE DECK TOO NOW, and the exemption it replaces is worth recording
+    # because the reasoning was sound and is no longer true. It read: the smoke
+    # check asks "does this look like a finished GUIDE" — enough pages, a title,
+    # no placeholders — and a slide deck answers that wrongly by construction,
+    # since two slides is a legitimate deck and a broken guide. So it ran for the
+    # PDF only. But `smoke_failures` takes the artifact now: a deck is not asked
+    # for the guide's title, one slide is a legitimate deck, and it IS asked for
+    # its version stamp. With the assertions right, exempting the deck only means
+    # `footer_wrap_failures` — the single automated catcher for recorded defect
+    # 8 — never runs on it on this path.
+    if verify_artifacts.smoke_check(working, ROOT, artifact) != 0:
         sys.exit(
             "make baseline refused: the fresh render does not pass `make smoke` "
             "(see above) — not promoting."

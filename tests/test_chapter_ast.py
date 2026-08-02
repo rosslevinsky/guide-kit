@@ -111,15 +111,6 @@ def test_a_deeper_heading_stays_inside_its_chapter(tmp_path):
     assert any(b.get("t") == "Header" and b["c"][0] == 3 for b in ledger.blocks)
 
 
-def test_content_before_the_first_chapter_is_front_matter(tmp_path):
-    got = _shape("Preamble prose.\n\n# One\n\nBody.\n", tmp_path, level=1)
-    assert [c.title for c in got] == ["One"]
-    # The preamble is not silently dropped — it belongs to the document, and the
-    # renderer needs it for the landing page.
-    assert chapters.front_matter(
-        (tmp_path / "guide.md"), chapter_level=1), "preamble was lost"
-
-
 def test_a_document_with_no_chapters_at_that_level_yields_none(tmp_path):
     """git-guide has zero `##`. Asking for level 2 must return an empty list, not
     guess a different level — the config is wrong and should be visibly wrong."""

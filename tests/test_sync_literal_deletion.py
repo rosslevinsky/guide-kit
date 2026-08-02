@@ -76,7 +76,8 @@ def test_the_deletion_needs_no_managed_tree_to_exist(sync_env):
     import kitmanifest
     env = _drop_build_entry(sync_env())
     m = kitmanifest.load(env.kit)
-    assert m.tree_dests("pdf-only", slug="probe-guide") == [], "fixture gained a tree"
+    assert not [p for p in m.projections("pdf-only", slug="probe-guide")
+                if p.dest.endswith("/**")], "fixture gained a tree"
 
     assert sync.run_sync(env.kit, env.target, apply=True) == sync.EXIT_OK
     assert not (env.target / "build.py").exists()

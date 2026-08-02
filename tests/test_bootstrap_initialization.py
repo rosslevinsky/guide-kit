@@ -7,7 +7,9 @@ retired — see test_no_platform_guard.py); transforms.py is absent without
 --with-transforms; and the freshly bootstrapped fork reports zero drift against a
 pristine kit (its templated files carry the fork's identity, not the kit's).
 """
+import datetime as _datetime
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -33,14 +35,26 @@ def _mkcopy(dst: Path) -> Path:
 
 
 def _run_bootstrap(fork: Path, *extra: str) -> subprocess.CompletedProcess:
+    """`--author` unless a case supplies its own — it is required now.
+
+    Defaulted HERE rather than left to each case so the helper cannot re-hide
+    the defect it was changed for: a helper that filled in a value the CLI does
+    not require is exactly how the `--worker-name` default went unnoticed in
+    guidekit.py. There is no `author` parameter to opt out with — the cases that
+    assert the requirement drive `subprocess.run` directly, because the whole
+    point is to invoke a form this helper will not build.
+    """
+    argv = ["Fork Guide", "fork-guide", *extra]
+    if "--author" not in argv:
+        argv += ["--author", "F. Author"]
     return subprocess.run(
-        [sys.executable, str(fork / "bootstrap.py"), "Fork Guide", "fork-guide", *extra],
+        [sys.executable, str(fork / "bootstrap.py"), *argv],
         cwd=fork, capture_output=True, text=True,
     )
 
 
 def test_bootstrap_needs_no_platform_argument(tmp_path):
-    """Title and slug are the whole required surface now.
+    """Title, slug and author are the whole required surface now.
 
     This inverts the assertion it replaces: `--baseline-platform` used to be
     REQUIRED non-interactively and bootstrap refused without it. The flag is gone
@@ -54,6 +68,85 @@ def test_bootstrap_needs_no_platform_argument(tmp_path):
     assert cfg.OUTPUT_SLUG == "fork-guide"
     assert not hasattr(cfg, "baseline_platform")
     assert 'baseline_platform' not in (fork / "guide.toml").read_text(encoding="utf-8")
+
+
+def test_bootstrap_refuses_without_an_author(tmp_path):
+    """No author is a REFUSAL, not a fallback.
+
+    AUTHOR is not inert config: it is the PDF's `/Author` and the visible
+    `© <year> <author>` colophon. It used to default to the kit's own AUTHOR, so
+    the documented cold start produced a stranger's guide stamped with the kit
+    owner's copyright — in the metadata AND on the page. There is no correct
+    value to guess, so the only honest behaviour is to stop.
+    """
+    fork = _mkcopy(tmp_path / "fork")
+    r = subprocess.run(
+        [sys.executable, str(fork / "bootstrap.py"), "Fork Guide", "fork-guide"],
+        cwd=fork, capture_output=True, text=True)
+    assert r.returncode != 0
+    assert "--author" in (r.stderr + r.stdout)
+    # Refused before writing anything.
+    assert kitconfig.load(fork).OUTPUT_SLUG == "guide-template"
+    assert (fork / ".template-uninitialized").exists()
+
+
+def test_bootstrap_refuses_a_blank_author(tmp_path):
+    """`required=True` rejects the FLAG's absence and says nothing about its VALUE.
+
+    Measured before the fix: `bootstrap.py "Blank Author Guide" blank-author
+    --author "   "` exited 0, wrote `AUTHOR = "   "`, and produced a PDF with an
+    empty `/Author` and a colophon reading a bare `© 2026` with no holder after
+    it. The reasoning for making the flag required — that there is no value to
+    guess — was defeated by one space, so the check has to be on the string.
+    """
+    fork = _mkcopy(tmp_path / "fork")
+    r = subprocess.run(
+        [sys.executable, str(fork / "bootstrap.py"), "Blank Author Guide",
+         "blank-author", "--author", "   "],
+        cwd=fork, capture_output=True, text=True)
+    assert r.returncode != 0, "a whitespace-only author was accepted"
+    assert "--author" in (r.stderr + r.stdout)
+    # Refused before writing anything.
+    assert kitconfig.load(fork).OUTPUT_SLUG == "guide-template"
+    assert (fork / ".template-uninitialized").exists()
+
+
+def test_a_fork_inherits_no_identity_from_the_kit(tmp_path):
+    """None of the four reader-facing identity values may come from the kit.
+
+    Checked against the KIT's actual values rather than against a literal, so
+    this keeps holding when the kit re-describes itself. DESCRIPTION and KEYWORDS
+    are derived from the fork's own title and slug — bland is fine, another
+    project's name is not.
+    """
+    fork = _mkcopy(tmp_path / "fork")
+    kit_cfg = kitconfig.load(REPO_ROOT)
+    r = _run_bootstrap(fork, "--author", "F. Author")
+    assert r.returncode == 0, r.stderr
+    cfg = kitconfig.load(fork)
+
+    assert cfg.AUTHOR == "F. Author"
+    assert cfg.AUTHOR != kit_cfg.AUTHOR
+    assert cfg.DESCRIPTION != kit_cfg.DESCRIPTION
+    assert cfg.KEYWORDS != kit_cfg.KEYWORDS
+    # Derived from what the adopter supplied, so it names THIS guide.
+    assert "Fork Guide" in cfg.DESCRIPTION
+    assert "fork" in cfg.KEYWORDS
+    # The copyright line a reader sees. `COPYRIGHT` is derived in buildcore as
+    # `© {COPYRIGHT_YEAR} {AUTHOR}`, so asserting the two inputs is asserting the
+    # rendered line — and the year is the fork's own, not the kit's constant.
+    assert (cfg.COPYRIGHT_YEAR, cfg.AUTHOR) == (_datetime.date.today().year, "F. Author")
+
+
+def test_explicit_identity_flags_win(tmp_path):
+    fork = _mkcopy(tmp_path / "fork")
+    r = _run_bootstrap(fork, "--author", "A. N. Other",
+                       "--description", "A described thing.",
+                       "--keywords", "one, two", "--copyright-year", "2031")
+    assert r.returncode == 0, r.stderr
+    cfg = kitconfig.load(fork)
+    assert (cfg.AUTHOR, cfg.DESCRIPTION, cfg.KEYWORDS, cfg.COPYRIGHT_YEAR) == (
+        "A. N. Other", "A described thing.", "one, two", 2031)
 
 
 def test_bootstrap_rejects_the_retired_platform_flag(tmp_path):
@@ -137,7 +230,7 @@ def test_bootstrap_prunes_every_kit_only_path(tmp_path):
     """A fork must inherit none of the kit's own machinery.
 
     `--template` copies the whole kit, so without pruning a fork ships the kit's
-    test suite, sync.py, adopt-web.py, the manifest and its loader, and plans/.
+    test suite, sync.py, adopt.py, the manifest and its loader, and plans/.
     That is not cosmetic: verify.yml's target branch is guarded on `tests/**`
     existing, so an inherited tests/ makes the fork borrow the kit's runner and
     run the KIT's suite against the GUIDE — asserting kit-shaped facts that are
@@ -226,6 +319,119 @@ def test_a_forks_own_documentation_does_not_point_at_pruned_files(tmp_path):
         f"a fork's documentation links to files bootstrap pruned: {dangling}. "
         f"Either the target belongs in the fork (give it a `projects_to` in "
         f"kit-manifest.toml) or the content belongs inline in the README."
+    )
+
+
+def test_a_forks_own_documentation_does_not_TELL_YOU_TO_RUN_pruned_files(tmp_path):
+    """The same defect as the test above, in the half a link check cannot see.
+
+    `test_a_forks_own_documentation_does_not_point_at_pruned_files` scans LINKS.
+    It passed while a fork's README opened — under a heading still reading
+    "Cold start: `guide-kit`" — by instructing the reader to run
+    `pixi run python guidekit.py preflight` and then `guidekit.py init`.
+    `guidekit.py` is kit-only and is deleted in the same bootstrap run, so the
+    first command on a new guide's landing page named a file the repository does
+    not contain. A link is not the only way a document can point at something.
+
+    So this reads the COMMANDS instead: every bare `python <name>.py` in a fenced
+    block, which is the form every instruction in these files takes.
+
+    ONLY BARE NAMES COUNT, and that is the distinction rather than a limitation
+    of the regex. `python guide-kit/adopt.py --target ../my-guide` is a path into
+    a SEPARATE kit checkout, which an adopter is expected to have and a fork is
+    not expected to contain. `python guidekit.py` is a claim about *this*
+    repository, and that is the claim that was false.
+
+    The blindness guard runs against the KIT's README, not the fork's. A fork
+    that names no scripts at all is the correct end state, so requiring a
+    non-zero count there would forbid the fix; the matcher still has to be shown
+    working against a document known to contain matches, or a broken regex would
+    read as a clean fork.
+    """
+    fork = _mkcopy(tmp_path / "fork")
+    r = _run_bootstrap(fork)
+    assert r.returncode == 0, r.stderr
+
+    invocation = re.compile(r"python3?\s+([A-Za-z0-9_.\-]+\.py)\b")
+
+    def _invoked(text):
+        return [s for block in re.findall(r"```[^\n]*\n(.*?)```", text, flags=re.S)
+                for s in invocation.findall(block)]
+
+    assert _invoked((REPO_ROOT / "README.md").read_text(encoding="utf-8")), (
+        "the matcher found no `python <script>.py` in the KIT's own README, "
+        "which does contain some — it has gone blind and would report any fork "
+        "as clean"
+    )
+
+    missing = []
+    for doc in ("README.md", "CLAUDE.md"):
+        p = fork / doc
+        if not p.exists():
+            continue
+        for script in _invoked(p.read_text(encoding="utf-8")):
+            if not (fork / script).exists():
+                missing.append(f"{doc} -> {script}")
+    assert not missing, (
+        f"a fork's documentation tells the reader to run files bootstrap "
+        f"pruned: {missing}. Either the script belongs in the fork (give it a "
+        f"`projects_to`) or the section belongs in the kit's README only — "
+        f"`_sub_readme` drops the kit-only sections."
+    )
+
+
+def test_a_forks_own_documentation_attributes_kit_only_paths_to_the_kit(tmp_path):
+    """The third way a document can point at something that is not there.
+
+    The two tests above scan LINKS and fenced COMMANDS. Neither sees backticked
+    prose, and the licence section proved it: a bullet reading "workflows, tests
+    and the documentation (this file, `CLAUDE.md`, `CONTRIBUTING.md`, `docs/`)"
+    passed both while naming three trees `bootstrap.py` had just deleted.
+
+    Scoped to the trees a fork can never gain — `tests/**`, `docs/**` and
+    `CONTRIBUTING.md` — rather than to "any path that does not exist", which was
+    measured and is unusable: `transforms.py`, `style-screen.css`, `deploy.yml`
+    and `app/wrangler.jsonc` are all legitimately absent until a guide opts in,
+    so the general form reports ~80 false positives and would be switched off.
+
+    The remedy is a QUALIFIER, not deletion. These documents genuinely need to
+    explain what the kit checks on their behalf; what they must not do is say it
+    in the second person about a file the reader does not have. So the rule is
+    that "kit" appears nearby — "the kit's `tests/test_nav_dom.py`" — which is
+    the convention `CLAUDE.md` already follows in the places that were fixed.
+    """
+    fork = _mkcopy(tmp_path / "fork")
+    r = _run_bootstrap(fork)
+    assert r.returncode == 0, r.stderr
+
+    token = re.compile(r"`((?:tests|docs)/[A-Za-z0-9_./*-]+|CONTRIBUTING\.md)`")
+    unqualified = []
+    seen = 0
+    for doc in ("README.md", "CLAUDE.md"):
+        p = fork / doc
+        if not p.exists():
+            continue
+        text = p.read_text(encoding="utf-8")
+        for m in token.finditer(text):
+            if (fork / m.group(1).split("*")[0]).exists():
+                continue
+            seen += 1
+            # Window on BOTH sides: the convention reads either way round —
+            # "the kit's `tests/x.py`" and "`tests/x.py` in the kit" are the
+            # same attribution, and a before-only window rejects the second.
+            window = text[max(0, m.start() - 90):m.end() + 45].lower()
+            if "kit" not in window:
+                line = text[:m.start()].count("\n") + 1
+                unqualified.append(f"{doc}:{line} -> {m.group(1)}")
+
+    assert seen, (
+        "the matcher found no kit-only path references at all in the fork's docs; "
+        "either the convention changed or the pattern has gone blind"
+    )
+    assert not unqualified, (
+        f"a fork's documentation names kit-only paths as if they were its own: "
+        f"{unqualified}. Attribute them — \"the kit's `tests/…`\" — or drop the "
+        f"reference; a fork has no `tests/`, `docs/` or `CONTRIBUTING.md`."
     )
 
 

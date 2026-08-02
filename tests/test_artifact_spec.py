@@ -5,8 +5,10 @@ filesystem; one `SOURCE_FILES` list served six different consumers; and one
 stamp covered one artifact, so adding slides would have re-staled the PDF. An
 `ArtifactSpec` states, per artifact: the CONFIG KEYS it depends on (key-level,
 so a `[deploy]` edit cannot reach the PDF), its file and glob dependencies, its
-generated dependency edges, its stamp/date/dirty rules, where its reference
-artifact lives, and what `release.py` may stage for it.
+generated dependency edges, its stamp/date/dirty rules, and where its reference
+artifact lives. It no longer states a per-artifact release-staging policy: that
+tuple existed, was asserted here, and was read by nothing — `release.py` stages
+the global `is_authorable` union by design.
 
 The date-isolation property is asserted **on rendered bytes, reciprocally** —
 not on a closure hash. A closure hash alone would pass while the stamp moved,
@@ -57,13 +59,12 @@ def test_every_declared_artifact_has_a_spec():
     for name in kitconfig.ARTIFACT_NAMES:
         spec = kitconfig.artifact_spec(name)
         assert spec.name == name
-        # (a) config keys, (b) file deps, (d) stamp rule, (f) release staging
-        # are meaningful for every artifact; (c) generated edges and (e) a
-        # committed reference are per-artifact and may legitimately be empty.
+        # (a) config keys, (b) file deps and (d) the stamp rule are meaningful
+        # for every artifact; (c) generated edges and (e) a committed reference
+        # are per-artifact and may legitimately be empty.
         assert spec.config_keys, f"{name}: no config keys declared"
         assert spec.file_deps, f"{name}: no file dependencies declared"
         assert spec.stamp is not None
-        assert spec.release_staging, f"{name}: no release staging policy declared"
 
 
 def test_unknown_artifact_rejected():
@@ -120,7 +121,7 @@ def test_closure_hash_is_insensitive_to_writing_a_default_explicitly(guide_repo)
     assert kitconfig.artifact_closure_hash("pdf", root=root) == before
 
 
-# ----- (b)/(c)/(e)/(f) the remaining facets ---------------------------------
+# ----- (b)/(c)/(e) the remaining facets -------------------------------------
 
 def test_style_screen_is_in_the_site_closure_only():
     # The predecessor excluded style-screen.css from SOURCE_FILES precisely so a
@@ -129,6 +130,28 @@ def test_style_screen_is_in_the_site_closure_only():
     assert "style-screen.css" in kitconfig.artifact_spec("site").file_deps
     assert "style-screen.css" not in kitconfig.artifact_spec("pdf").file_deps
     assert "style.css" in kitconfig.artifact_spec("pdf").file_deps
+
+
+def test_chapters_is_in_both_closures_that_render_through_it():
+    """`chapters.py` was in the site's closure and not the deck's, while
+    `render_slides.render_html` builds the deck's ENTIRE body through
+    `chapters.blocks_to_html`.
+
+    Measured before the fix: a one-line change inside `blocks_to_html` moved the
+    deck from 39f9081675ff to 487c86b884d2 while the slides closure hash stayed
+    at 583347a3a506, and `verify_artifacts.py --staleness --artifact slides`
+    answered OK fresh. CI did run — `chapters.py` is in `verify.yml`'s paths
+    filter — so the outcome was a check executing and then affirming the
+    freshness of an artifact that had changed.
+
+    The exclusion from the PDF is the deliberate half and is asserted alongside,
+    because that is the property that makes the omission look reasonable: the
+    rule is "not the PDF", not "the site only".
+    """
+    for artifact in ("site", "slides"):
+        spec = kitconfig.artifact_spec(artifact)
+        assert "chapters.py" in spec.file_deps, artifact
+    assert "chapters.py" not in kitconfig.artifact_spec("pdf").file_deps
 
 
 def test_site_declares_the_released_pdf_as_a_generated_edge():
@@ -287,15 +310,6 @@ def test_slides_file_escaping_the_repo_is_rejected(tmp_path, evil):
     (tmp_path / "guide.toml").write_text(toml, encoding="utf-8")
     with pytest.raises(kitconfig.KitConfigError, match="file"):
         kitconfig.load(tmp_path)
-
-
-def test_content_pathspec_excludes_guide_toml_but_stamp_pathspec_includes_it():
-    # The DATE asks "when did this artifact's content last change", and git
-    # cannot scope to a config key — so including guide.toml whole would let a
-    # committed [deploy]-only edit move the date of a PDF that did not change.
-    assert ":(literal)guide.toml" in kitconfig.stamp_pathspec("pdf")
-    assert ":(literal)guide.toml" not in kitconfig.content_pathspec("pdf")
-    assert ":(literal)style.css" in kitconfig.content_pathspec("pdf")
 
 
 def test_stamp_pathspec_is_per_artifact():

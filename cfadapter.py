@@ -159,7 +159,23 @@ def render_wrangler_jsonc(cfg) -> str:
 
 
 def write_wrangler(app_dir, cfg) -> "object":
-    """Write `app/wrangler.jsonc`. Returns the path written."""
+    """Write `app/wrangler.jsonc`. Returns the path written.
+
+    REFUSES A GUIDE THAT DECLARES NO SITE. The `mkdir(parents=True)` below is
+    unconditional, so `make wrangler` on a PDF-only guide created an `app/`
+    directory holding a config for a Worker that guide will never deploy — which
+    contradicts the README's "nothing under `app/` exists until you opt in", and
+    then defeats the `test -d app` guard `make dev` and `make deploy` rely on:
+    those two stop telling you the web layer is off and start invoking wrangler
+    against a tree with no `package.json` in it.
+    """
+    if "site" not in cfg.outputs.declared:
+        raise SystemExit(
+            "make wrangler: this guide declares no site — set `site` in "
+            "[outputs] (and add an [artifacts.site] table) in guide.toml first.\n"
+            "  Nothing was written; `app/` stays absent until the site is "
+            "declared, which is what `make dev` and `make deploy` key on."
+        )
     app_dir.mkdir(parents=True, exist_ok=True)
     path = app_dir / WRANGLER_FILENAME
     path.write_text(render_wrangler_jsonc(cfg), encoding="utf-8")

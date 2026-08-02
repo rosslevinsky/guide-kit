@@ -225,28 +225,42 @@ def _staleness_rc(root: Path, artifact: str = "pdf") -> int:
     return proc.returncode
 
 
-def _reference_path(root: Path) -> Path:
-    return root / f"{kitconfig.load(root).OUTPUT_SLUG}.pdf"
+def _watched(root: Path) -> list[str]:
+    """Every artifact this guide DECLARES that has committed bytes to compare.
+
+    The site is excluded by construction: it is deployed rather than blessed into
+    the repo, so `ArtifactSpec.reference` is None and there is nothing to diff."""
+    cfg = kitconfig.load(root)
+    return [a for a in cfg.outputs.declared
+            if kitconfig.artifact_spec(a).reference is not None]
 
 
-def _render(root: Path) -> Path:
+def _reference_path(root: Path, artifact: str = "pdf") -> Path:
+    spec = kitconfig.artifact_spec(artifact)
+    return root / spec.reference.replace("<slug>", kitconfig.load(root).OUTPUT_SLUG)
+
+
+def _render(root: Path, artifact: str = "pdf") -> Path:
     """Build the working render and return its path."""
     slug = kitconfig.load(root).OUTPUT_SLUG
-    subprocess.run(["pixi", "run", "build"], cwd=root, check=True)
-    working = root / "build" / f"{slug}.pdf"
+    cmd = (["pixi", "run", "build"] if artifact == "pdf"
+           else ["pixi", "run", "python", "build.py", "--slides"])
+    subprocess.run(cmd, cwd=root, check=True)
+    working = root / "build" / _reference_path(root, artifact).name
     if not working.exists():
         raise CanaryError(f"drift canary: expected a fresh render at {working}")
     return working
 
 
-def run(root: Path = ROOT, *, render=None) -> Result:
-    """Decide, in the order the decisions actually gate each other.
+def run(root: Path = ROOT, *, render=None, artifact: str = "pdf") -> Result:
+    """Decide, for ONE artifact, in the order the decisions actually gate each
+    other.
 
     Staleness is consulted BEFORE rendering: on a stale tree there is nothing to
     learn from a render, and building anyway would spend a CI minute to produce a
     difference we would then have to discard.
     """
-    rc = _staleness_rc(root)
+    rc = _staleness_rc(root, artifact)
     if rc != 0:
         # Everything that is not an unambiguous "fresh" is handled before the
         # render, and the DEFAULT for an unrecognised verdict is the refusal, not
@@ -272,15 +286,15 @@ def run(root: Path = ROOT, *, render=None) -> Result:
             0,
         )
 
-    reference = _reference_path(root)
+    reference = _reference_path(root, artifact)
     if not reference.exists():
         return Result(
             "skipped",
-            f"pre-first-release — no reference PDF ({reference.name}) to compare against",
+            f"pre-first-release — no reference ({reference.name}) to compare against",
             0,
         )
 
-    fresh = (render or (lambda: _render(root)))()
+    fresh = (render or (lambda: _render(root, artifact)))()
     verdict = compare(reference, fresh)
     if verdict.clean:
         return Result(
@@ -303,16 +317,46 @@ def main() -> int:
     ap.add_argument(
         "--fresh", type=Path,
         help="Compare this already-built PDF instead of running a build "
-             "(CI reuses the render the build-smoke step already produced).",
+             "(CI reuses the render the build-smoke step already produced). "
+             "Applies to --artifact, which then defaults to pdf.",
+    )
+    ap.add_argument(
+        "--artifact", default=None, choices=kitconfig.ARTIFACT_NAMES,
+        help="Check one artifact. Default: every declared artifact that has a "
+             "committed reference.",
     )
     args = ap.parse_args()
 
-    try:
-        result = run(ROOT, render=(lambda: args.fresh) if args.fresh else None)
-    except CanaryError as exc:
-        sys.stderr.write(f"ERROR {exc}\n")
-        return 2
+    # EVERY watched artifact by default. This checked the PDF alone — `run()`
+    # hardcoded the pdf staleness call and `<slug>.pdf` — while the deck has had
+    # a committed reference since `baseline.yml` learned to refresh per artifact,
+    # and shares `_COMMON_FILES` with the PDF. So the one class of change this
+    # exists for, a dependency bump that moves typography with no source change,
+    # was caught for the PDF and invisible for the deck. `make verify` cannot see
+    # it either: `pixi.lock` is deliberately outside SOURCE_FILES.
+    artifacts = [args.artifact] if args.artifact else _watched(ROOT)
+    if not artifacts:
+        print("SKIP  drift canary: this guide declares no artifact with a "
+              "committed reference")
+        return 0
 
+    worst = 0
+    for artifact in artifacts:
+        # `--fresh` names ONE file, so it can only stand in for the artifact it
+        # is a render of; the others still build.
+        supplied = args.fresh if args.fresh and artifact == (args.artifact or "pdf") else None
+        try:
+            result = _report(run(ROOT, render=(lambda: supplied) if supplied else None,
+                                 artifact=artifact))
+        except CanaryError as exc:
+            sys.stderr.write(f"ERROR {exc}\n")
+            worst = max(worst, 2)
+            continue
+        worst = max(worst, result)
+    return worst
+
+
+def _report(result: "Result") -> int:
     if result.status == "skipped":
         print(f"SKIP  drift canary: {result.reason}")
     elif result.status == "clean":

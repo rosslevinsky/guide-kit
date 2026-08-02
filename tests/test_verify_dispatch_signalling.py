@@ -71,13 +71,18 @@ def _dispatch_script() -> str:
     content is the parser's business, and a regex over the file would silently
     pick up an indentation change."""
     doc = yaml.safe_load(VERIFY.read_text(encoding="utf-8"))
-    steps = doc["jobs"]["verify"]["steps"]
-    for step in steps:
-        if step.get("name") == STEP_NAME:
-            return step["run"]
+    # Searched across EVERY job, not just `verify`. The step moved into its own
+    # `dispatch-baseline` job so `actions: write` would stop existing on the
+    # pull-request path, and a lookup pinned to one job name turns that into a
+    # test failure about nothing.
+    for job in doc["jobs"].values():
+        for step in job.get("steps") or []:
+            if step.get("name") == STEP_NAME:
+                return step["run"]
     raise AssertionError(
-        f"no step named {STEP_NAME!r} in verify.yml — if it was renamed, update "
-        f"STEP_NAME here; this test is worthless if it silently matches nothing"
+        f"no step named {STEP_NAME!r} anywhere in verify.yml — if it was renamed, "
+        f"update STEP_NAME here; this test is worthless if it silently matches "
+        f"nothing"
     )
 
 

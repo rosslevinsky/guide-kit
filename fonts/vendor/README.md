@@ -7,8 +7,10 @@ which is why reference PDFs were historically pinned to one canonical host recor
 `guide.toml`. Bundling removed the variable, and that key is now retired — CI's drift
 canary measures host agreement rather than a config key asserting it.
 
-`build.py` calls WeasyPrint with `base_url=ROOT`, so the relative `url()` references in
-`style.css`'s `@font-face` block resolve against this directory.
+`render_pdf.py` calls WeasyPrint with `base_url=ROOT`, so the relative `url()` references in
+`fontfaces.css`'s `@font-face` block resolve against this directory. (Both used to be true of
+`build.py` and `style.css`; the pipeline moved into `buildcore.py` + `render_*.py`, and the
+`@font-face` declarations moved into their own sheet so every artifact shares them.)
 
 ## Provenance
 
@@ -33,7 +35,8 @@ Every file below was extracted from an upstream release archive, unmodified.
 
 - Source Serif 4 — SIL OFL 1.1 (`LICENSE-SourceSerif4-OFL.md`)
 - Source Sans 3 — SIL OFL 1.1 (`LICENSE-SourceSans3-OFL.md`)
-- DejaVu — Bitstream Vera + Public domain (`LICENSE-DejaVu.txt`)
+- DejaVu — Bitstream Vera, plus Tavmjong Bah's Arev additions, plus public-domain
+  changes (`LICENSE-DejaVu.txt`, which carries all three notices)
 
 All three permit redistribution. The OFL requires the license text to travel with the
 font files, which is why these are committed alongside rather than linked.

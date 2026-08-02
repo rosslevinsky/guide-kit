@@ -24,8 +24,26 @@ import cascadecheck
 
 ALLOWED = {"Guide Serif", "Guide Sans", "Guide Mono", "Guide Fallback"}
 WORKSPACE = buildcore.ROOT.parent
-GUIDES = ["accounting-guide", "git-guide", "japan-guide", "linux-terminal-guide",
-          "mac-terminal-guide", "windows-cmd-guide", "windows-powershell-guide"]
+def _sibling_guides():
+    """Every guide repo sitting beside this one, DISCOVERED not listed.
+
+    This was a hardcoded list of the seven repos in the author's own workspace.
+    Two things were wrong with that in a public toolkit: an outside clone has
+    none of them, so the parametrized cases silently reduced to nothing while
+    still reporting as passed; and the kit's test suite named seven private
+    repositories that no reader of it can open. Discovery keeps the check
+    meaningful wherever it runs — beside a full family it covers all of them,
+    beside nothing it covers nothing and says so.
+    """
+    workspace = buildcore.ROOT.parent
+    if not workspace.is_dir():
+        return []
+    return sorted(d.name for d in workspace.iterdir()
+                  if d.is_dir() and d.name != buildcore.ROOT.name
+                  and (d / "guide.toml").is_file())
+
+
+GUIDES = _sibling_guides()
 
 
 def _write(tmp_path, css):
@@ -249,9 +267,45 @@ def test_the_web_build_publishes_every_font_it_references(tmp_path, monkeypatch)
     assert not (urls - published), f"these would 404 on the deployed site: {sorted(urls - published)}"
 
 
+def test_the_discovery_predicate_actually_finds_a_guide(tmp_path, monkeypatch):
+    """A BROKEN PREDICATE AND A STANDALONE CLONE LOOK IDENTICAL, and that is the
+    hole discovery opened when it replaced the hardcoded list.
+
+    Measured: beside the full family the parametrized cases below run 8 apiece;
+    in a standalone clone every one of them collapses to a single `[NOTSET]`
+    skip. Both readings are correct for an empty `GUIDES` — and `GUIDES` is empty
+    both when there is genuinely nothing beside the kit and when
+    `_sibling_guides()` has stopped recognising a guide. Nothing distinguishes
+    them, so a regression in the predicate would land as three quiet skips.
+
+    So the predicate is exercised against a SYNTHETIC workspace, where the right
+    answer is known and does not depend on what happens to be checked out.
+    """
+    workspace = tmp_path / "workspace"
+    kit = workspace / "guide-kit"
+    kit.mkdir(parents=True)
+    (workspace / "a-guide").mkdir()
+    (workspace / "a-guide" / "guide.toml").write_text('TITLE = "A"\n', encoding="utf-8")
+    (workspace / "b-guide").mkdir()
+    (workspace / "b-guide" / "guide.toml").write_text('TITLE = "B"\n', encoding="utf-8")
+    # Neither of these is a guide: one has no guide.toml, the other IS the kit.
+    (workspace / "edge-nginx").mkdir()
+    (kit / "guide.toml").write_text('TITLE = "Kit"\n', encoding="utf-8")
+
+    monkeypatch.setattr(buildcore, "ROOT", kit)
+    assert _sibling_guides() == ["a-guide", "b-guide"]
+
+
 def test_body_text_is_bound_to_the_body_token():
     """`--head-font` is Guide MONO under the `technical` theme, so binding body
-    text to it renders whole pages in monospace."""
+    text to it renders whole pages in monospace.
+
+    Skipped rather than looped-over-nothing when there are no siblings. It used
+    to iterate an empty `GUIDES` and assert nothing, reporting a pass that had
+    examined no file — the one outcome worse than a skip, because a skip says so.
+    """
+    if not GUIDES:
+        pytest.skip("no guide repos are checked out beside the kit")
     for guide in GUIDES:
         sheet = WORKSPACE / guide / "style-screen.css"
         if not sheet.is_file():
@@ -262,3 +316,45 @@ def test_body_text_is_bound_to_the_body_token():
                 following = "\n".join(text.splitlines()[i:i + 4])
                 assert "--head-font" not in following, \
                     f"{guide}: body text is bound to the heading token"
+
+
+def test_the_guard_reads_only_the_artifact_s_own_sheet(tmp_path, monkeypatch):
+    """An out-of-closure stylesheet must not be able to fail a build.
+
+    `check_overrides` read `style.css`, `style-screen.css` AND
+    `style-slides.css` on every build, whichever artifact was being made.
+    Measured on a PDF-only guide: an illegal family in `style-slides.css` — a
+    file in no closure that build reads, and target-owned, so every guide ships
+    one — exited `build.py` with 1. That contradicts the artifact split the
+    closures exist to create, and the guide cannot fix it without editing a
+    stylesheet it does not use.
+
+    Nothing is lost by narrowing: each sheet is still checked on the build that
+    renders through it, against that build's own cascade, which is the stricter
+    comparison since the three cascades differ.
+    """
+    # Built BEFORE the ROOT swap: `theme_css` reads `fontfaces.css` from ROOT,
+    # and the guard refuses a cascade that declares no faces.
+    cascade = buildcore.theme_css("print", buildcore.STYLE.read_text(encoding="utf-8"))
+    monkeypatch.setattr(buildcore, "ROOT", tmp_path)
+    monkeypatch.setattr(buildcore, "SRC", tmp_path / "guide.md")
+    (tmp_path / "guide.md").write_text("# Plain\n", encoding="utf-8")
+    for sheet in buildcore._OVERRIDE_SHEET.values():
+        (tmp_path / sheet).write_text("body { font-family: var(--body-font); }\n",
+                                      encoding="utf-8")
+
+    # An illegal family in the SLIDES sheet.
+    (tmp_path / "style-slides.css").write_text(
+        "body { font-family: Georgia, serif; }\n", encoding="utf-8")
+    buildcore.check_overrides(cascade, "pdf")       # must not raise
+    buildcore.check_overrides(cascade, "site")      # must not raise
+    with pytest.raises(SystemExit):
+        buildcore.check_overrides(cascade, "slides")
+
+    # ...and each artifact is still guarded against its own sheet.
+    (tmp_path / "style-slides.css").write_text("body { font-family: inherit; }\n",
+                                               encoding="utf-8")
+    (tmp_path / "style.css").write_text("body { font-family: Georgia, serif; }\n",
+                                        encoding="utf-8")
+    with pytest.raises(SystemExit):
+        buildcore.check_overrides(cascade, "pdf")

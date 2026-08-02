@@ -3,8 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Guides — free beginner's guides, online or as PDF</title>
-<meta name="description" content="Free beginner's guides: the command line on macOS, Linux and Windows; Git and GitHub; accounting; travelling in Japan; and a Romance-languages comparison. Read online or download the PDF.">
+{# STARTER TEXT. This file is `policy = "never"` — sync copies it once and never
+   touches it again — so the title and description below are yours to replace.
+   They shipped naming one family's own guide subjects, which is wrong for every
+   other hub that starts from this file.
+
+   A JINJA COMMENT, not an HTML one. An HTML comment inside <head> survives
+   rendering, so every hub built from this seed published this note to its
+   readers — verified by rendering the real template and finding the text in the
+   output. `{# #}` is removed by the template engine and reaches nobody. #}
+<title>Guides — read online or download the PDF</title>
+<meta name="description" content="A collection of free beginner's guides. Read online or download the PDF.">
 <style>
   :root {
     --ink: #1f2933; --muted: #667381; --rule: #e3e8ee;
@@ -97,7 +106,7 @@ They are free to read online and free to download.</p>
   <p>Content licensed <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>;
      the build tooling under <a href="https://www.apache.org/licenses/LICENSE-2.0">Apache 2.0</a>.
      The guides above are built with
-     <a href="https://github.com/rosslevinsky/guide-kit">guide-kit</a>.</p>
+     <a href="{{ kit_url }}">guide-kit</a>.</p>
 </footer>
 
 </div>

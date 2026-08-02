@@ -1,10 +1,20 @@
 # Typography sign-off — the boundary's single re-baseline
 
-_Recorded 2026-07-26, at the close of the guide-kit stage-0+1 promotion boundary (its
-decision D20: the family is re-baselined exactly once, here)._
+_Recorded 2026-07-26, at the close of the guide-kit stage-0+1 promotion boundary. The
+rule it closes: **the family is re-baselined exactly once, here** — one deliberate
+movement of every reference PDF, reviewed by a human, rather than a drip of
+unexamined re-renders._
 
-The plan this closes lives in the workspace's `plans/guide-kit/`, which is not
-version-controlled — so decisions are cited by number and restated, never linked.
+The planning documents behind this work were never version-controlled and are not
+in this repository. Nothing here points at them: where a decision matters it is
+stated in full below, because a record that can only be read alongside a document
+nobody else has is not a record.
+
+The same rule applies to the guide repositories this sign-off covers. They are
+named — the measurement was across the family and saying so is the point — but no
+command in this file is written as though it could be run here against them, and
+no commit in one of them is cited by SHA. A citation a reader cannot resolve is
+worse than a description they can understand.
 
 This is the artifact that exists to make someone **look**. Every automated gate in
 this family passed on the render that shipped [recorded defect
@@ -16,7 +26,7 @@ are recorded as *supplements*; the inspection table is the sign-off.
 
 Not a font migration. The move onto bundled faces already happened, before this
 plan began executing, and every reference in the family was already free of
-proprietary faces. What phase 7 added is a **theme layer**, and what a reader is
+proprietary faces. What this boundary added is a **theme layer**, and what a reader is
 being asked to approve here is each guide's **theme selection** — a
 typography choice over an already-bundled family, compared theme-to-theme.
 
@@ -29,8 +39,8 @@ bundled families.
 ## The result in one line
 
 **Seven of the eight guides are typographically unchanged.** `classic-sans` was
-built to approximate the family's existing appearance (decision D23: serif-vs-sans
-is a theme, not a family decision) and it does: identical page counts, identical embedded-face sets, identical
+built to approximate the family's existing appearance — serif-versus-sans is a
+per-guide theme choice, not a family-wide one — and it does: identical page counts, identical embedded-face sets, identical
 extracted text. The kit itself is the one guide whose appearance genuinely moved,
 by design.
 
@@ -100,7 +110,7 @@ and arrow symbols. Both render.
 | Blank pages, title present, no placeholders | `make smoke` PASS on all 8 committed references |
 | Footer stamp not wrapped | geometric detector inside `make smoke` — PASS on all 8 |
 | Horizontal overflow past the text column | 0 words in 7 guides. **3 in `windows-powershell-guide`** — see below |
-| Box-drawing advance widths | Not applicable: **zero** U+2500–257F codepoints survive in any guide (all diagrams are inline SVG since phase 7). The kit keeps `line-height: 1` as a preventive rule asserted against a fixture. |
+| Box-drawing advance widths | Not applicable: **zero** U+2500–257F codepoints survive in any guide (all diagrams are inline SVG). The kit keeps `line-height: 1` as a preventive rule asserted against a fixture. |
 | Proprietary faces | 0 matches for `Hiragino\|Andale\|Helvetica\|Georgia\|Menlo\|Times` across all 8 |
 | Stamp-excluded text, old vs new | Identical in all 8 except the one added colophon line |
 | Fresh render vs committed reference | `make drift-canary` PASS, byte-identical, in all 8 |
@@ -121,8 +131,10 @@ change rather than fixed inside the promotion boundary.
 "fresh render has no readable version stamp", and the fresh render was **A4, 47
 pages** against a committed reference of **Letter, 51 pages**.
 
-Cause: the phase-8 commit `c1f53cc` ("Migrate the override font stacks to the
-bundled families") over-deleted. Its intended change was removing the
+Cause: a phase-8 commit in `accounting-guide` ("Migrate the override font stacks
+to the bundled families") over-deleted. Its SHA is deliberately not cited: it
+names a commit in a DIFFERENT repository, so `git cat-file -t <sha>` here answers
+"Not a valid object name" — a citation that looks checkable and is not. Its intended change was removing the
 `@font-face` block from the guide's `style.css`, but the hunk ran on and also took
 `@page { size: Letter; margin: …; @bottom-left { … } }`, replacing it with the
 explanatory comment. That left `@bottom-center` and `@bottom-right` orphaned
@@ -132,7 +144,7 @@ and **no footer stamp was emitted at all**.
 Three things are worth recording about it:
 
 - **It was latent for two phases.** Nothing re-rendered `accounting-guide`
-  between phase 8 and here, and inside this boundary a stale reference is the
+  between the re-baseline and here, and inside this boundary a stale reference is the
   expected state, so no check was in a position to notice.
 - **Brace balance would not have caught it.** The deletion removed a matched
   `{`/`}` pair; the file parsed as balanced CSS the whole time. Only rendering
@@ -141,15 +153,18 @@ Three things are worth recording about it:
   it could not read, rather than blessing a stampless 47-page A4 PDF as the
   reader-facing deliverable.
 
-The `@page` block was restored byte-identically from `main` (`diff` against
-`git show main:style.css` is empty for that block) and the guide re-rendered to
-51 pages, Letter, stamp present.
+The `@page` block was restored byte-identically from that guide's own `main` —
+`git show main:style.css` **run in `accounting-guide`**, which is worth spelling
+out because the same command in this repository silently reads a different file
+and reports agreement about nothing — and the guide re-rendered to 51 pages,
+Letter, stamp present.
 
 ## What this sign-off does not cover
 
 - **Cross-platform agreement.** Everything above was measured on Linux. The
-  macOS/Linux byte-identity result is inherited from `accounting-guide/plans/guide-polish`
-  and cited, not re-measured here — see [determinism-evidence.md](determinism-evidence.md),
-  which is careful about the same distinction.
+  macOS/Linux byte-identity result is inherited from an earlier measurement made
+  outside this repository, and is cited rather than re-measured here — see
+  [determinism-evidence.md](determinism-evidence.md), which is careful about the
+  same distinction and says exactly which half is proved.
 - **Content correctness.** This is a typography sign-off. It says the pages look
   right; it does not say the guides are right.

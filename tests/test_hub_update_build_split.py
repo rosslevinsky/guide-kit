@@ -180,7 +180,7 @@ def test_an_unreachable_guide_with_no_history_is_a_refusal(hub_repo):
 # ----- the no-PDF rule, enforced by DATA ---------------------------------------
 
 def test_a_guide_without_a_pdf_gets_no_download_link(hub_repo):
-    """`romance-languages` in miniature. The rule used to be prose in a README;
+    """A PDF-less hub entry in miniature. The rule used to be prose in a README;
     prose is not enforcement."""
     hub.update(hub_repo, fetch=_fetcher())
     html = hub.build(hub_repo).read_text(encoding="utf-8")
@@ -269,3 +269,40 @@ def test_a_template_typo_fails_rather_than_rendering_blank(hub_repo):
     import jinja2
     with pytest.raises(jinja2.UndefinedError):
         hub.build(hub_repo)
+
+
+def test_the_shipped_hub_template_renders_clean(repo_root):
+    """The SEED template — `templates/hub/hub-template.html` — rendered for real.
+
+    Every other test in this file uses a synthetic template, which is exactly how
+    a `<!-- STARTER TEXT … -->` maintenance note inside `<head>` came to be
+    published by every hub built from this seed: an HTML comment survives
+    rendering, nothing rendered the real file, and the defect was invisible to a
+    suite that was otherwise thorough about hubs.
+
+    Two properties, and both are about what reaches a READER: no maintenance
+    commentary in the output, and no hardcoded upstream — the credit line is
+    `{{ kit_url }}` so a third-party fork of the kit can be its own upstream.
+    """
+    import jinja2
+
+    root = repo_root / "templates" / "hub"
+    env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(str(root)),
+        autoescape=jinja2.select_autoescape(["html"]),
+        undefined=jinja2.StrictUndefined,
+    )
+    out = env.get_template("hub-template.html").render(
+        sections=[], title="T", description="D", copyright="© 2026 A",
+        kit_url="https://github.com/someone/their-kit",
+    )
+    for leak in ("STARTER TEXT", "policy = ", "NOTE (", "kit maintainers"):
+        assert leak not in out, (
+            f"the built hub publishes maintenance commentary ({leak!r}); use a "
+            f"Jinja `{{# #}}` comment, which the engine removes, not an HTML one"
+        )
+    assert "someone/their-kit" in out, "the footer credit is not parameterized"
+    assert "rosslevinsky" not in out, (
+        "the seed template hardcodes this repository as the upstream, so a fork "
+        "of the kit cannot credit itself"
+    )

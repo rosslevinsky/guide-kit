@@ -160,3 +160,50 @@ def test_the_gate_would_catch_the_defect_it_was_written_for():
     with pytest.raises(AssertionError, match=r"artifacts\."):
         test_a_documented_outputs_block_declares_its_artifact_dates(
             "README.md:0", shipped)
+
+
+# ---------------------------------------------------------------------------
+# The half feeding blocks to the loader structurally cannot check
+# ---------------------------------------------------------------------------
+
+def test_a_documented_enumeration_lists_every_value_the_schema_accepts():
+    """FEEDING A BLOCK TO THE LOADER PROVES THE EXAMPLE IS VALID. It says nothing
+    about whether the example is COMPLETE.
+
+    `README.md` introduces its config block as "the whole vocabulary rather than
+    a selection from it", and the `site` line enumerated four of the five values
+    `kitconfig.SITE_SHAPES` accepts. `site = "app"` loads perfectly well — it is
+    refused later, by name, at `make web` — so every test in this file passed
+    while a documented complete vocabulary was missing a member.
+
+    The comparison is the other direction: schema -> doc, which is the direction
+    nothing else in this file runs.
+    """
+    text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    enumerations = {
+        "site": kitconfig.SITE_SHAPES,
+        "source": kitconfig.SLIDES_SOURCES,
+    }
+    missing = {}
+    for key, values in enumerations.items():
+        # The commented enumeration on the key's own line, plus the lines that
+        # continue it — the alternatives are documented as `"a" | "b" | ...`.
+        m = re.search(rf"^{key} = .*$((\n *#.*)*)", text, re.M)
+        assert m, f"README.md no longer documents a `{key} = ` line at all"
+        shown = m.group(0)
+        absent = [v for v in values if f'"{v}"' not in shown]
+        if absent:
+            missing[key] = absent
+    assert not missing, (
+        f"README.md enumerates fewer values than the schema accepts: {missing}. "
+        f"The block is introduced as the whole vocabulary; a value the loader "
+        f"takes and the docs omit is a configuration a reader cannot discover."
+    )
+
+
+def test_that_enumeration_check_can_actually_fail():
+    """The check reads a real document, so a broken matcher would look like a
+    clean one. Shown failing against the line as it shipped."""
+    shipped = 'site = "multipage"                # "none" | "single" | "multipage" | "hub"\n'
+    m = re.search(r"^site = .*$((\n *#.*)*)", shipped, re.M)
+    assert m and [v for v in kitconfig.SITE_SHAPES if f'"{v}"' not in m.group(0)] == ["app"]

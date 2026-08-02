@@ -86,6 +86,18 @@ on:
       - 'kitconfig.py'
       - '*.pdf'
       - '.github/workflows/deploy.yml'
+      # The HUB's inputs. Not one of them was here, while this file branches on
+      # the hub shape five times — so every hub content change pushed GREEN with
+      # no run created at all, and the published index kept serving the old
+      # guide list. `hub update` and editing `registry.toml` are the hub's only
+      # content operations; neither published. A hub's wrangler config is at the
+      # ROOT (`workingDirectory: '.'` below says so), which `app/**` never covers.
+      - 'hub.py'
+      - 'hub-template.html'
+      - 'registry.toml'
+      - 'guides.snapshot.json'
+      - 'wrangler.jsonc'
+      - 'dist/**'
   pull_request:
     branches: [main]
     paths:
@@ -114,6 +126,18 @@ on:
       - 'kitconfig.py'
       - '*.pdf'
       - '.github/workflows/deploy.yml'
+      # The HUB's inputs. Not one of them was here, while this file branches on
+      # the hub shape five times — so every hub content change pushed GREEN with
+      # no run created at all, and the published index kept serving the old
+      # guide list. `hub update` and editing `registry.toml` are the hub's only
+      # content operations; neither published. A hub's wrangler config is at the
+      # ROOT (`workingDirectory: '.'` below says so), which `app/**` never covers.
+      - 'hub.py'
+      - 'hub-template.html'
+      - 'registry.toml'
+      - 'guides.snapshot.json'
+      - 'wrangler.jsonc'
+      - 'dist/**'
   workflow_dispatch:
 
 # Don't let concurrent deploys against the same ref clobber each other.
@@ -143,15 +167,23 @@ jobs:
       has_pdf: ${{ steps.check.outputs.has_pdf }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
       - name: Check for a reference PDF
         id: check
         run: |
           # Check the EXACT reference filename (<OUTPUT_SLUG>.pdf), not any root
           # *.pdf — an unrelated appendix.pdf must not fool the guard into the
           # build/deploy path where build_web() would then hard-fail.
-          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
-          PDF=$(awk -F'=' '/^pdf[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print $2; exit}' guide.toml)
+          # THE VALIDATED LOADER, not an awk scrape. The scrape misread two legal
+          # TOML spellings, always toward disabling the gates: `[outputs]` with
+          # no `pdf` key at all (legal — `Outputs.pdf` defaults to true) printed
+          # nothing, so the value was UNSET and read as "no PDF"; and
+          # `pdf = true  # a comment` yielded `true#acomment`, which is not
+          # `true`, so the staleness gate was skipped and its empty output then
+          # satisfied `!= '1'` and deployed a stale reference. `kitconfig` is
+          # stdlib-only by design, so plain `python3` reaches it with no pixi.
+          SLUG=$(python3 -c "import kitconfig;print(kitconfig.load().OUTPUT_SLUG)")
+          PDF=$(python3 -c "import kitconfig;print(str(kitconfig.load().outputs.pdf).lower())")
           if [ "$PDF" != "true" ]; then
             # A shape that declares NO pdf has nothing to wait for. Without this
             # the guard is looking for a reference PDF that will never exist, so
@@ -179,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           # Full history so `git status` sees the real tree state for the
           # stamp's dirty marker. The stamp's DATE and SOURCE_DATE_EPOCH are both
@@ -188,7 +220,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
+        uses: prefix-dev/setup-pixi@ba3bb36eb2066252b2363392b7739741bb777659  # v0.8.1
         with:
           cache: true
           frozen: true
@@ -234,7 +266,7 @@ jobs:
       - name: Set up Node 22
         # The hub has no app/package-lock.json to cache against, so the cache
         # inputs are only set for a guide.
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           # Wrangler 4.x requires Node >=22.
           #
@@ -292,11 +324,17 @@ jobs:
         # gate is skipped for a shape with no PDF, which must still deploy:
         # '' != '1' is 0 != 1, correctly true. Written the other way round this
         # would have been right by accident and wrong the moment a shape changed.
+        #
+        # The branch is DERIVED, not the literal `refs/heads/main`. This is a
+        # template: a fork whose default branch is `master` or `trunk` would get
+        # a green check on every push and silently never deploy — the failure
+        # this file is most careful about everywhere else. `verify.yml` already
+        # spells it this way; these two conditions were the copies that did not.
         if: >-
           (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-          && github.ref == 'refs/heads/main'
+          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
           && steps.stale_gate.outputs.rc != '1'
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@9acf94ace14e7dc412b076f2c5c20b8ce93c79cd  # v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -311,22 +349,3 @@ jobs:
           # app/package.json and never hits this.
           wranglerVersion: ${{ steps.shape.outputs.site == 'hub' && '4' || '' }}
           command: deploy
-
-      - name: Resolve deployed URL
-        id: url
-        # The `if:` MUST match the one on deploy_prod above. When they drift, a
-        # run that deployed nothing reports a URL — or a real production deploy
-        # is logged as an empty one, which is the recorded defect this condition
-        # exists to prevent.
-        if: >-
-          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-          && github.ref == 'refs/heads/main'
-          && steps.stale_gate.outputs.rc != '1'
-        # Outputs are passed via env: (not ${{ }} interpolation into the shell
-        # body) as hardening against script injection from upstream output.
-        env:
-          PROD_URL: ${{ steps.deploy_prod.outputs.deployment-url }}
-        run: |
-          set -euo pipefail
-          echo "DEPLOY_URL=$PROD_URL" >> "$GITHUB_ENV"
-          echo "Deployed to production: $PROD_URL"

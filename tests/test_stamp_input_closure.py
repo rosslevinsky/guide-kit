@@ -284,6 +284,11 @@ def _dirty_result(mod, func_name):
     import kitconfig
 
     fn = getattr(mod, func_name)
-    if "cfg" in inspect.signature(fn).parameters:
-        return bool(fn(kitconfig.load(mod.ROOT)))
-    return bool(fn())
+    params = inspect.signature(fn).parameters
+    if "cfg" not in params:
+        return bool(fn())
+    # `artifact` too, where the guard takes one: scoping the dirty check to the
+    # artifact being baselined is what stops `--artifact slides` reading the
+    # PDF's closure. Passed positionally so this keeps working either way.
+    args = [kitconfig.load(mod.ROOT)] + (["pdf"] if "artifact" in params else [])
+    return bool(fn(*args))

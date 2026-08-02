@@ -119,3 +119,129 @@ class TestOtherFailures:
         text = "Nothing useful here.\n{{GUIDE_NAME}}\n"
         failures = verify_artifacts.smoke_failures(text, pages=1, title=TITLE)
         assert len(failures) >= 3, _fail_text(failures)
+
+
+class TestTheDeckIsAskedItsOwnQuestions:
+    """`--smoke` used to ignore `--artifact` — it resolved `<slug>.pdf` whatever
+    it was asked for, so `--smoke --artifact slides` printed `PASS smoke:
+    <slug>.pdf` and the deck was committed, pushed and published having never
+    been inspected. `baseline.yml` refreshes every artifact's reference and then
+    ran one `make smoke`, in a step whose own comment calls it "the only
+    inspection left".
+
+    Making it honour `--artifact` immediately showed why nobody had noticed: the
+    deck FAILS the guide's assertions, correctly and uselessly. Nothing is
+    projected into a deck unless it is wrapped in a `::: slide` fence, so a
+    perfectly good deck may never name the guide. A check that always reports the
+    same non-defect is the other way a check stops meaning anything.
+    """
+
+    DECK = (
+        "What this template gives you\n"
+        "One Markdown source, three outputs\n"
+        "2026-07-27 · f71bbcce9299\n"
+    )
+
+    def test_the_deck_is_not_asked_for_the_guides_title(self):
+        assert verify_artifacts.smoke_failures(
+            self.DECK, pages=2, title=TITLE, artifact="slides") == []
+        # ...and the guide still is, or the exemption would be global.
+        assert verify_artifacts.smoke_failures(
+            self.DECK, pages=2, title=TITLE, artifact="pdf") != []
+
+    def test_a_one_slide_deck_is_a_deck(self):
+        """MIN_PAGES is 2 because a one-page GUIDE means the body was dropped.
+        A one-slide deck is a deck."""
+        assert verify_artifacts.smoke_failures(
+            self.DECK, pages=1, title=TITLE, artifact="slides") == []
+        assert any("did not render" in f for f in verify_artifacts.smoke_failures(
+            self.DECK, pages=1, title=TITLE, artifact="pdf"))
+
+    def test_a_deck_with_no_stamp_is_caught(self):
+        """The measured failure, not a symmetry. The obvious full-bleed
+        `@page { margin: 0 }` makes WeasyPrint drop every `@bottom-*` margin box,
+        which produced a deck carrying no stamp at all — and a file that does not
+        say what built it is one `verify --staleness` must refuse. The 6mm bottom
+        margin exists for this; nothing noticed when it did not."""
+        stampless = "What this template gives you\nOne Markdown source\n"
+        failures = verify_artifacts.smoke_failures(
+            stampless, pages=2, title=TITLE, artifact="slides")
+        assert any("no version stamp" in f for f in failures), failures
+
+
+class TestSmokeHonoursTheArtifactSelector:
+    """The routing, asserted separately from the assertions.
+
+    `smoke_check` is stubbed so this is about WHICH files get inspected, not
+    about what inspecting them concludes — the defect was that `--artifact` chose
+    nothing at all.
+    """
+
+    TOML = (
+        'TITLE = "Probe"\nOUTPUT_SLUG = "probe-guide"\nAUTHOR = "A"\n'
+        'DESCRIPTION = "d"\nKEYWORDS = "k"\nCOPYRIGHT_YEAR = 2026\n'
+        '[outputs]\npdf = true\nsite = "single"\nslides = true\n'
+        '[artifacts.pdf]\ndate = "2026-07-26"\n'
+        '[artifacts.site]\ndate = "2026-07-26"\n'
+        '[artifacts.slides]\ndate = "2026-07-26"\n'
+    )
+
+    def _root(self, tmp_path, *, references=True):
+        root = tmp_path / "guide"
+        root.mkdir()
+        (root / "guide.toml").write_text(self.TOML, encoding="utf-8")
+        if references:
+            (root / "probe-guide.pdf").write_bytes(b"%PDF-1.7\n")
+            (root / "probe-guide-slides.pdf").write_bytes(b"%PDF-1.7\n")
+        return root
+
+    def _seen(self, monkeypatch):
+        seen = []
+        monkeypatch.setattr(verify_artifacts, "smoke_check",
+                            lambda pdf, root, artifact="pdf": seen.append(
+                                (artifact, pdf.name)) or 0)
+        return seen
+
+    def test_all_inspects_every_reference_the_guide_has(self, tmp_path, monkeypatch):
+        seen = self._seen(monkeypatch)
+        root = self._root(tmp_path)
+        assert verify_artifacts.smoke_check_all(root, "all") == 0
+        assert seen == [("pdf", "probe-guide.pdf"),
+                        ("slides", "probe-guide-slides.pdf")]
+
+    def test_the_selector_selects(self, tmp_path, monkeypatch):
+        """`--smoke --artifact slides` printed `PASS smoke: <slug>.pdf`. The
+        deck was never the file being read."""
+        seen = self._seen(monkeypatch)
+        root = self._root(tmp_path)
+        assert verify_artifacts.smoke_check_all(root, "slides") == 0
+        assert seen == [("slides", "probe-guide-slides.pdf")]
+
+    def test_the_site_has_no_reference_to_inspect(self, tmp_path, monkeypatch):
+        """A site is deployed rather than blessed into the repo, so there are no
+        committed bytes to smoke — reported, not silently skipped."""
+        seen = self._seen(monkeypatch)
+        root = self._root(tmp_path)
+        assert verify_artifacts.smoke_check_all(root, "site") == 0
+        assert seen == []
+
+    def test_a_never_released_guide_passes_with_a_notice(self, tmp_path,
+                                                         monkeypatch, capsys):
+        """`make smoke` used to exit 2 with `<slug>.pdf does not exist` on a
+        fresh fork, while `make verify` handled the identical state with a
+        pre-first-release notice — and it is listed in the build block a new fork
+        reads, so it was the one command there that could not succeed."""
+        monkeypatch.setattr(verify_artifacts, "_was_ever_released",
+                            lambda root, ref: False)
+        root = self._root(tmp_path, references=False)
+        assert verify_artifacts.smoke_check_all(root, "all") == 0
+        assert "pre-first-release" in capsys.readouterr().out
+
+    def test_a_deliverable_that_was_released_and_vanished_still_fails(
+            self, tmp_path, monkeypatch):
+        """The discriminator is git history, exactly as staleness uses it — or
+        "pre-first-release" would launder a deleted deliverable."""
+        monkeypatch.setattr(verify_artifacts, "_was_ever_released",
+                            lambda root, ref: True)
+        root = self._root(tmp_path, references=False)
+        assert verify_artifacts.smoke_check_all(root, "all") == 1

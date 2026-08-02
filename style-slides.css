@@ -1,6 +1,6 @@
 /* style-slides.css — this guide's SLIDE deck override.
  *
- * Target-owned ([D10](../plans/guide-kit/decisions.md)): sync never writes it, and
+ * Target-owned: sync never writes it, and
  * it is in the `slides` ArtifactSpec closure ONLY — editing it re-stales the deck
  * and nothing else. That separation is the whole reason the closures were split:
  * before it, touching a slides stylesheet re-staled all eight reference PDFs.

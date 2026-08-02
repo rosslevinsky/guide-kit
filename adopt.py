@@ -58,7 +58,7 @@ GITIGNORE_ENTRIES = ("app/dist/", "node_modules/")
 
 # transforms.py is NOT materialized by default: it is a SOURCE_FILES entry, so
 # creating it shifts the PDF's version stamp and re-stales the reference for a
-# hook most guides never use. adopt-web.py has always made it opt-in; enabling a
+# hook most guides never use. It has always been opt-in; enabling a
 # SITE must not silently re-baseline the PDF.
 _OPT_IN_DESTS = ("transforms.py",)
 
@@ -94,7 +94,16 @@ def _owned_projections(kit_root: Path, target_cfg, output: str):
     projs = manifest.expanded_projections(
         kit_root, "web-enabled", slug=target_cfg.OUTPUT_SLUG)
     if output == "site":
-        return [p for p in projs if p.web_only]
+        # `web_only` is `lifecycle == "bootstrap-source"`, and the HUB's seed
+        # files carry that lifecycle too — so enabling an ordinary guide's
+        # WEBSITE dropped `hub-template.html` and `registry.toml` at its repo
+        # root, which the README says an ordinary guide never uses. Worse, both
+        # are `policy = "never"`, so they are never recorded, `--disable` skips
+        # them and sync never touches them: permanent litter left by the
+        # documented path. The lifecycle was standing in for a question it
+        # cannot answer; the hub's seed is excluded by where it comes from.
+        return [p for p in projs
+                if p.web_only and not p.source.startswith("templates/hub/")]
     return []
 
 
@@ -212,7 +221,7 @@ def enable(kit_root: Path, target: Path, output: str,
         src = kit_root / proj.source
         if proj.dest == f"app/{cfadapter.WRANGLER_FILENAME}":
             # GENERATED from the target's own guide.toml — the same rule
-            # bootstrap.py and adopt-web.py follow. Copying the kit's file here
+            # bootstrap.py follows. Copying the kit's file here
             # would enable a site whose Worker is named after the KIT, with no
             # routes block and workers_dev off: it would deploy to the wrong
             # Worker and bind nothing.
@@ -224,9 +233,19 @@ def enable(kit_root: Path, target: Path, output: str,
             content = src.read_bytes()
         dest = sync._resolve_dest(target, proj.dest)
         if dest.exists():
-            # Byte-identical is idempotent; different is a collision this tool
+            # A `never` destination that already exists is TARGET-OWNED and is
+            # left exactly as it is. It used to be compared against the kit's
+            # seed and refused on any difference — i.e. on the file's normal
+            # state — which broke the only documented way to add a website to an
+            # existing guide: `--disable` deliberately leaves `never` files
+            # behind, so every disable/enable cycle refused, as did any guide
+            # that had written its own `style-screen.css`. The remedy it printed
+            # ("resolve it by hand") named no action, because for a target-owned
+            # file there is nothing to resolve.
+            #
+            # A MANAGED destination that differs is still a collision this tool
             # will not resolve by clobbering.
-            if dest.read_bytes() != content:
+            if proj.policy != "never" and dest.read_bytes() != content:
                 raise AdoptError(
                     f"refusing: {proj.dest} already exists in {target.name} and differs "
                     f"from the kit's version — resolve it by hand."

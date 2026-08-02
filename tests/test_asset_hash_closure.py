@@ -1,7 +1,7 @@
 """Binary assets are in the artifact closures BY CONTENT HASH.
 
 The defect this closes was already recorded in `CLAUDE.md` before it was fixed:
-`build.py` passes the repo root as WeasyPrint's `base_url`, so an external file
+`render_pdf.py` passes the repo root as WeasyPrint's `base_url`, so an external file
 *would* resolve in the PDF — but nothing tracked `assets/` in `SOURCE_FILES` or
 the content hash, so **editing a diagram there changed the PDF while
 `make verify` stayed green**. That is why every diagram in this family is inlined
@@ -130,10 +130,12 @@ def test_assets_are_copied_into_the_built_site(guide_repo):
     render(root)
     shutil.copyfile(root / "build" / "probe-guide.pdf", root / "probe-guide.pdf")
     render(root, "--web")
+    # At their own paths — `shared/` and `web/` are preserved, not flattened, so
+    # the path an author writes in guide.md is the path the site serves.
     dist = root / "app" / "dist" / "assets"
-    assert (dist / "diagram.png").is_file()
-    assert (dist / "hero.png").is_file()
-    assert (dist / "nested" / "deep.png").is_file(), "nested assets were not copied"
+    assert (dist / "shared" / "diagram.png").is_file()
+    assert (dist / "web" / "hero.png").is_file()
+    assert (dist / "shared" / "nested" / "deep.png").is_file(), "nested assets were not copied"
 
 
 def test_print_only_assets_are_not_published_to_the_web(guide_repo):
@@ -148,14 +150,31 @@ def test_print_only_assets_are_not_published_to_the_web(guide_repo):
     assert not (root / "app" / "dist" / "assets" / "plate.png").exists()
 
 
-def test_a_web_asset_is_reachable_at_the_path_the_markdown_uses(guide_repo):
-    """Both namespaces flatten into one `assets/` directory so a single
-    `![](assets/x.png)` resolves in the PDF (against the repo root) and on the
-    site (against the built tree)."""
+def test_one_markdown_path_resolves_in_BOTH_outputs(guide_repo):
+    """The whole point of the asset namespaces: one spelling in `guide.md` works
+    in the PDF and on the site.
+
+    ASSERTED ON BOTH SIDES, which is what this test used to miss. It checked only
+    that the site published the file, under the name the FLATTENED copy gave it —
+    the true half of a broken pair. The PDF resolves against the repo root, where
+    the file is at `assets/shared/x.png`, so the flattened `dist/assets/x.png`
+    meant `assets/shared/…` rendered in print and 404'd on the web while
+    `assets/…` did the reverse. Neither spelling worked in both, and WeasyPrint
+    does not fail a build on a missing image, so the print half was silent.
+    """
     root, write_toml = guide_repo
     write_toml(outputs={"pdf": True, "site": "single", "slides": False})
     _write(root, "assets/shared/x.png", _PNG_A)
+    _write(root, "assets/web/x.png", _PNG_B)
     render(root)
     shutil.copyfile(root / "build" / "probe-guide.pdf", root / "probe-guide.pdf")
     render(root, "--web")
-    assert (root / "app" / "dist" / "assets" / "x.png").read_bytes() == _PNG_A
+
+    used = "assets/shared/x.png"                       # what an author writes
+    assert (root / used).read_bytes() == _PNG_A, "the PDF's base_url is the repo root"
+    assert (root / "app" / "dist" / used).read_bytes() == _PNG_A, (
+        "the site must serve the asset at the SAME path the markdown uses, or "
+        "one output resolves it and the other 404s"
+    )
+    # ...and the two namespaces must not collide at one destination.
+    assert (root / "app" / "dist" / "assets" / "web" / "x.png").read_bytes() == _PNG_B

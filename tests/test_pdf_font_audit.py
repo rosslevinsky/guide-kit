@@ -20,7 +20,9 @@ import subprocess
 import pytest
 
 import buildcore
+import kitconfig
 import pdfaudit
+import verify_artifacts
 
 pytestmark = pytest.mark.skipif(
     shutil.which("qpdf") is None and not (buildcore.ROOT / ".pixi").exists(),
@@ -29,8 +31,28 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture(scope="module")
 def pdf():
+    """The WORKING render, rebuilt when it does not match the source in front of
+    us — not merely when it is absent.
+
+    "Absent" was the old condition, and it let a leftover `build/` PDF from an
+    earlier source state answer every question in this module. It hid a real
+    failure for a whole commit: `guide.md` lost the text one anchor below was
+    matching on, the suite ran green against the previous render, and the
+    mismatch only surfaced on the next run that happened to rebuild. A font audit
+    reading a PDF that predates the source is not auditing anything.
+
+    Compared on the stamp hash, which is exactly the closure hash of the tree as
+    it stands, so an uncommitted edit counts too.
+    """
     p = buildcore.OUT_PDF
-    if not p.is_file():
+    stale = True
+    if p.is_file():
+        try:
+            stale = verify_artifacts.extract_stamp_hash(p) != \
+                kitconfig.artifact_closure_hash("pdf")
+        except Exception:
+            stale = True          # unreadable stamp: rebuild rather than guess
+    if stale:
         r = subprocess.run(["pixi", "run", "build"], cwd=buildcore.ROOT,
                            capture_output=True, text=True, timeout=900)
         assert r.returncode == 0, r.stdout[-1500:] + r.stderr[-1500:]
@@ -93,10 +115,18 @@ def test_the_selected_faces_match_the_theme(pdf):
 # check a document-wide allow-list cannot make. When both Guide-Serif and
 # Guide-Serif-Bold are legitimately used somewhere, a heading falling back to the
 # body face changes no set — only an expectation tied to specific text notices.
+#
+# The inline-code anchor is deliberately NOT the slug. It was `guide-template`,
+# which tied a font check to the kit's own OUTPUT_SLUG appearing in the prose —
+# and the moment `guide.md` was corrected to say `build/<slug>.pdf` (so a fork's
+# first PDF stopped telling its reader to look for the KIT's filename), the
+# anchor vanished and this test failed for a reason that has nothing to do with
+# fonts. `style.css` is a stylesheet-demo guide's own subject matter and is
+# ordinary inline code, so it carries no such coupling.
 ANCHORS = {
     "Welcome": "Guide-Serif-Bold",                              # a heading
     "This placeholder guide is shipped with": "Guide-Serif",    # body prose
-    "guide-template": "Guide-Mono",                             # inline code
+    "style.css": "Guide-Mono",                                  # inline code
 }
 
 
@@ -154,9 +184,12 @@ def test_the_audit_covers_every_guide():
     once across all eight rather than continuously in one."""
     ws = buildcore.ROOT.parent
     checked = 0
-    for repo in ("accounting-guide", "git-guide", "japan-guide",
-                 "linux-terminal-guide", "mac-terminal-guide",
-                 "windows-cmd-guide", "windows-powershell-guide"):
+    # DISCOVERED, not listed: a hardcoded roster of the author's own sibling
+    # repos covered nothing in any other clone while still reporting a pass.
+    siblings = sorted(d.name for d in ws.iterdir()
+                      if d.is_dir() and d.name != buildcore.ROOT.name
+                      and (d / "guide.toml").is_file()) if ws.is_dir() else []
+    for repo in siblings:
         root = ws / repo
         if not root.is_dir():
             continue

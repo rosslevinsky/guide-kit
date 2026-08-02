@@ -20,7 +20,7 @@ pandoc renders it — a false negative in the exotic corner where coverage is
 least likely), and it turns `&#10;` into a real newline, which would shift every
 later line number in the diagnostic.
 
-These tests pin the decoded scan, and pin that the strings build.py injects
+These tests pin the decoded scan, and pin that the strings `buildcore.py` injects
 into the page (title, author, copyright, and the footer's separator) are scanned
 too — they are not in guide.md but they are just as rendered.
 """
@@ -85,7 +85,7 @@ def test_nbsp_entity_does_not_trip_the_gate(tmp_path, monkeypatch):
 
 
 def test_injected_footer_separator_is_scanned(tmp_path, monkeypatch):
-    """The version stamp's `·` is written by build.py, not by guide.md. It
+    """The version stamp's `·` is written by `buildcore.py`, not by guide.md. It
     reaches the page, so it belongs in the scan."""
     src = tmp_path / "guide.md"
     src.write_text("plain ascii only\n", encoding="utf-8")

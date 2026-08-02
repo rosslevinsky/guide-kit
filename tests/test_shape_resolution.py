@@ -16,6 +16,18 @@ import kitconfig
 import kitmanifest
 
 
+def _declared(manifest, cfg, slug=None):
+    """Projections for a config's DECLARED shape.
+
+    `Manifest.projections_for` used to be this, on the class, with a docstring
+    calling it "the one callers should use" — and no caller outside this file
+    ever did: sync, adopt and bootstrap all go through
+    `shape_of` + `expanded_projections`. A convenience API only its own tests
+    use is a test helper, so it lives here now."""
+    return manifest.projections(
+        kitmanifest.shape_of(cfg), slug=cfg.OUTPUT_SLUG if slug is None else slug)
+
+
 def _cfg(tmp_path, *, site="none", pdf=True):
     artifacts = {}
     if pdf:
@@ -45,12 +57,12 @@ def test_flipping_outputs_site_changes_resolution_with_no_filesystem_change(tmp_
     manifest = kitmanifest.load(repo_root)
 
     pdf_only = _cfg(tmp_path, site="none")
-    before = {p.dest for p in manifest.projections_for(pdf_only, slug="probe-guide")}
+    before = {p.dest for p in _declared(manifest, pdf_only, slug="probe-guide")}
 
     # The ONLY thing that changes is one config value. No file is created,
     # deleted or touched between these two resolutions.
     with_site = _cfg(tmp_path, site="single")
-    after = {p.dest for p in manifest.projections_for(with_site, slug="probe-guide")}
+    after = {p.dest for p in _declared(manifest, with_site, slug="probe-guide")}
 
     assert after > before, "declaring a site did not add any destination"
     # The web-layer destinations are precisely what appears.
@@ -63,12 +75,12 @@ def test_resolution_does_not_consult_the_filesystem(tmp_path, repo_root):
     # the answer — only the declaration may.
     manifest = kitmanifest.load(repo_root)
     cfg = _cfg(tmp_path, site="none")
-    before = {p.dest for p in manifest.projections_for(cfg, slug="probe-guide")}
+    before = {p.dest for p in _declared(manifest, cfg, slug="probe-guide")}
 
     (tmp_path / "style-screen.css").write_text("/* present */\n", encoding="utf-8")
     (tmp_path / "app").mkdir()
 
-    after = {p.dest for p in manifest.projections_for(cfg, slug="probe-guide")}
+    after = {p.dest for p in _declared(manifest, cfg, slug="probe-guide")}
     assert after == before, "resolution still keys on file presence"
 
 
@@ -76,24 +88,24 @@ def test_resolution_does_not_consult_the_filesystem(tmp_path, repo_root):
 def test_every_site_shape_resolves_the_web_destinations(tmp_path, repo_root, shape):
     manifest = kitmanifest.load(repo_root)
     cfg = _cfg(tmp_path, site=shape)
-    dests = {p.dest for p in manifest.projections_for(cfg, slug="probe-guide")}
+    dests = {p.dest for p in _declared(manifest, cfg, slug="probe-guide")}
     assert any(d.startswith("app/") for d in dests)
 
 
 def test_slug_is_resolved_in_destinations(tmp_path, repo_root):
     manifest = kitmanifest.load(repo_root)
     cfg = _cfg(tmp_path, site="none")
-    dests = {p.dest for p in manifest.projections_for(cfg, slug="probe-guide")}
+    dests = {p.dest for p in _declared(manifest, cfg, slug="probe-guide")}
     assert not any("<slug>" in d for d in dests)
     assert "probe-guide.pdf" in dests
 
 
-def test_projections_for_agrees_with_the_shape_primitive(tmp_path, repo_root):
-    # projections_for is a config-driven wrapper over the same resolution, not a
+def test_the_declared_shape_agrees_with_the_shape_primitive(tmp_path, repo_root):
+    # `_declared` is a config-driven wrapper over the same resolution, not a
     # second implementation that can drift from it.
     manifest = kitmanifest.load(repo_root)
     cfg = _cfg(tmp_path, site="single")
     assert (
-        [p.dest for p in manifest.projections_for(cfg, slug="probe-guide")]
+        [p.dest for p in _declared(manifest, cfg, slug="probe-guide")]
         == [p.dest for p in manifest.projections("web-enabled", slug="probe-guide")]
     )

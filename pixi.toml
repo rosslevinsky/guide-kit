@@ -2,6 +2,11 @@
 name = "guide-template"
 version = "0.1.0"
 # kit-only:begin
+# NOTE (kit maintainers): `name` above is the OUTPUT_SLUG, not the repository
+# name — they are independent by design (see README), which is why this workspace
+# is called `guide-template` in a repository called `guide-kit`. Not a defect;
+# sync renders it from each target's own slug.
+#
 # NOTE (kit maintainers): the description below must stay byte-identical to
 # guide.toml's DESCRIPTION. `templated` rendering substitutes the kit's
 # guide.toml VALUES with the target's, so a hand-written variant here cannot be
@@ -9,7 +14,7 @@ version = "0.1.0"
 # guide. This note is itself kit-only — a target's pixi.toml is overwritten by
 # sync, so the instruction has no addressee there.
 # kit-only:end
-description = "Template repository for single-document beginner-guide PDF projects. Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/"
+description = "Template repository for single-document beginner-guide PDF projects. The rendered guide is licensed under Creative Commons Attribution 4.0 International (CC BY 4.0): https://creativecommons.org/licenses/by/4.0/ — the tooling around it is Apache 2.0."
 channels = ["conda-forge"]
 # `make verify` is a STALENESS check — does the committed reference PDF's embedded
 # stamp match a fresh content hash over SOURCE_FILES? — with no rendering and no
@@ -33,7 +38,7 @@ platforms = ["osx-arm64", "osx-64", "linux-64", "win-64"]
 # catch — this file is in its trigger paths for exactly that reason.
 # Floor raised from >=3.10 to >=3.11 so stdlib `tomllib` (the only reader of
 # guide.toml, via kitconfig.py) is always available — no `tomli` shim needed
-#. Still major-bounded below 3.15 by family convention.
+# Still major-bounded below 3.15 by family convention.
 python = ">=3.11,<3.15"
 pandoc = ">=3,<4"
 # The hub's page template needs loops, conditionals and escaping — that is a
@@ -53,7 +58,7 @@ weasyprint = ">=60,<70"
 poppler = ">=24,<26"
 qpdf = ">=11,<13"
 # fontTools reads the cmap tables of the bundled fonts/ faces for the
-# glyph-coverage gate (build.py check_glyph_coverage). Pure Python, no native
+# glyph-coverage gate (buildcore.check_glyph_coverage). Pure Python, no native
 # rendering path, so it cannot itself perturb layout.
 fonttools = ">=4.50,<5"
 # Declared DIRECTLY, not borrowed. Both are WeasyPrint transitive dependencies
@@ -70,8 +75,13 @@ cssselect2 = ">=0.7,<1"
 # The kit's cold-start CLI is invoked as `pixi run python guidekit.py`.
 build = "python build.py"
 html = "python build.py --html-preview"
-# web builds the opt-in website into app/dist/. No-ops cleanly (exit 0) on a
-# PDF-only fork that has no style-screen.css — see build.py build_web().
+# web builds the opt-in website into app/dist/. Opting in is a DECLARATION —
+# `[outputs] site` — not the presence of a file: `build_web()` no-ops cleanly
+# (exit 0) on a guide that declares no site, and HARD-FAILS on one that declares
+# a site without `style-screen.css`, because a declared-but-unmaterialized web
+# layer is a defect rather than an absence. Keying on the stylesheet is the
+# retired rule; it is target-owned, so switching a site off correctly leaves it
+# behind and the old rule then rendered a site that had just been disabled.
 web = "python build.py --web"
 # release.py is invoked via `make release MSG="..."` (not a pixi task,
 # because the Makefile target enforces the required MSG argument with a
@@ -105,6 +115,22 @@ test = "pytest tests/ -q"
 
 # The default environment (root feature) is implicit and unchanged; `kit` layers
 # the test feature on top of it so the suite has python + the kit modules.
+#
+# ONE SOLVE GROUP, and this is not tidiness. Without it pixi solves the two
+# environments independently, and `pixi.lock` recorded two DIFFERENT rendering
+# toolchains: `default` — which is what `make`, `make baseline`, `make release`
+# and the drift canary all ship — resolved WeasyPrint 67.0 / pandoc 3.9.0.2 /
+# fontconfig 2.18.0 / Python 3.14.5, while `kit`, which runs the suite, resolved
+# WeasyPrint 69.0 / pandoc 3.10 / fontconfig 2.18.2 / Python 3.14.6. So every
+# rendering assertion in the suite — glyph coverage, the font audit, the
+# rendered face set, the version-stamp grammar, wide blocks — was measured
+# against a renderer nobody ships, and it was committed, so CI reproduced it.
+#
+# It was latent rather than active when found (the two renders differed only in
+# /Producer and the derived /ID), which is the argument for fixing it rather
+# than against: the next dependency bump decides whether it stays that way, and
+# a suite that renders on a different WeasyPrint cannot tell you.
 [environments]
-kit = ["kit"]
+default = { solve-group = "main" }
+kit = { features = ["kit"], solve-group = "main" }
 # kit-only:end

@@ -14,11 +14,15 @@ We assert on the print HTML (what WeasyPrint consumes), not the PDF text:
 the watch URL. The print HTML is the faithful, checkable representation of what
 lands in the PDF.
 
-This is part of the OPT-IN web layer. It skips cleanly (exit 0) when the web
-layer is not enabled (no `style-screen.css`) or when `guide.md` has no embed
-island to check — so it is safe to run on a PDF-only fork. The embed id is
-derived from `guide.md`, never hardcoded, so this file carries no guide-specific
-values.
+This is part of the OPT-IN web layer. It skips cleanly (exit 0) when the guide
+DECLARES no site (`[outputs] site`) or when `guide.md` has no embed island to
+check — so it is safe to run on a PDF-only guide. It FAILS, rather than skipping,
+on a guide that declares a site but has no `style-screen.css`: `build_web()`
+refuses that outright, so skipping would report a site as fine that cannot be
+built. Enablement was once inferred from the stylesheet's presence, which answers
+a different question — the file is target-owned and survives a site being
+switched off. The embed id is derived from `guide.md`, never hardcoded, so this
+file carries no guide-specific values.
 
 Run via `pixi run python verify_web.py`. Exit 0 on success or clean skip;
 nonzero with a diagnostic on the first failed assertion.
@@ -81,8 +85,12 @@ def main() -> int:
     if not STYLE_SCREEN.exists():
         # Declared but not materialized: `build_web()` refuses this outright, so
         # skipping here would report a site as fine that cannot be built.
+        # The remedy names a REACHABLE command. `adopt.py` is kit-only and
+        # pruned from every guide, and it requires --target, so the bare form
+        # this printed could not be run where the message fires.
         _fail("guide.toml declares a site but style-screen.css is absent — "
-              "materialize it with `adopt.py --output site --enable`")
+              "materialize it from a guide-kit checkout with "
+              "`python guide-kit/adopt.py --target . --output site --enable`")
         return 1
 
     m = _EMBED_ID.search(SRC.read_text(encoding="utf-8"))

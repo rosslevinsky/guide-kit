@@ -904,12 +904,29 @@ def _discard_abandoned_promotion(slug: str) -> None:
     staged: the working render is rebuilt from source further down anyway, so
     there is nothing here worth keeping.
 
-    Guarded on an OPEN TRANSACTION, which is what makes this release.py cleaning
-    up after itself rather than a tool deleting an operator's file: with no
-    transaction in flight, a modified reference is someone's deliberate edit and
-    the preflight refuses it as it always did."""
+    Guarded on a LIVE transaction, which is what makes this release.py cleaning
+    up after itself rather than a tool deleting an operator's file: with none in
+    flight, a modified reference is someone's deliberate edit and the preflight
+    refuses it as it always did.
+
+    LIVE, not merely PRESENT. This asked only whether a transaction ref existed —
+    so a ref left behind by an attempt abandoned months ago still authorised the
+    discard. The file it discards is the committed reference artifact, and the
+    most likely thing sitting there modified is a `make baseline` result the
+    operator produced deliberately a minute earlier.
+
+    Liveness is the transaction's own DIGEST, not `_is_superseded`. That helper
+    compares against the last released date, which means reading the reference —
+    and the reference is precisely the file in an unknown state here, so it would
+    exit on the half-written PDF this function exists to clean up. The digest is
+    already the field `open_transaction` resumes on, needs nothing but source,
+    and answers the question directly: a transaction for different content than
+    the tree now holds is not the one about to be retried."""
     spec = kitconfig.artifact_spec(ARTIFACT)
-    if spec.reference is None or _read_txn(_txn_ref(ARTIFACT)) is None:
+    txn = _read_txn(_txn_ref(ARTIFACT))
+    if spec.reference is None or txn is None:
+        return
+    if txn[1].get("digest") != kitconfig.content_digest(ARTIFACT, root=ROOT):
         return
     name = spec.reference.replace("<slug>", slug)
     if any(p == name for _, p in _porcelain()):
@@ -1119,13 +1136,16 @@ def main() -> int:
     # `footer_wrap_failures`, the single automated catcher for recorded defect 8.
     # A release is the most consequential promotion there is (it commits, tags
     # and redeploys), so it must not be the one path that skips the check CI runs.
-    # PDF only, and this is not an exemption being smuggled in. `smoke_check`
-    # asks "does this look like a finished GUIDE" — page count, a title, no
-    # placeholders, an unwrapped footer. A slide deck answers that wrongly by
-    # construction: two slides is a legitimate deck and a broken guide. Applying
-    # it to the deck would make every deck unreleasable, which is not a stricter
-    # check, just a wrong one.
-    if ARTIFACT == "pdf" and verify_artifacts.smoke_check(working, ROOT) != 0:
+    # EVERY ARTIFACT, not just the PDF. This was PDF-only, and the reasoning was
+    # right at the time: `smoke_check` asked "does this look like a finished
+    # GUIDE" — page count, a title, no placeholders — and a slide deck answers
+    # that wrongly by construction, so applying it to the deck would have made
+    # every deck unreleasable. That is not a stricter check, just a wrong one.
+    # `smoke_failures` takes the artifact now and asks a deck the deck's
+    # questions, so the exemption would no longer be protecting anything — it
+    # would only mean the most consequential promotion there is skips the one
+    # path to `footer_wrap_failures` for the deck.
+    if verify_artifacts.smoke_check(working, ROOT, ARTIFACT) != 0:
         sys.exit(
             "release.py: not promoting — the fresh render does not pass `make smoke` "
             "(see above). The source commit is preserved; re-run once fixed and this "

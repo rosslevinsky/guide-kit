@@ -3,10 +3,11 @@
   // body is never what a guide ends up with.
   //
   // It still exists for two reasons: `templates/web/` is copied wholesale into
-  // `app/` when the web layer is materialized (bootstrap.py --with-web /
-  // adopt-web.py), and kit-manifest.toml's exhaustiveness rule requires every
-  // tracked file to be classified. Both bootstrap and adopt-web overwrite this
-  // immediately with `cfadapter.render_wrangler_jsonc(<the target's config>)`.
+  // `app/` when the web layer is materialized (`bootstrap.py --with-web` at
+  // init, or `adopt.py --output site --enable` later), and kit-manifest.toml's
+  // exhaustiveness rule requires every tracked file to be classified. Both paths
+  // overwrite this immediately with
+  // `cfadapter.render_wrangler_jsonc(<the target's config>)`.
   //
   // It is deliberately NOT a copy of the generated output. The deploy config is
   // derived from `guide.toml` — `workers_dev` from whether a domain is set, and

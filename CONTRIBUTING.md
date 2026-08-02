@@ -72,10 +72,34 @@ kit-only and never syncs, so it can depend on anything the kit has.
 ## Style
 
 Match the surrounding code: comments explain *why*, especially where the obvious
-implementation is wrong for a reason someone had to discover. Don't cite documents
-that aren't in this repository — if a decision needs recording, state it inline.
+implementation is wrong for a reason someone had to discover.
+
+**Don't cite documents that aren't in this repository — if a decision needs
+recording, state it inline.** The rule is about what a reader can act on: a
+comment that sends someone to a file they cannot open has moved the explanation
+rather than given it.
+
+The exception, and it is narrow: a HISTORICAL record may name an external
+document or repository when the naming is the fact being recorded, and only if
+the passage stands on its own without it. `docs/family-as-built.md` names the
+plan documents the family's decisions came from; `docs/typography-signoff.md`
+names the guide repositories a measurement ran across. Both say explicitly that
+nothing depends on opening them. What is still forbidden in those files is a
+citation *shaped like something checkable* — a commit SHA from another
+repository, or a command written as though you could run it here. That is the
+form that wastes a reader's time and teaches them to distrust the document.
 
 ## Licensing
 
-Code is Apache 2.0 (`LICENSE`); guide content is CC BY 4.0 (`LICENSE-CONTENT`).
-Contributions are accepted under those terms.
+The split is by **what a file is**, not by file type. Guide content — `guide.md`
+and the PDF, deck and website rendered from it — is CC BY 4.0 (`LICENSE-CONTENT`).
+**Everything else in the repository** is Apache 2.0 (`LICENSE`): build scripts,
+stylesheets, themes, configuration, workflows, the test suite, and all
+documentation that is not the guide itself — this file included. Contributions
+are accepted under those terms.
+
+Stated as "everything else" rather than as "code" on purpose, and this document
+is the reason to get it right: an earlier wording granted Apache 2.0 to "code"
+and CC BY to "guide content", which named the repository's four largest prose
+files under neither. `README.md`'s License section is the canonical statement;
+this one has to agree with it.

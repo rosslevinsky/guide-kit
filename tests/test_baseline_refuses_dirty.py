@@ -122,7 +122,7 @@ def test_the_dirty_guard_scopes_to_the_guide_S_OWN_THEME(tmp_path, monkeypatch):
 
     cfg = kitconfig.load(repo)
     monkeypatch.setattr(baseline, "ROOT", repo)
-    dirty = baseline._dirty_source_files(cfg)
+    dirty = baseline._dirty_source_files(cfg, "pdf")
 
     assert any("themes/editorial/print.css" in d for d in dirty), (
         f"the dirty guard did not see the guide's own theme file; it reported {dirty}"

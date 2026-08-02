@@ -25,7 +25,7 @@ root PDFs by design (bootstrap deletes the inherited template PDF; the guide's
 own does not exist until its first `make release`). That state PASSES with
 a `pre-first-release` notice. A PDF that WAS released and is now gone FAILS — the
 discriminator is git history for the reference path. The missing-PDF hole for a
-web-enabled guide is separately closed by build_web()'s hard failure (build.py).
+web-enabled guide is separately closed by build_web()'s hard failure (render_site.py).
 
 Exit codes:
     0 — fresh, or pre-first-release
@@ -265,7 +265,7 @@ def staleness_check(root: Path = HERE, artifact: str = "pdf") -> int:
         f"source hash {current}.\n"
         f"      Changed since last release: {named}.\n"
         f"      Re-run `make release{'' if artifact == 'pdf' else f' ARTIFACT={artifact}'}` "
-        f"(or `make baseline{'' if artifact == 'pdf' else f' --artifact {artifact}'}` + commit).\n"
+        f"(or `make baseline{'' if artifact == 'pdf' else f' ARTIFACT={artifact}'}` + commit).\n"
     )
     return 1
 
@@ -522,11 +522,11 @@ def read_stamp_from_band(pdf: Path):
     ONE bare page is tolerated, because several guides suppress the page-1 footer
     on purpose; beyond that this returns None rather than guess which it is."""
     stamps = []
-    unstamped = 0
-    for height, words in _pages_with_boxes(pdf):
+    unstamped: list[int] = []
+    for page, (height, words) in enumerate(_pages_with_boxes(pdf)):
         rendered = _band_lines(height, words)
         if not rendered:
-            unstamped += 1
+            unstamped.append(page)
             continue
         stamp = next(
             (s for s in (kitconfig.parse_stamp(line) for line in rendered) if s),
@@ -539,7 +539,7 @@ def read_stamp_from_band(pdf: Path):
         if stamp is not None:
             stamps.append(stamp)
         else:
-            unstamped += 1
+            unstamped.append(page)
     if not stamps:
         return None
     if len({s.hash for s in stamps}) > 1 or len({s.date for s in stamps}) > 1:
@@ -551,11 +551,12 @@ def read_stamp_from_band(pdf: Path):
     # closed; ABSENCE did not, and absence is the more likely damage.
     #
     # It cannot simply fail on any gap: several guides suppress the footer on
-    # page 1 deliberately (`@page :first { @bottom-center { content: "" } }`), so
-    # exactly one bare page is normal. More than one means the footer is going
-    # missing somewhere it was meant to be, which this cannot distinguish from a
-    # design choice — so it fails closed and lets a human look.
-    if unstamped > 1:
+    # page 1 deliberately (`@page :first { @bottom-center { content: "" } }`).
+    # So exactly one bare page is normal — ON PAGE 1. This counted instead of
+    # looking, which let a PDF that lost its footer on its LAST page pass
+    # staleness, promotion and smoke; the test pinning it built three stamped
+    # pages followed by a bare one and called that the first-page convention.
+    if unstamped not in ([], [0]):
         return None
     return kitconfig.Stamp(
         date=stamps[0].date, hash=stamps[0].hash,
@@ -563,15 +564,20 @@ def read_stamp_from_band(pdf: Path):
     )
 
 # Placeholders that must never survive into a rendered guide. Sourced from the
-# template's own substitution vocabulary (bootstrap.py) plus build.py's CSS
-# tokens. build.py's hygiene check scans README.md and CLAUDE.md only, so a
+# template's own substitution vocabulary (bootstrap.py) plus `buildcore.py`'s CSS
+# tokens. `buildcore.py`'s hygiene check scans README.md and CLAUDE.md only, so a
 # placeholder left in guide.md or style.css reaches the PDF unchallenged —
 # this is the backstop for that (outstanding item: "guide.md hygiene check has
 # a blind spot").
+# `TODO:`, `FIXME:` and `Lorem ipsum` were here and are gone. None of the three
+# is in either vocabulary this list claims to draw from, and all three are
+# legitimate GUIDE CONTENT: `git commit -m "TODO: rename this"` is an ordinary
+# code sample. Because smoke gates `baseline.yml`'s commit and `release.py`'s
+# promotion, a sample like that stopped the entire publish pipeline with a
+# message blaming a placeholder that does not exist.
 _PLACEHOLDERS = (
     "{{GUIDE_NAME}}", "{{GUIDE_SLUG}}", "{{GUIDE_TITLE}}", "{{AUTHOR}}",
-    "<DESCRIBE YOUR GUIDE>", "__TITLE__", "__VERSION__", "TODO:", "FIXME:",
-    "Lorem ipsum",
+    "<DESCRIBE YOUR GUIDE>", "__TITLE__", "__VERSION__",
 )
 
 MIN_PAGES = 2
@@ -589,17 +595,30 @@ def _pdftotext_layout(pdf: Path) -> str:
     return result.stdout
 
 
-def smoke_failures(text: str, pages: int, title: str) -> list[str]:
+def smoke_failures(text: str, pages: int, title: str,
+                   artifact: str = "pdf") -> list[str]:
     """Every smoke assertion, as a PURE function over already-extracted text.
 
     Split out from smoke_check so the assertions are testable without a
     renderer — otherwise the only way to prove the footer-wrap detector works
     would be to produce a PDF with a wrapped footer, and a check that has never
-    been shown to fail is not evidence of anything."""
+    been shown to fail is not evidence of anything.
+
+    `artifact` selects which assertions apply, and the deck is why it exists.
+    "Does this look like a finished guide?" and "does this look like a finished
+    DECK?" are not the same question: a deck is a SELECTION, so the guide's title
+    need not appear anywhere on it, and one slide is a legitimate deck. Running
+    the guide's assertions against it produced a failure that says nothing —
+    which is the other way a check stops meaning anything, and the reason to fix
+    this at the same time as making `--smoke` honour `--artifact`.
+    """
     failures: list[str] = []
+    is_deck = artifact == "slides"
 
     # 1. A guide that renders to one page means the pipeline dropped the body.
-    if pages < MIN_PAGES:
+    #    A deck of one slide is a deck; a deck of none is a dropped body.
+    floor = 1 if is_deck else MIN_PAGES
+    if pages < floor:
         failures.append(f"only {pages} page(s) — the body did not render")
 
     # 2. Any page with no extractable text is a blank or image-only page.
@@ -616,8 +635,25 @@ def smoke_failures(text: str, pages: int, title: str) -> list[str]:
     #    collapsed first: `-layout` pads with runs of spaces, and a title that
     #    legitimately wraps in the rendered title-block would otherwise look
     #    absent.
-    if title not in " ".join(text.split()):
+    #
+    #    NOT ASKED OF THE DECK. Nothing is projected into a deck unless it is
+    #    wrapped in a `::: slide` fence, so a perfectly correct deck may never
+    #    name the guide. The equivalent "is this the right file?" evidence for a
+    #    deck is its version stamp, checked below.
+    if not is_deck and title not in " ".join(text.split()):
         failures.append(f"the guide title ({title!r}) does not appear in the text")
+
+    # 3b. THE DECK MUST CARRY ITS VERSION STAMP, and this is a measured failure
+    #     mode rather than a symmetry. The obvious full-bleed `@page { margin: 0 }`
+    #     makes WeasyPrint drop every `@bottom-*` margin box, which produced a
+    #     deck with no stamp at all — and a file that does not say what built it
+    #     is one `verify --staleness` must refuse. The 6mm bottom margin exists
+    #     for this; the check is what notices if it goes away.
+    if is_deck and kitconfig.parse_stamp(text) is None:
+        failures.append(
+            "no version stamp anywhere in the deck — the @page bottom margin is "
+            "what gives it somewhere to live; `margin: 0` drops every margin box"
+        )
 
     # 4. Un-substituted placeholders.
     for marker in _PLACEHOLDERS:
@@ -631,11 +667,11 @@ def smoke_failures(text: str, pages: int, title: str) -> list[str]:
     return failures
 
 
-def smoke_check(pdf: Path, root: Path = HERE) -> int:
-    """Assert a rendered PDF looks like a finished guide. Exit codes match the
-    rest of this module: 0 pass, 1 the PDF is bad, 2 environment/invocation
-    error (so a caller can tell "this render is wrong" from "I could not
-    tell")."""
+def smoke_check(pdf: Path, root: Path = HERE, artifact: str = "pdf") -> int:
+    """Assert a rendered PDF looks like a finished guide — or, for
+    `artifact="slides"`, like a finished deck. Exit codes match the rest of this
+    module: 0 pass, 1 the PDF is bad, 2 environment/invocation error (so a caller
+    can tell "this render is wrong" from "I could not tell")."""
     _require(["pdfinfo", "pdftotext"])
 
     try:
@@ -658,7 +694,7 @@ def smoke_check(pdf: Path, root: Path = HERE) -> int:
         sys.stderr.write(f"ERROR smoke: could not read {pdf.name} ({exc})\n")
         return 2
 
-    failures = smoke_failures(text, pages, title)
+    failures = smoke_failures(text, pages, title, artifact)
     # The footer-wrap check is geometric, so it reads the PDF's word boxes
     # rather than the extracted text, and is merged in here.
     try:
@@ -668,12 +704,18 @@ def smoke_check(pdf: Path, root: Path = HERE) -> int:
         return 2
 
     if failures:
-        sys.stderr.write(f"FAIL  smoke: {pdf.name} does not look like a finished guide\n")
+        kind = "deck" if artifact == "slides" else "guide"
+        sys.stderr.write(f"FAIL  smoke: {pdf.name} does not look like a finished {kind}\n")
         for f in failures:
             sys.stderr.write(f"        - {f}\n")
         return 1
 
-    print(f"PASS  smoke: {pdf.name} — {pages} pages, title present, stamp intact, no placeholders")
+    # The summary NAMES WHAT WAS CHECKED, so it cannot claim a check that did not
+    # run: the deck is not asked for the guide's title, and a fixed string saying
+    # "title present" would have reported one it never looked for.
+    checked = ("stamp present, stamp intact, no placeholders" if artifact == "slides"
+               else "title present, stamp intact, no placeholders")
+    print(f"PASS  smoke: {pdf.name} — {pages} pages, {checked}")
     return 0
 
 
@@ -692,6 +734,67 @@ def staleness_check_all(root: Path = HERE, artifact: str = "all") -> int:
     worst = 0
     for name in kitconfig.load(root).outputs.declared:
         worst = max(worst, staleness_check(root, name))
+    return worst
+
+
+def smoke_check_all(root: Path = HERE, artifact: str = "all") -> int:
+    """Smoke every declared artifact that HAS a committed reference.
+
+    `--smoke` used to ignore `--artifact` entirely: it resolved
+    `<slug>.pdf` and nothing else, so `--smoke --artifact slides` printed
+    `PASS smoke: <slug>.pdf` and the slide deck was committed, pushed and
+    published having never been inspected. `baseline.yml` refreshes every
+    artifact's reference and then ran one `make smoke`, in a step whose own
+    comment calls it "the only inspection left".
+
+    A PRE-FIRST-RELEASE GUIDE PASSES WITH A NOTICE, matching `staleness_check`
+    rather than the exit-2 `does not exist` this used to return. `make smoke` is
+    in the "3. Build" block a brand-new fork reads, and it was the one command
+    there that could not succeed — the fork has no reference artifact until its
+    first release, which is a correct state and not a broken PDF. The
+    discriminator is the same one staleness uses: git history for the reference
+    path, so a deliverable that WAS released and is now missing still fails.
+
+    Returns the WORST exit code and never short-circuits.
+    """
+    cfg = kitconfig.load(root)
+    names = [artifact] if artifact != "all" else list(cfg.outputs.declared)
+    worst = 0
+    for name in names:
+        if name not in cfg.outputs.declared:
+            print(f"OK    {name}: not declared by this guide — nothing to smoke")
+            continue
+        spec = kitconfig.artifact_spec(name)
+        if spec.reference is None:
+            print(f"OK    {name}: no committed reference artifact — "
+                  f"{spec.no_reference_reason}")
+            continue
+        reference = root / spec.reference.replace("<slug>", cfg.OUTPUT_SLUG)
+        if not reference.exists():
+            try:
+                released = _was_ever_released(root, reference)
+            except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+                sys.stderr.write(
+                    f"ERROR cannot query git history for {reference.name} "
+                    f"(is git available with full history?): {exc}\n")
+                worst = max(worst, 2)
+                continue
+            if released:
+                sys.stderr.write(
+                    f"FAIL  smoke: {reference.name} was released and is now missing "
+                    f"— restore it or re-release.\n")
+                worst = max(worst, 1)
+                continue
+            print(f"OK    no reference {name} yet — pre-first-release "
+                  f"({reference.name})")
+            continue
+        worst = max(worst, smoke_check(reference, root, name))
+    # ONLY when the loop said nothing at all — i.e. the guide declares no
+    # outputs. An undeclared artifact and a reference-less one each explain
+    # themselves above, and repeating "nothing to inspect" after them is noise
+    # rather than a second fact.
+    if not names:
+        print("OK    smoke: nothing to inspect (no committed reference artifacts)")
     return worst
 
 
@@ -724,11 +827,20 @@ def main() -> int:
     if args.staleness:
         return staleness_check_all(HERE, args.artifact)
     if hasattr(args, "smoke"):
-        # `--smoke` with no argument checks the committed reference PDF, which is
-        # what CI wants; an explicit path lets `make baseline` check the FRESH
-        # render before it is promoted, which is the more valuable of the two.
-        target = args.smoke or (HERE / f"{kitconfig.load(HERE).OUTPUT_SLUG}.pdf")
-        return smoke_check(target)
+        # `--smoke` with no argument checks the committed reference of every
+        # declared artifact — `--artifact` narrows it, and used to be ignored
+        # outright, so the deck shipped unsmoked. An explicit PATH still checks
+        # exactly that file, which is how `make baseline` inspects the FRESH
+        # render before promoting it; a path plus `--artifact` is the path.
+        if args.smoke is not None:
+            # `--artifact` still selects the ASSERTIONS even when the file is
+            # named explicitly — that form is how a FRESH render is inspected
+            # before promotion, which is exactly when a deck must be asked the
+            # deck's questions. `all` is not a kind of document, so it means the
+            # default.
+            kind = args.artifact if args.artifact in kitconfig.ARTIFACT_NAMES else "pdf"
+            return smoke_check(args.smoke, HERE, kind)
+        return smoke_check_all(HERE, args.artifact)
     return render_canary(args.render[0], args.render[1])
 
 

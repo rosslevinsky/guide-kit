@@ -2,7 +2,8 @@
   "name": "guide-web-app",
   "private": true,
   "version": "0.1.0",
-  "description": "Cloudflare Workers Static Assets wrapper for the guide website. The site itself is built by `make web` (Python/pixi) into ./dist; this package only pins wrangler for dev/deploy. Copied to app/ by `bootstrap.py --with-web`.",
+  "license": "Apache-2.0",
+  "description": "Cloudflare Workers Static Assets wrapper for the guide website. The site itself is built by `make web` (Python/pixi) into ./dist; this package only pins wrangler for dev/deploy. Copied to app/ when the web layer is enabled — `bootstrap.py --with-web` at init, or `adopt.py --output site --enable` later.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"

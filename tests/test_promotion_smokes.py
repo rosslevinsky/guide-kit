@@ -69,3 +69,34 @@ def test_footer_wrap_is_still_only_reachable_through_smoke():
     ]
     assert len(calls) == 1, f"expected exactly one call site, found: {calls}"
     assert "smoke_failures" in inspect.getsource(verify_artifacts.smoke_failures)
+
+
+@pytest.mark.parametrize("module", [baseline, release])
+def test_the_deck_is_no_longer_exempt_from_the_document_check(module):
+    """Both promotion paths ran `if artifact == "pdf" and smoke_check(...)`.
+
+    The exemption was correct when it was written: `smoke_check` asked "does this
+    look like a finished GUIDE" — page count, the guide's title, no placeholders
+    — and a deck answers that wrongly by construction, so applying it would have
+    made every deck unpromotable. Not a stricter check, just a wrong one.
+
+    `smoke_failures` takes the artifact now and asks a deck the deck's questions,
+    so the condition guards nothing and costs the deck its only route to
+    `footer_wrap_failures` on the path a human actually uses. Asserted on the
+    source for the same reason as the test above — reaching a real promotion
+    needs a full render — and matched on the CONDITION rather than on the call,
+    because the call is still there either way.
+    """
+    src = inspect.getsource(module)
+    for exemption in ('artifact == "pdf" and verify_artifacts.smoke_check',
+                      'ARTIFACT == "pdf" and verify_artifacts.smoke_check'):
+        assert exemption not in src, (
+            f"{module.__name__} exempts the deck from the smoke check again; the "
+            f"assertions are artifact-aware now, so this only means the deck is "
+            f"promoted without ever running footer_wrap_failures"
+        )
+    assert "smoke_check(working, ROOT, " in src, (
+        f"{module.__name__} calls smoke_check without passing the artifact, so a "
+        f"deck would be judged against the guide's assertions and fail on a "
+        f"title it is not supposed to carry"
+    )

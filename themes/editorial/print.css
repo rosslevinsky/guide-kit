@@ -9,9 +9,12 @@
  * guide.toml and then the guide's own override file, so every value here can be
  * retinted per guide and overridden outright per output.
  *
- * For guides whose body type is serif. `git-guide` selects this: its
- * style.css sets "Guide Serif" where its six siblings set "Guide Sans",
- * so inheriting the family default would silently restyle it.
+ * For guides whose body type is SERIF. That is the whole selection rule, and it
+ * is worth stating as a property rather than as a roster: this theme exists
+ * because a guide that sets "Guide Serif" in its own style.css would be silently
+ * restyled by inheriting a sans default. Naming which repositories currently
+ * choose it — the note here once did — describes one private workspace to every
+ * reader of a public themes directory.
  *
  * The PDF's tokens. Only this sheet enters the PDF closure — a theme's
  * screen.css and slides.css never re-stale a reference PDF.

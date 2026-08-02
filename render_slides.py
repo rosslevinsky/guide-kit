@@ -363,7 +363,7 @@ def build_slides() -> None:
     cascade = _page_css(buildcore._version_stamp("slides")) + buildcore.theme_css(
         "slides", STYLE_SLIDES.read_text(encoding="utf-8")
         if STYLE_SLIDES.is_file() else "")
-    buildcore.check_overrides(cascade)
+    buildcore.check_overrides(cascade, "slides")
 
     buildcore.BUILD_DIR.mkdir(exist_ok=True)
     out = buildcore.BUILD_DIR / f"{buildcore.OUTPUT_SLUG}-slides.pdf"

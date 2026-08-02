@@ -1,16 +1,27 @@
 /* style-screen.css.example — screen stylesheet starter for the WEBSITE output.
  *
  * This is the OPT-IN web layer's stylesheet template. It is inert until
- * `bootstrap.py --with-web` copies it to `style-screen.css`, which is what the
- * web build (`build.py --web`) loads. The presence of `style-screen.css` is
- * also the signal that the web layer is enabled — without it, `make web`
- * no-ops. The PDF always uses `style.css`, never this file.
+ * `bootstrap.py --with-web` (or `adopt.py --output site --enable`) copies it to
+ * `style-screen.css`, which is what the web build (`build.py --web`) loads. The
+ * PDF always uses `style.css`, never this file.
  *
- * Deliberately NOT in build.py's SOURCE_FILES: editing the screen stylesheet
- * changes only the website, never the rendered PDF, so it must not bump the
- * PDF version stamp or break `make verify`. Plain `git commit`.
+ * WHAT ENABLES THE WEB LAYER IS THE DECLARATION `[outputs] site` IN
+ * `guide.toml`, not the presence of this file. That is worth stating plainly
+ * because this comment said the opposite for a long time and sync can never
+ * correct it — the file is `policy = "never"`, target-owned. `make web` on a
+ * guide that declares no site prints `web layer not declared — set 'site' in
+ * [outputs]…` and exits 0; a guide that DECLARES a site and has no
+ * `style-screen.css` is a hard failure, not a no-op, because that is a web layer
+ * half-materialized rather than absent. Keying on this file was the retired
+ * rule: it is target-owned, so it survives a site being switched off, and the
+ * old rule then rebuilt a site the guide had just disabled.
  *
- * Placeholders substituted at build time by build.py (same as style.css):
+ * Deliberately NOT in the PDF's closure (`kitconfig.py`'s SOURCE_FILES): editing
+ * the screen stylesheet changes only the website, never the rendered PDF, so it
+ * must not bump the PDF version stamp or break `make verify`. Plain
+ * `git commit`.
+ *
+ * Placeholders substituted at build time by `render_site.py` (same as style.css):
  *   __TITLE__    — document title
  *   __VERSION__  — version stamp (shown in the footer)
  *

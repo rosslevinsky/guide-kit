@@ -1,6 +1,6 @@
 /* style.css — single-theme WeasyPrint stylesheet for the guide template.
  *
- * Placeholders substituted at build time by build.py:
+ * Placeholders substituted at build time by render_pdf.py:
  *   __TITLE__      — document title
  *   __VERSION__    — auto version stamp: "YYYY-MM-DD · <sha256[:12]>" — the
  *                    artifact's authored [artifacts.<name>] date from guide.toml
@@ -13,7 +13,7 @@
  * generic `serif`/`sans-serif`/`monospace`), so the cascade can never reach
  * a host font and the render does not depend on what the machine has
  * installed. See fonts/vendor/README.md for provenance and licenses, and
- * build.py's check_glyph_coverage() for the gate that proves every
+ * buildcore.py's check_glyph_coverage() for the gate that proves every
  * codepoint in the source is actually covered by these files.
  *
  * Inline HTML islands recognized by the rules below:

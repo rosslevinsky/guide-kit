@@ -64,9 +64,14 @@ def _problems(probe, **kw):
     """The WEB preflight. `with_web=True` is explicit here rather than defaulted,
     because defaulting it is how the defect below hid.
 
-    `kw.setdefault("worker_name", "my-guide")` used to supply the one input the
-    documented invocation does NOT have — the CLI defaults `--worker-name` to
-    `""` — so every test in this file exercised a command line no reader types.
+    `kw.setdefault("worker_name", "my-guide")` supplies the one input the
+    documented invocation does NOT carry on its command line — the CLI defaults
+    `--worker-name` to `""` — so every test through this helper exercises a
+    command no reader types. That is now DELIBERATE and bounded: these cases are
+    about the checks themselves, and the CLI's own default is covered separately
+    by `test_the_documented_with_web_preflight_can_actually_pass` below, which
+    goes through `main()` rather than through here. Leaving the setdefault while
+    testing nothing else was what let the empty default ship.
     """
     kw.setdefault("persona", guidekit.WORKERS_DEV)
     kw.setdefault("account_id", "a" * 32)
@@ -238,7 +243,7 @@ def test_pixi_toml_declares_no_task_pointing_at_a_kit_only_file():
     import pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     toml = (root / "pixi.toml").read_text()
-    kit_only = ("guidekit.py", "sync.py", "adopt-web.py")
+    kit_only = ("guidekit.py", "sync.py", "adopt.py")
     for name in kit_only:
         assert f'"python {name}"' not in toml, (
             f"pixi.toml declares a task running {name}, which is kit-only and is "
@@ -333,3 +338,152 @@ def test_the_probe_does_not_call_invented_wrangler_subcommands():
     assert '"subdomain"' not in argv, "still invoking `wrangler subdomain`"
     assert "api.cloudflare.com" in src, "the real API should be used instead"
     assert calls is not None
+
+
+# ----- the CLI's own defaults, which the helper above deliberately bypasses ------
+
+def test_the_documented_with_web_preflight_can_actually_pass(monkeypatch, capsys):
+    """`preflight --with-web` — README's second cold-start command — must be able
+    to succeed as written.
+
+    It could not. `--worker-name` defaults to `""` and `check_worker_name` is run
+    whenever the web checks are, so the command failed on `worker name '' is not
+    a valid DNS label` however correct the account was, and no amount of fixing
+    Cloudflare would clear it. Every test in this file went through a helper that
+    filled the name in, so the suite reported a healthy check the reader could
+    never satisfy.
+
+    The fix is a default that is the RIGHT string rather than a permissive one:
+    the slug `guide.toml` declares, which is what `cfadapter` turns into the
+    worker name. So this drives `main()` — the default is the subject.
+    """
+    monkeypatch.setattr(guidekit, "Probe", lambda: FakeProbe())
+    # The account id is a genuine precondition and is supplied here so it cannot
+    # mask the subject: what must not appear is a WORKER NAME complaint, which no
+    # correct account could ever clear.
+    rc = guidekit.main(["preflight", "--with-web", "--account-id", "a" * 32])
+    err = capsys.readouterr().err
+    assert "worker name" not in err, (
+        f"the documented invocation still fails on the worker name: {err}")
+    assert rc == 0, err
+
+
+def test_the_declared_slug_fallback_says_it_is_a_fallback(monkeypatch, capsys):
+    """A check that cannot fail must not read as a check that passed.
+
+    The `--worker-name` default went from `""` — which made the documented
+    invocation fail on every account — to the DECLARED slug, which in a pristine
+    clone is the kit's own `guide-template` and is always a valid DNS label. So
+    for the cold-start reader, who has not typed a slug yet, the check went from
+    "always fails" to "always passes" on a string that is not theirs. Both are
+    wrong; only the second is quiet about it.
+
+    So it says which string it looked at, and where the real check happens. Given
+    with `--worker-name`, there is nothing to disclaim and it says nothing.
+    """
+    monkeypatch.setattr(guidekit, "Probe", lambda: FakeProbe())
+    monkeypatch.setattr(guidekit, "declared_slug", lambda *a, **k: "guide-template")
+
+    assert guidekit.main(["preflight", "--with-web", "--account-id", "a" * 32]) == 0
+    out = capsys.readouterr().out
+    assert "guide-template" in out and "--worker-name" in out, out
+
+    assert guidekit.main(["preflight", "--with-web", "--account-id", "a" * 32,
+                          "--worker-name", "my-own-guide"]) == 0
+    assert "DECLARED" not in capsys.readouterr().out
+
+
+def test_a_worker_name_that_cannot_be_resolved_is_a_named_refusal(monkeypatch, capsys):
+    """Falling back to the declared slug must not become "skip the check".
+
+    With no `--worker-name` AND no readable `OUTPUT_SLUG`, there is nothing to
+    validate — and a check that quietly passes when it could not run is worse
+    than the empty default it replaced, because it looks like it worked.
+    """
+    monkeypatch.setattr(guidekit, "Probe", lambda: FakeProbe())
+    monkeypatch.setattr(guidekit, "declared_slug", lambda *a, **k: "")
+    rc = guidekit.main(["preflight", "--with-web", "--account-id", "a" * 32])
+    err = capsys.readouterr().err
+    assert rc == 1
+    assert "--worker-name" in err and "OUTPUT_SLUG" in err
+
+
+def test_declared_slug_reads_the_guides_own_output_slug(tmp_path):
+    (tmp_path / "guide.toml").write_text('TITLE = "T"\nOUTPUT_SLUG = "a-guide"\n',
+                                         encoding="utf-8")
+    assert guidekit.declared_slug(tmp_path) == "a-guide"
+    assert guidekit.declared_slug(tmp_path / "nope") == ""
+
+
+def test_init_forwards_every_identity_flag_to_bootstrap(monkeypatch):
+    """`init` must be able to say who the author is.
+
+    It could not: it forwarded title and slug alone, so `bootstrap.py` fell back
+    to the KIT's AUTHOR/DESCRIPTION/KEYWORDS and the documented cold start
+    published a stranger's guide under the kit owner's copyright — in the PDF
+    metadata and in a visible `©` colophon. Asserted on the ARGV `init` builds,
+    because that is the whole interface between the two scripts.
+    """
+    seen = {}
+
+    class _Result:
+        returncode = 0
+
+    def _fake_run(cmd, *a, **k):
+        seen["cmd"] = cmd
+        return _Result()
+
+    monkeypatch.setattr(guidekit.subprocess, "run", _fake_run)
+    rc = guidekit.main([
+        "init", "My Guide", "my-guide", "--skip-preflight",
+        "--author", "A. Author", "--description", "D.", "--keywords", "k1, k2",
+        "--copyright-year", "2031", "--source-repo", "someone/their-kit",
+        "--kit-version", "v9",
+    ])
+    assert rc == 0
+    argv = seen["cmd"]
+    for expected in (["--author", "A. Author"], ["--description", "D."],
+                     ["--keywords", "k1, k2"], ["--copyright-year", "2031"],
+                     ["--source-repo", "someone/their-kit"],
+                     ["--kit-version", "v9"]):
+        i = argv.index(expected[0])
+        assert argv[i:i + 2] == expected, f"{expected[0]} not forwarded: {argv}"
+
+
+def test_init_requires_an_author(monkeypatch):
+    """Required at the CLI, matching `bootstrap.py`. If only bootstrap refused,
+    the failure would surface after preflight had already run.
+
+    `subprocess.run` is stubbed even though argparse is supposed to abort long
+    before it, and that is not belt-and-braces: `guidekit.py` runs
+    `bootstrap.py` by RELATIVE path with no `cwd=`, so it inherits pytest's — the
+    repo root. When the reviewing agent applied the exact regression this test
+    exists to catch, the test failed as designed and took 93 files with it,
+    `tests/` included. A test guarding a destructive path must not be able to run
+    it."""
+    def _forbidden(cmd, *a, **k):
+        raise AssertionError(
+            f"argparse should have refused before anything ran; got {cmd!r}")
+
+    monkeypatch.setattr(guidekit.subprocess, "run", _forbidden)
+    with pytest.raises(SystemExit):
+        guidekit.main(["init", "My Guide", "my-guide", "--skip-preflight"])
+
+
+def test_init_refuses_a_blank_author_before_running_anything(monkeypatch, capsys):
+    """The flag being required only rejects its ABSENCE. `--author ""` satisfied
+    argparse and was forwarded, so the fork got an empty copyright holder.
+
+    Refused here rather than left to `bootstrap.py`'s own check because this is
+    the adopter's typo, not a Cloudflare fact: making them sit through the
+    network probes to be told about it puts the cheap failure behind the
+    expensive one."""
+    def _forbidden(cmd, *a, **k):
+        raise AssertionError(f"a blank author must not reach bootstrap; got {cmd!r}")
+
+    monkeypatch.setattr(guidekit.subprocess, "run", _forbidden)
+    monkeypatch.setattr(guidekit, "Probe", lambda: FakeProbe())
+    for blank in ("", "   "):
+        assert guidekit.main(
+            ["init", "My Guide", "my-guide", "--author", blank]) == 1
+        assert "--author" in capsys.readouterr().err

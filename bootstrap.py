@@ -4,28 +4,40 @@
 After `gh repo create my-new-guide --template rosslevinsky/guide-kit`,
 run this from the new repo's root:
 
-    pixi run python bootstrap.py "My Guide Title" my-guide-slug
+    pixi run python bootstrap.py "My Guide Title" my-guide-slug --author "Your Name"
     # full form:
     pixi run python bootstrap.py "My Guide Title" my-guide-slug \\
         --author "Author Name" \\
         --description "Short description for PDF metadata" \\
         --keywords "kw1, kw2, kw3" \\
         --source-repo rosslevinsky/guide-kit \\
-        --kit-version 2026-07 \\
+        --kit-version <full-40-char-kit-commit-sha> \\
         --with-web                            # opt into the website output
         # --with-transforms                   # opt into the transforms.py hook
+
+`--kit-version` is the kit COMMIT this fork was made from, and CI checks it out
+by that ref when a guide borrows the kit's test runner — so a full 40-character
+sha (or a tag/branch name), never a short one or a date label. Omitted, it
+records nothing and CI borrows the kit's default branch.
+
+`--author` is REQUIRED. It is the PDF's `/Author` and its visible `© <year>
+<author>` colophon, and it used to fall back to the KIT's author — so a fork
+that left it off shipped its own guide under someone else's copyright.
+DESCRIPTION and KEYWORDS are derived from the title and slug when omitted, for
+the same reason: derived text can be bland, but it cannot name another project.
 
 What it does:
   * guide.toml:        WRITES the six per-guide values (TITLE, OUTPUT_SLUG,
                        AUTHOR, DESCRIPTION, KEYWORDS, COPYRIGHT_YEAR).
-                       build.py reads these via kitconfig — no build.py
-                       literals are substituted anymore.
+                       Every renderer reads these through kitconfig — no script
+                       holds a guide-specific literal to substitute anymore.
   * templated files:   re-renders every `templated` destination (pixi.toml,
                        verify.yml, kit-drift.yml) with the FORK's identity via the
                        same path sync uses, so the fork does not silently inherit
                        the kit's slug / paths filter.
-  * README / CLAUDE.md: fills {{GUIDE_NAME}} / {{GUIDE_SLUG}} (and drops the
-                       "getting started from this template" section / the
+  * README / CLAUDE.md: fills {{GUIDE_NAME}} / {{GUIDE_SLUG}} (and drops BOTH
+                       kit-only README sections — "Cold start: `guide-kit`" and
+                       "Getting started from this template" — plus the
                        <DESCRIBE YOUR GUIDE> placeholder).
   * inherited PDF:     DELETES the kit's reference PDF — a fresh fork has ZERO
                        root PDFs until its own first release.
@@ -69,12 +81,12 @@ DEPLOY_EXAMPLE = ROOT / ".github" / "workflows" / "deploy.yml.example"
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*[a-z0-9]$")
 
 
-def _validate(title: str, slug: str) -> None:
+def _validate(title: str, slug: str, author: str) -> None:
     if not SENTINEL.exists():
         sys.exit(
             "bootstrap.py: this repo has already been initialized "
             "(`.template-uninitialized` is gone). Refusing to run. For an existing "
-            "guide that wants the web layer, use adopt-web.py instead."
+            "guide that wants the web layer, use adopt.py --output site --enable instead."
         )
     if not title.strip():
         sys.exit("bootstrap.py: title cannot be empty.")
@@ -85,12 +97,41 @@ def _validate(title: str, slug: str) -> None:
             f"bootstrap.py: slug {slug!r} must be kebab-case "
             "(lowercase letters, digits, dashes; must start and end alphanumeric)."
         )
+    # `required=True` on --author only rejects the FLAG being absent, never its
+    # VALUE being blank. `--author "   "` passed argparse, wrote AUTHOR = "   ",
+    # and shipped a PDF whose `/Author` was empty and whose colophon read a bare
+    # `© 2026` with nobody after it. The point of making it required was that
+    # there is no value to guess, and one space defeated it.
+    if not author.strip():
+        sys.exit(
+            "bootstrap.py: --author cannot be blank. It is the PDF's /Author and "
+            "its visible `© <year> <author>` colophon, so there is nothing sensible "
+            'to fall back to.\n  Re-run with e.g. --author "Your Name".'
+        )
 
 
 def _toml_str(s: str) -> str:
     out = (s.replace("\\", "\\\\").replace('"', '\\"')
             .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"))
     return '"' + out + '"'
+
+
+def _default_description(title: str) -> str:
+    """A DESCRIPTION derived from the fork's own title.
+
+    It becomes the PDF's `/Subject`, so the previous fallback — the kit's own
+    DESCRIPTION — made every fork announce itself as "Template repository for
+    single-document beginner-guide PDF projects". Derived text can be bland;
+    it cannot describe a different project.
+    """
+    return f"{title} — a single-document beginner guide."
+
+
+def _default_keywords(slug: str) -> str:
+    """KEYWORDS from the slug's own words, for the same reason as above: the kit's
+    list ("guide, template, pandoc, weasyprint, CC-BY-4.0") described the kit."""
+    words = [w for w in slug.split("-") if w]
+    return ", ".join(dict.fromkeys(words + ["guide"]))
 
 
 def _write_guide_toml(title, slug, author, description, keywords, copyright_year,
@@ -203,7 +244,40 @@ def _sub_readme(title: str, slug: str) -> None:
     else:
         print("  README.md        WARNING: no front-matter markers; kept the kit's opening")
     text = text.replace("{{GUIDE_NAME}}", title).replace("{{GUIDE_SLUG}}", slug)
-    text = re.sub(r"\n## Getting started from this template\n.*?(?=\n## )", "\n", text, count=1, flags=re.S)
+    # TWO sections go, not one. "Getting started from this template" was always
+    # dropped; "Cold start" was added later and nothing removed it, so a fork's
+    # README opened — under a heading still naming the KIT — by telling its
+    # reader to run `guidekit.py preflight` and `guidekit.py init`. Both are
+    # kit-only and `_prune_kit_only` deletes `guidekit.py` in this same run, so
+    # the first instruction on a new guide's landing page named a file the repo
+    # does not contain. Exactly the defect the front-matter swap was written for,
+    # one section further down.
+    #
+    # SILENT ON A MISS was the other half of the same defect. The `(?=\n## )`
+    # lookahead needs a following `##` heading, so a section that is LAST in the
+    # file, or followed by an `#`, is left in place and nothing says so. Both
+    # sections happen to contain a `python <script>.py` for a pruned file today,
+    # so the command scanner catches it indirectly — that is luck, not a design,
+    # and it disappears the moment a section stops naming a script.
+    for heading in (r"## Cold start: `guide-kit`", "## Getting started from this template"):
+        text, removed = re.subn(rf"\n{re.escape(heading)}\n.*?(?=\n## )", "\n", text,
+                                count=1, flags=re.S)
+        if not removed:
+            sys.exit(
+                f"bootstrap.py: could not remove the kit-only README section "
+                f"{heading!r}.\n"
+                "  Either the heading has been reworded, or it is matched up to the "
+                "NEXT `## ` heading and this one is last in the file (or followed "
+                "by a `#`).\n"
+                "  guide.toml and the templated files are already written; nothing "
+                "was pruned or deleted, and re-running after fixing the README is "
+                "safe. Stopping rather than continuing, because leaving the section "
+                "in place ships a guide whose front page tells its reader to run "
+                "files this script is about to delete."
+            )
+    # The two removals each leave their own blank line behind, which stacked up
+    # as three before the following heading in every fork's README.
+    text = re.sub(r"\n{3,}(?=## )", "\n\n", text)
     p.write_text(text, encoding="utf-8")
     print("  README.md        updated")
 
@@ -291,7 +365,7 @@ def _materialize_web(kit_cfg, fork_cfg, with_transforms: bool) -> None:
     domain-less fork is the cold-start persona the kit exists for. transforms.py is
     activated ONLY when --with-transforms is also given — writing it makes the
     (always-present) SOURCE_FILES entry start contributing bytes, and the terminal
-    guides deliberately do not want it. Matches adopt-web.py."""
+    guides deliberately do not want it. Matches adopt.py."""
     app_dir = ROOT / "app"
     shutil.copyfile(STYLE_SCREEN_EXAMPLE, ROOT / "style-screen.css")
 
@@ -305,11 +379,9 @@ def _materialize_web(kit_cfg, fork_cfg, with_transforms: bool) -> None:
         cfadapter.write_wrangler(app_dir, fork_cfg)
         if DEPLOY_EXAMPLE.exists():
             DEPLOY_EXAMPLE.rename(DEPLOY_EXAMPLE.with_name("deploy.yml"))
-        shutil.rmtree(TEMPLATES_WEB)
-        try:
-            TEMPLATES_WEB.parent.rmdir()
-        except OSError:
-            pass
+        # `templates/` as a whole is removed at the end of main() now — for every
+        # fork, not just this branch, which is what left a PDF-only guide holding
+        # the web and hub staging seeds.
     elif not (app_dir / "wrangler.jsonc").exists():
         sys.exit(
             "bootstrap.py: web staging dir templates/web/ is missing and app/ is not "
@@ -324,7 +396,7 @@ def _prune_kit_only(manifest) -> None:
     """Delete every KIT-ONLY path from the fork.
 
     A `--template` fork is a full copy of the kit, so it inherits the kit's own
-    machinery: the test suite, sync.py, adopt-web.py, the manifest and its
+    machinery: the test suite, sync.py, adopt.py, the manifest and its
     loader, and plans/. None of it belongs in a guide, and leaving it there is
     not merely untidy — `verify.yml`'s target branch is guarded on `tests/**`
     existing, so an inherited `tests/` makes every new fork borrow the kit's
@@ -526,21 +598,43 @@ def main() -> int:
     )
     p.add_argument("title", help='Guide title, e.g. "A Beginner\'s Guide to Foo".')
     p.add_argument("slug", help="Kebab-case slug; drives the PDF filename and pixi project name.")
-    p.add_argument("--author", help="Author name.")
-    p.add_argument("--description", help="Short guide description (guide.toml DESCRIPTION).")
-    p.add_argument("--keywords", help="Comma-separated keywords (guide.toml KEYWORDS).")
+    # REQUIRED, and it is the one flag here that had to become so. It used to
+    # fall back to the kit's AUTHOR, which is not an inert default: AUTHOR is the
+    # PDF's `/Author` and the visible `© <year> <author>` colophon, so a fork
+    # that omitted it published its guide under the KIT OWNER's copyright. There
+    # is no value to guess, so this refuses instead of guessing.
+    p.add_argument("--author", required=True,
+                   help="Author name. Appears in the PDF's copyright line.")
+    p.add_argument("--description", help="Short guide description (guide.toml DESCRIPTION). "
+                                         "Default: derived from the title.")
+    p.add_argument("--keywords", help="Comma-separated keywords (guide.toml KEYWORDS). "
+                                      "Default: derived from the slug.")
     p.add_argument("--copyright-year", dest="copyright_year", type=int,
-                   help="Copyright year (default: the kit's).")
+                   help="Copyright year (default: the current year).")
     p.add_argument("--source-repo", default="rosslevinsky/guide-kit",
                    help="Upstream kit repo recorded in .template-version (a third-party fork sets its own).")
-    p.add_argument("--kit-version", default="unknown",
-                   help="Human-readable kit version label recorded in .template-version.")
+    # A FULL 40-CHARACTER COMMIT SHA, not a human-readable label — and the two
+    # descriptions were in direct tension. `verify.yml` passes this value to
+    # `actions/checkout`'s `ref:` when a target borrows the kit's test runner,
+    # and that accepts a branch, a tag or a FULL sha; a short sha fails outright
+    # with "A branch or tag with the name '<sha>' could not be found".
+    #
+    # The default is EMPTY, not "unknown". verify.yml already treats an absent
+    # value as "borrow the kit's default branch" and says nothing; "unknown" fell
+    # through to the unrecognised-ref branch, so every fork's first CI run
+    # emitted a warning about metadata bootstrap itself had written.
+    p.add_argument("--kit-version", default="",
+                   help="Kit commit this fork was created from: a FULL 40-char SHA "
+                        "(a tag or branch name also resolves). Recorded in "
+                        ".template-version and used as the checkout ref when CI "
+                        "borrows the kit's test runner. Default: empty, meaning "
+                        "the kit's default branch.")
     p.add_argument("--with-web", action="store_true", help="Materialize the opt-in web layer.")
     p.add_argument("--with-transforms", action="store_true",
                    help="Also activate the transforms.py hook (only meaningful with --with-web).")
     args = p.parse_args()
 
-    _validate(args.title, args.slug)
+    _validate(args.title, args.slug, args.author)
 
     # Capture the KIT's values + managed digest from the PRISTINE --template copy,
     # before any edit — these are what the fork records for drift comparison.
@@ -557,12 +651,20 @@ def main() -> int:
     shape = "web-enabled" if args.with_web else "pdf-only"
 
     print(f"Initializing fork as {args.title!r} (slug: {args.slug})...")
+    # NOTHING HERE FALLS BACK TO `kit_cfg`. Every one of these four reaches the
+    # reader — AUTHOR as the copyright colophon and `/Author`, DESCRIPTION as
+    # `/Subject`, KEYWORDS as `/Keywords`, COPYRIGHT_YEAR as the year beside the
+    # author — so inheriting the kit's values shipped a fork that claimed to be
+    # the kit, written by the kit's author. The defaults below are DERIVED from
+    # what the adopter actually supplied, which can be wrong but can never be
+    # somebody else's.
     _write_guide_toml(
         args.title, args.slug,
-        args.author or kit_cfg.AUTHOR,
-        args.description or kit_cfg.DESCRIPTION,
-        args.keywords or kit_cfg.KEYWORDS,
-        args.copyright_year if args.copyright_year is not None else kit_cfg.COPYRIGHT_YEAR,
+        args.author,
+        args.description or _default_description(args.title),
+        args.keywords or _default_keywords(args.slug),
+        args.copyright_year if args.copyright_year is not None
+        else _datetime.date.today().year,
         with_web=args.with_web,
     )
     fork_cfg = kitconfig.load(ROOT)
@@ -589,6 +691,22 @@ def main() -> int:
     # _write_template_version has recorded the projections.
     _prune_kit_only(kitmanifest.load(ROOT))
     _prune_readme(args.with_web)
+
+    # The STAGING tree goes too. `templates/` holds the seeds bootstrap and
+    # adopt COPY FROM — `templates/web/` into `app/`, `templates/hub/` for a hub
+    # repo, `templates/assets/` for the asset directories — and `_prune_kit_only`
+    # keeps them all, because it removes only entries with no destination and
+    # every one of these projects somewhere. So a PDF-only fork shipped a hub
+    # registry it will never build, an npm scaffold it never installs, and
+    # `templates/web/package-lock.json`, which is a dependency lockfile for
+    # nothing and which Dependabot will still raise alerts against.
+    #
+    # Nothing in a fork reads them: `adopt.py --output site --enable` copies from
+    # the KIT checkout it is run out of, never from the target.
+    templates = ROOT / "templates"
+    if templates.exists():
+        shutil.rmtree(templates)
+        print("  templates/       removed (staging seeds, copied from the kit)")
 
     SENTINEL.unlink()
     print("  .template-uninitialized  removed")

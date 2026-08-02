@@ -81,12 +81,24 @@ projects_to = "guide.md"
 policy = "never"
 """
 
+# A `never` web projection as well as an `identical` one, and the pair is the
+# point. With only the `identical` entry, every adoption test ran against a
+# fixture with no TARGET-OWNED web file in it — so `enable()` comparing such a
+# file against the kit's seed and refusing on any difference passed the whole
+# suite while breaking the only documented way to add a website to an existing
+# guide. A fixture that cannot express the real manifest's shape cannot test it.
 _MANIFEST_WEB_EXTRA = """\
 [[entry]]
 path = ".github/workflows/deploy.yml.example"
 lifecycle = "bootstrap-source"
 projects_to = ".github/workflows/deploy.yml"
 policy = "identical"
+
+[[entry]]
+path = "style-screen.css.example"
+lifecycle = "bootstrap-source"
+projects_to = "style-screen.css"
+policy = "never"
 """
 
 
@@ -135,6 +147,9 @@ def sync_env(tmp_path):
         if shape == "web-enabled":
             (kit / ".github" / "workflows").mkdir(parents=True)
             (kit / ".github" / "workflows" / "deploy.yml.example").write_text("deploy workflow v1\n", encoding="utf-8")
+            # The kit's SEED, deliberately different from what the target owns
+            # below — that difference is the state `enable()` used to refuse.
+            (kit / "style-screen.css.example").write_text("body{color:seed}\n", encoding="utf-8")
             manifest = manifest + "\n" + _MANIFEST_WEB_EXTRA
         (kit / "kit-manifest.toml").write_text(manifest, encoding="utf-8")
 

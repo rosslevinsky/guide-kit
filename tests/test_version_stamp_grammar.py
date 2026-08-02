@@ -368,19 +368,27 @@ def test_more_than_one_unstamped_page_fails_CLOSED(monkeypatch):
                          (y, 140.0, "abcdef123456")])
     bare = (_PAGE_H, [(100.0, 54.0, "body text well above the band")])
 
-    def pages(n_stamped, n_bare):
-        return lambda _pdf: [stamped] * n_stamped + [bare] * n_bare
+    def pages(*seq):
+        return lambda _pdf: [bare if p == "bare" else stamped for p in seq]
+
+    def resolves(*seq):
+        monkeypatch.setattr(verify_artifacts, "_pages_with_boxes", pages(*seq))
+        return verify_artifacts.read_stamp_from_band(Path("ignored.pdf"))
 
     # No bare pages: resolves.
-    monkeypatch.setattr(verify_artifacts, "_pages_with_boxes", pages(4, 0))
-    got = verify_artifacts.read_stamp_from_band(Path("ignored.pdf"))
-    assert got is not None and got.hash == "abcdef123456"
+    assert (resolves("s", "s", "s", "s") or None) and resolves("s", "s").hash == "abcdef123456"
 
-    # Exactly one — the suppressed-first-page convention — still resolves.
-    monkeypatch.setattr(verify_artifacts, "_pages_with_boxes", pages(3, 1))
-    got = verify_artifacts.read_stamp_from_band(Path("ignored.pdf"))
-    assert got is not None and got.hash == "abcdef123456"
+    # The suppressed-FIRST-page convention — the only tolerated gap.
+    assert resolves("bare", "s", "s", "s").hash == "abcdef123456"
+
+    # THE SAME COUNT, IN THE WRONG PLACE, MUST FAIL. This test asserted the
+    # opposite: it built three stamped pages followed by a bare one and called
+    # that "the suppressed-first-page convention", so it blessed a PDF that had
+    # lost its footer on its LAST page. The implementation counted gaps instead
+    # of locating them, and the test agreed with the implementation rather than
+    # with the convention both of them named.
+    assert resolves("s", "s", "s", "bare") is None
+    assert resolves("s", "bare", "s", "s") is None
 
     # Two or more means the footer is going missing where it was meant to be.
-    monkeypatch.setattr(verify_artifacts, "_pages_with_boxes", pages(3, 2))
-    assert verify_artifacts.read_stamp_from_band(Path("ignored.pdf")) is None
+    assert resolves("bare", "bare", "s", "s") is None

@@ -87,6 +87,14 @@ def _git(root: Path, *args: str) -> str:
     ).stdout
 
 
+def _head_sha(root: Path) -> str:
+    """The kit's current commit, or "" if it cannot be read."""
+    try:
+        return _git(root, "rev-parse", "HEAD").strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return ""
+
+
 def _is_dirty(root: Path) -> bool:
     try:
         return bool(_git(root, "status", "--porcelain").strip())
@@ -181,12 +189,12 @@ def _strip_kit_only(text: str, where: str = "templated file") -> str:
     """Drop every kit-only region (marker lines included). Unbalanced or nested
     markers are an error rather than a silent partial strip — a missed strip
     leaks the kit's test env into a target, which is the bug this prevents."""
-    out, depth, seen = [], 0, 0
+    out, depth = [], 0
     for line in text.splitlines(keepends=True):
         if KIT_ONLY_BEGIN in line:
             if depth:
                 raise SyncError(f"{where}: nested '{KIT_ONLY_BEGIN}'")
-            depth, seen = 1, seen + 1
+            depth = 1
             continue
         if KIT_ONLY_END in line:
             if not depth:
@@ -246,9 +254,32 @@ def _read_template_version(target: Path) -> dict | None:
     if not p.is_file():
         return None
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        record = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise SyncError(f"{TEMPLATE_VERSION} is not valid JSON: {exc}") from exc
+    # VALID JSON IS NOT ENOUGH. `null` parses, and returning it here made the
+    # file indistinguishable from an absent one — so sync said "run --adopt" and
+    # --adopt said "you already have a .template-version", with nothing
+    # suggesting the way out. `[]`, `""` and a number parse too, and every
+    # caller then does `.get()` on them, so the promised SyncError arrived as an
+    # AttributeError traceback instead.
+    if not isinstance(record, dict):
+        raise SyncError(
+            f"{TEMPLATE_VERSION} is valid JSON but not an object (got "
+            f"{type(record).__name__}). It records adoption state as a mapping; "
+            f"delete the file to re-adopt with `sync.py <guide> --adopt`."
+        )
+    # A record from a NEWER sync than this one. Written since the format was
+    # introduced and never read, which made it a version gate that gated
+    # nothing — the one thing a schema version exists to prevent.
+    version = record.get("schema_version")
+    if version is not None and version > SCHEMA_VERSION:
+        raise SyncError(
+            f"{TEMPLATE_VERSION} declares schema_version {version}, newer than "
+            f"this sync understands ({SCHEMA_VERSION}). Update the kit checkout "
+            f"you are running from rather than letting an older tool rewrite it."
+        )
+    return record
 
 
 def _atomic_write(dest: Path, data: bytes) -> None:
@@ -263,6 +294,13 @@ def _atomic_write(dest: Path, data: bytes) -> None:
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
+            # FLUSH + FSYNC before the rename. `os.replace` is atomic with
+            # respect to the DIRECTORY ENTRY, which is what stops a reader ever
+            # seeing a half-written file — but it says nothing about the data
+            # reaching disk. Without this, a power loss just after the rename can
+            # publish a file whose name is committed and whose contents are not.
+            f.flush()
+            os.fsync(f.fileno())
         # mkstemp creates the temp 0600; preserve the destination's existing mode
         # (or a sane 0644 for a new file) so a sync never silently tightens or
         # loosens permissions on the file it replaces.
@@ -384,14 +422,32 @@ def build_plan(kit_root: Path, target: Path) -> tuple[list[Item], dict | None, s
             continue
 
         current_check = _sha256(_checkable_bytes(proj.policy, current))
-        if current_check != recorded[proj.dest]:
+        diverged = current_check != recorded[proj.dest]
+        # MANAGED-REGION IS THE ONE TIER WHERE A DIVERGENCE IS NOT A REFUSAL, and
+        # that is what the documentation has always promised: both `CLAUDE.md`
+        # files tell every guide that editing inside `kit:begin`/`kit:end` is
+        # "wasted work — the next sync overwrites it". It was not. Sync refused
+        # the file AND, because one refusal aborts the run, every other file with
+        # it: one edited heading in the shared block stopped an unrelated
+        # `build.py` update from landing.
+        #
+        # Overwriting is the designed behaviour, not a concession —
+        # `_checkable_bytes` scopes the comparison to the MARKED BLOCK, which is
+        # kit-owned, and `_render_managed` rebuilds it from the kit while
+        # preserving every byte the guide owns outside the markers. So nothing of
+        # the target's is lost, and the reason below says what happened rather
+        # than doing it silently.
+        if diverged and proj.policy != "managed-region":
             items.append(Item(proj.dest, dest_abs, proj.policy, None, None, "refuse",
                               "local modification does not match recorded checksum"))
             continue
 
         action = "in-sync" if current == expected else "update"
         items.append(Item(proj.dest, dest_abs, proj.policy, expected,
-                          _checkable_bytes(proj.policy, expected), action))
+                          _checkable_bytes(proj.policy, expected), action,
+                          "the managed region had local edits; reset from the kit "
+                          "(your sections outside the markers are untouched)"
+                          if diverged else ""))
 
     items += _deletions(kit_root, target, manifest, shape, slug, recorded, projected, declared)
     return items, tv, kit_digest
@@ -595,15 +651,15 @@ def _safe_inventory_key(dest_rel: str) -> bool:
 # apply (transactional, rollback journal)
 # ---------------------------------------------------------------------------
 
-def _apply(target: Path, items: list[Item], tv: dict, kit_digest: str) -> None:
+def _apply(kit_root: Path, target: Path, items: list[Item], tv: dict,
+           kit_digest: str) -> None:
     to_write = [it for it in items if it.action in ("create", "update")]
     to_delete = [it for it in items if it.action == "delete"]
     to_forget = [it for it in items if it.action == "forget"]
-    # Journal holds only destinations ALREADY replaced (prior bytes, or None if
-    # the dest did not exist). Because _atomic_write is atomic, a FAILED write
-    # leaves its dest unchanged — so we journal a dest only AFTER its write
-    # succeeds, and rollback never has to "restore" a dest whose write is the one
-    # that's failing (which would abort the rollback and strand earlier writes).
+    # Journal holds each destination's PRIOR bytes (or None if it did not exist).
+    # See the entry below for the ordering, which is BEFORE the write — an
+    # earlier version of this comment claimed after, and was contradicted three
+    # lines down by both the code and its own inline note.
     journal: list[tuple[Path, bytes | None]] = []
     written = 0
     try:
@@ -647,6 +703,20 @@ def _apply(target: Path, items: list[Item], tv: dict, kit_digest: str) -> None:
         new_tv["rendered_checksums"] = recorded
         new_tv["state"] = "applied"          # clears adopted_unapplied
         new_tv["managed_digest"] = kit_digest  # the SAME snapshot the plan wrote from
+        # ADVANCE kit_version to the commit actually applied. It only ever
+        # recorded the ADOPTION commit, and it is not inert metadata: verify.yml
+        # feeds it to `actions/checkout`'s `ref:` when a target borrows the kit's
+        # test suite, so a guide ran today's files against the kit as it stood at
+        # adoption. The family had been correcting it by hand — a "Re-point
+        # kit_version" commit per guide per sync.
+        #
+        # Best-effort: a kit checkout with no readable HEAD leaves the recorded
+        # value alone rather than failing an otherwise good apply over a
+        # provenance field. Full 40-char sha, which is the only form that `ref:`
+        # resolves (a short one fails outright).
+        head = _head_sha(kit_root)
+        if head:
+            new_tv["kit_version"] = head
         tv_path = target / TEMPLATE_VERSION
         tv_prior = tv_path.read_bytes() if tv_path.exists() else None
         journal.append((tv_path, tv_prior))
@@ -654,6 +724,13 @@ def _apply(target: Path, items: list[Item], tv: dict, kit_digest: str) -> None:
     except BaseException:
         # Best-effort rollback across EVERY journaled entry (a single restore
         # failure must not abort the rest); report any that could not be restored.
+        #
+        # WHAT THIS DOES NOT COVER, since the guarantee is easy to over-read: a
+        # RAISED exception rolls back. An uncatchable kill (SIGKILL, power loss)
+        # between the first write and the `.template-version` write does not, and
+        # leaves files carrying the kit's new bytes against the old recorded
+        # checksums — which every later run then refuses as the operator's own
+        # edits. `git checkout -- .` in the target is the recovery.
         for dest, prior in reversed(journal):
             try:
                 if prior is None:
@@ -756,9 +833,23 @@ def adopt(kit_root: Path, target: Path, source_repo: str, kit_version: str,
 
 def drift_report(kit_root: Path, target: Path) -> tuple[bool, list[str]]:
     """Return (drifted, messages). A target drifts if it is adopted-but-unapplied,
-    or the kit's managed digest has moved since it last synced (upstream drift),
+    or the kit has managed content it has not taken yet (upstream drift),
     or its own managed files were edited away from the recorded checksums
     (local drift). Warn-only — the caller decides how to surface it."""
+    # "UP TO DATE" must mean CHECKED AND CLEAN, never "never looked". Without
+    # this, a family sweep with a typo'd or not-yet-cloned path reported a clean
+    # bill of health, and `kit-drift.yml` greps that verdict. `run_sync` has
+    # always guarded this; this path did not.
+    if not target.is_dir():
+        return True, [f"{target} is not a directory — nothing was checked"]
+
+    # "UP TO DATE" must mean CHECKED AND CLEAN, never "never looked". Without
+    # this, a family sweep with a typo'd or not-yet-cloned path reported a clean
+    # bill of health, and `kit-drift.yml` greps that verdict. `run_sync` has
+    # always guarded this; this path did not.
+    if not target.is_dir():
+        return True, [f"{target} is not a directory — nothing was checked"]
+
     kit_root, target = kit_root.resolve(), target.resolve()
     tv = _read_template_version(target)
     if tv is None:
@@ -770,12 +861,35 @@ def drift_report(kit_root: Path, target: Path) -> tuple[bool, list[str]]:
         drifted = True
         msgs.append(f"{target.name}: state is adopted_unapplied — behind (run --apply).")
 
-    kit_digest = compute_managed_digest(kit_root)
-    if tv.get("managed_digest") != kit_digest:
+    # ASKED THROUGH build_plan — the same question `sync <guide>` answers, and
+    # that is the whole point. This compared a kit-wide `managed_digest`, and the
+    # two disagreed for two structural reasons: the digest resolves against the
+    # `web-enabled` shape unconditionally, so a WEB-ONLY kit change flagged a
+    # PDF-ONLY target; and it hashes managed source bytes including the kit-only
+    # regions `_strip_kit_only` provably never ships. Measured: after a one-line
+    # edit to `deploy.yml.example`, `--check-drift` said DRIFT DETECTED while the
+    # documented remedy said "in sync — nothing to do" and exited 0. A warning
+    # whose own remedy reports nothing to do is one people learn to ignore.
+    #
+    # `build_plan` compares RENDERED bytes for the target's REAL shape, so it is
+    # narrower and exact. A refusal counts as drift: it means a managed file was
+    # edited locally, which is a thing to act on. `managed_digest` is still
+    # RECORDED as provenance — what the kit looked like at the last apply — but
+    # it decides nothing.
+    try:
+        items, _, _ = build_plan(kit_root, target)
+    except SyncError as exc:
+        return True, msgs + [f"{target.name}: {exc}"]
+    # The same predicate `run_sync` uses for "nothing to do", so the two commands
+    # cannot disagree about one target.
+    pending = [it.dest_rel for it in items
+               if it.action in ("create", "update", "delete", "forget", "refuse")]
+    if pending:
         drifted = True
         msgs.append(
-            f"{target.name}: upstream managed content changed "
-            f"(recorded {str(tv.get('managed_digest'))[:12]} != kit {kit_digest[:12]}) — run sync."
+            f"{target.name}: upstream managed content changed — {len(pending)} "
+            f"file(s) behind the kit "
+            f"({', '.join(pending[:5])}{'…' if len(pending) > 5 else ''}) — run sync."
         )
 
     # Local drift: a managed file edited away from its recorded checksum.
@@ -867,22 +981,49 @@ def run_sync(kit_root: Path, target: Path, apply: bool) -> int:
             sys.stderr.write(f"  REFUSE {it.dest_rel} — {it.reason}\n")
         sys.stderr.write(f"{target.name}: refusing to apply — resolve the above first.\n")
         return EXIT_DRIFT
-    _apply(target, updates, tv, kit_digest)
+    _apply(kit_root, target, updates, tv, kit_digest)
     print(f"{target.name}: applied {len(updates)} update(s).")
     return EXIT_OK
 
 
+def _resolve_target(kit_root: Path, guide: str) -> Path:
+    """A bare NAME resolves as a sibling of the kit; anything path-shaped is taken
+    as written.
+
+    Sibling-only used to be the entire vocabulary — `kit_root.parent / guide` —
+    and no document said so. `README.md` shows `python sync.py <guide>` and
+    describes no workspace layout, so a guide checked out anywhere else failed
+    with a message naming a path the operator had never typed. Accepting a path
+    costs one branch and removes a constraint the tool had no reason to impose.
+    """
+    p = Path(guide)
+    if p.is_absolute() or len(p.parts) > 1 or p.exists():
+        return p.resolve()
+    return (kit_root.parent / guide).resolve()
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Sync the kit's shared files into a sibling guide (copy-and-checksum).",
-        epilog="Run from the workspace root: `python guide-kit/sync.py <guide> [--apply]`.",
+        description="Sync the kit's shared files into a guide (copy-and-checksum).",
+        epilog=("From a workspace root where the guides sit beside the kit: "
+                "`python guide-kit/sync.py <guide> [--apply]`. A guide anywhere "
+                "else: pass its path instead of its name."),
     )
-    p.add_argument("guide", nargs="?", help="Sibling guide directory name (for sync / --adopt).")
+    p.add_argument("guide", nargs="?",
+                   help="Guide directory: a bare name is resolved as a sibling of "
+                        "the kit; a path is used as given.")
     p.add_argument("--apply", action="store_true", help="Write the changes (default: dry-run).")
     p.add_argument("--adopt", action="store_true",
                    help="First-contact adoption (needs --source-repo and --kit-version).")
     p.add_argument("--source-repo", help="Upstream kit repo recorded at adoption (e.g. rosslevinsky/guide-kit).")
-    p.add_argument("--kit-version", help="Human-readable kit version label recorded at adoption.")
+    # Same contract as bootstrap.py's: this becomes `actions/checkout`'s `ref:`
+    # in verify.yml, which resolves a branch, a tag or a FULL 40-char sha and
+    # fails outright on a short one. "Human-readable label" is what this said,
+    # and it was in direct tension with the workflow that consumes the value.
+    p.add_argument("--kit-version",
+                   help="Kit commit adopted: a FULL 40-char SHA (a tag or branch "
+                        "name also resolves). Used as CI's checkout ref for the "
+                        "borrowed kit test runner.")
     p.add_argument("--yes", action="store_true", help="Skip the adoption confirmation prompt.")
     p.add_argument("--managed-digest", action="store_true",
                    help="Print the kit's computed managed-content digest and exit.")
@@ -911,7 +1052,7 @@ def main(argv: list[str] | None = None) -> int:
             return EXIT_OK  # warn-only: the scheduled check must never fail the run
         if not args.guide:
             p.error("a guide is required for sync / --adopt")
-        target = kit_root.parent / args.guide
+        target = _resolve_target(kit_root, args.guide)
         if args.adopt:
             if not args.source_repo or not args.kit_version:
                 p.error("--adopt requires --source-repo and --kit-version")

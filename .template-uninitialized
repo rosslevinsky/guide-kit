@@ -1,7 +1,10 @@
-This sentinel file marks the unrenamed template. While it exists, build.py's
-template-hygiene check (`_check_template_hygiene`) is suppressed so the
-template itself can build its own guide-template.pdf with placeholders present in
-README.md and CLAUDE.md.
+This sentinel file marks the unrenamed template. While it exists, the
+template-hygiene check in `buildcore.py` (`_check_template_hygiene`) is
+suppressed so the template itself can build its own guide-template.pdf with
+placeholders present in README.md and CLAUDE.md.
 
-`bootstrap.py` deletes this file (and itself) after substituting the fork's
-own title, slug, and author into build.py / pixi.toml / README.md / CLAUDE.md.
+`bootstrap.py` deletes this file (and itself) after writing the fork's own
+title, slug and author into `guide.toml` — which is where every per-guide value
+now lives — and re-rendering the `templated` files (pixi.toml, verify.yml,
+kit-drift.yml) plus README.md and CLAUDE.md with that identity. No renderer
+carries a guide-specific literal, so nothing is substituted into build.py.

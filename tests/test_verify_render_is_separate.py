@@ -138,21 +138,32 @@ def test_baseline_smoke_checks_before_committing():
 
 
 def test_verify_can_dispatch_baseline():
-    """verify.yml needs `actions: write` to auto-dispatch baseline.yml.
+    """The dispatching JOB needs `actions: write` to auto-dispatch baseline.yml.
 
     Without it the dispatch fails at runtime, the reference PDF stays stale, and
     the branch stays red — the exact manual-memory failure the auto-dispatch was
     added to remove.
+
+    Asked of the JOB rather than the workflow, and that is the whole point of the
+    split: at workflow level the grant also covered the `pull_request` trigger,
+    whose job runs PR-authored code. So this asserts BOTH halves — the job that
+    dispatches has the permission, and the workflow as a whole does not.
     """
     data, _ = _load_workflow()
-    perms = data.get("permissions") or {}
-    runs = _run_commands(data)
-    dispatches = any("workflow run baseline.yml" in r for r in runs)
-    assert dispatches, "verify.yml must auto-dispatch baseline.yml when the reference is stale"
-    assert perms.get("actions") == "write", (
-        f"verify.yml dispatches a workflow but declares permissions={perms!r}; "
-        "it needs `actions: write`"
+    assert (data.get("permissions") or {}).get("actions") != "write", (
+        "`actions: write` is back at workflow level, where it applies to the "
+        "pull_request trigger as well as the push it is for"
     )
+    dispatching = [j for j in data["jobs"].values()
+                   if any("workflow run baseline.yml" in (s.get("run") or "")
+                          for s in (j.get("steps") or []))]
+    assert dispatching, "verify.yml must auto-dispatch baseline.yml when the reference is stale"
+    for job in dispatching:
+        perms = job.get("permissions") or {}
+        assert perms.get("actions") == "write", (
+            f"a job dispatches a workflow but declares permissions={perms!r}; "
+            "it needs `actions: write`"
+        )
 
 
 def test_ci_paths_filter_includes_reference_pdf():

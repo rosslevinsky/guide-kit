@@ -12,9 +12,17 @@ name: verify
 #
 # Cost controls (deliberate):
 #   * Ubuntu only. macOS runners bill at 10x and Windows at 2x the Linux rate.
-#   * paths filters. Doc-only / plan-only pushes (README, CLAUDE.md, LICENSE,
-#     plans/, .gitignore) change no rendered output, so they skip CI. The root
-#     reference PDF (`*.pdf`) IS filtered in: a commit touching only the
+#   * paths filters. These are an ALLOW-LIST, not an ignore-list: a path absent
+#     from them does not run CI, so forgetting one is silent. What is deliberately
+#     left out is prose and maintainer material — README.md, CLAUDE.md,
+#     CONTRIBUTING.md, LICENSE*, docs/**, plans/, .gitignore — none of which
+#     changes a rendered output. Everything with a test behind it belongs IN, and
+#     31 tracked files were not: `cfadapter.py`, `hub.py`, `adopt.py`,
+#     `guidekit.py`, `verify_web.py`, `pdfaudit.py`, `tools/**`, `templates/**`
+#     and — most consequentially — the root `package-lock.json`, which determines
+#     what `tests/test_nav_dom.py` actually executes in jsdom. Their own tests
+#     never ran on their own change.
+#     The root reference PDF (`*.pdf`) IS filtered in: a commit touching only the
 #     reader-facing deliverable must still be gated by the staleness check.
 
 on:
@@ -34,6 +42,11 @@ on:
       - 'render_site.py'
       - 'chapters.py'
       - 'render_slides.py'
+      # The deck's SOURCE when `[slides] source` resolves to a file. It is a
+      # declared closure member of an artifact that HAS a committed reference,
+      # so without this an edit to it triggered nothing at all, while staleness
+      # IS asked of the deck — permanently stale, with no red check anywhere.
+      - 'slides.md'
       - 'transforms.py'
       - 'fonts/**'
       - 'assets/shared/**'
@@ -54,6 +67,19 @@ on:
       - 'sync.py'
       - 'driftcanary.py'
       - 'tests/**'
+      - 'cfadapter.py'
+      - 'hub.py'
+      - 'adopt.py'
+      - 'guidekit.py'
+      - 'verify_web.py'
+      - 'pdfaudit.py'
+      - 'tools/**'
+      - 'templates/**'
+      - 'style-screen.css.example'
+      - 'transforms.py.example'
+      - '.template-uninitialized'
+      - 'package.json'
+      - 'package-lock.json'
       - '*.pdf'
       - '.github/workflows/**'
   pull_request:
@@ -72,6 +98,11 @@ on:
       - 'render_site.py'
       - 'chapters.py'
       - 'render_slides.py'
+      # The deck's SOURCE when `[slides] source` resolves to a file. It is a
+      # declared closure member of an artifact that HAS a committed reference,
+      # so without this an edit to it triggered nothing at all, while staleness
+      # IS asked of the deck — permanently stale, with no red check anywhere.
+      - 'slides.md'
       - 'transforms.py'
       - 'fonts/**'
       - 'assets/shared/**'
@@ -92,6 +123,19 @@ on:
       - 'sync.py'
       - 'driftcanary.py'
       - 'tests/**'
+      - 'cfadapter.py'
+      - 'hub.py'
+      - 'adopt.py'
+      - 'guidekit.py'
+      - 'verify_web.py'
+      - 'pdfaudit.py'
+      - 'tools/**'
+      - 'templates/**'
+      - 'style-screen.css.example'
+      - 'transforms.py.example'
+      - '.template-uninitialized'
+      - 'package.json'
+      - 'package-lock.json'
       - '*.pdf'
       - '.github/workflows/**'
   # The drift canary's own trigger. A rebuilt runner image or a refreshed
@@ -102,15 +146,19 @@ on:
     - cron: '27 6 * * 1'
   workflow_dispatch:
 
-# Least privilege, plus exactly what the auto-baseline step needs.
-# `actions: write` is required to dispatch baseline.yml; without it the dispatch
-# fails and the step's error annotation tells the operator to run it by hand.
-# `contents: read` only — this workflow never writes to the repo. The refreshed
-# reference PDF is committed by baseline.yml, which declares its own
-# `contents: write`.
+# Least privilege at the WORKFLOW level, which is the level that governs the
+# pull_request trigger. `contents: read` only — this workflow never writes to the
+# repo, and the refreshed reference PDF is committed by baseline.yml, which
+# declares its own `contents: write`.
+#
+# `actions: write` — needed to dispatch baseline.yml — is declared on the
+# `dispatch-baseline` JOB instead, and that job runs on pushes to the default
+# branch only. Declared here it applied to the `pull_request` trigger too, whose
+# job executes PR-authored code (`npm ci`, `pytest`, `make`) while holding the
+# token that can start any workflow in the repository. The sole consumer of the
+# permission was already gated to default-branch pushes; the grant was not.
 permissions:
   contents: read
-  actions: write
 
 # Cancel in-flight runs on the same ref when a new commit comes in. Keeps PR
 # iteration loops snappy and saves CI minutes.
@@ -129,13 +177,19 @@ jobs:
     name: verify
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Published so `dispatch-baseline` can key on the VERDICT rather than on this
+    # job's success. The two are not the same: the staleness step deliberately
+    # exits 0 on an expected-stale push, so "did it pass?" says nothing about
+    # whether the reference needs rebuilding.
+    outputs:
+      staleness_rc: ${{ steps.staleness.outputs.rc }}
     defaults:
       run:
         # Bash so the Makefile's awk-based OUTPUT_SLUG scrape works.
         shell: bash
     steps:
       - name: Check out repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           # Full history so `git status` sees the real tree state for the
           # stamp's dirty marker, and so the reference PDF's own history is
@@ -145,7 +199,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
+        uses: prefix-dev/setup-pixi@ba3bb36eb2066252b2363392b7739741bb777659  # v0.8.1
         with:
           # pixi.lock pins exact versions per-platform for reproducible
           # rendering. Don't run `pixi update` from CI — let major-bound
@@ -172,7 +226,7 @@ jobs:
       # harness to run in the first place.
       - name: Set up node (kit only)
         if: hashFiles('package-lock.json') != ''
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           node-version: '22'
           cache: npm
@@ -191,15 +245,37 @@ jobs:
       #     needs to borrow the runner; the kit is the source and never has one.
       #   * the test run is guarded on `tests/` EXISTING — true for the kit and for
       #     five of seven targets; the rest skip rather than fail on empty collection.
-      # `.template-version` lands in targets in Phase 6, so the target branch is
-      # inert in the kit today; the kit branch works from Phase 1 onward.
+      # `.template-version` exists only in an adopted TARGET, so the target branch
+      # below is inert in the kit itself; the kit branch is the one that runs here.
       - name: Resolve kit repo (targets only)
         id: kit
         if: hashFiles('.template-version') != ''
         run: |
           # source_repo is the upstream kit a target borrows its test runner from.
-          # .template-version is a JSON structured record (finalized in Phase 6).
-          SRC=$(python3 -c "import json; print(json.load(open('.template-version'))['source_repo'])")
+          # .template-version is a JSON structured record.
+          #
+          # VALIDATED as owner/repo before it is echoed into $GITHUB_OUTPUT, and
+          # this is the workflow where it matters most: the value is checked out
+          # below and its pixi manifest is EXECUTED, and this workflow is the one
+          # holding `actions: write`. A value containing a newline injects further
+          # outputs; `kit-drift.yml` has validated the identical field since it
+          # was written, and this one was reading it raw.
+          SRC=$(python3 - <<'PY'
+          import json, re, sys
+          s = json.load(open(".template-version")).get("source_repo", "")
+          if not re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", s):
+              sys.exit(1)
+          print(s)
+          PY
+          ) || {
+            # FAILS CLOSED, where kit-drift.yml warns and skips. That workflow is
+            # advisory; this one is the gate, and the step below would try to run
+            # pixi out of a `_kit` checkout that never happened — a confusing
+            # failure two steps from its cause. A malformed source_repo in an
+            # adopted target is a real defect in that target's own record.
+            echo "::error::.template-version source_repo is missing or is not owner/repo"
+            exit 1
+          }
           echo "source_repo=$SRC" >> "$GITHUB_OUTPUT"
           # Pin the borrowed runner to the kit version this guide actually
           # adopted. Without a ref the checkout takes the kit's default-branch
@@ -227,7 +303,7 @@ jobs:
 
       - name: Check out kit test runner (targets only)
         if: steps.kit.outputs.source_repo != '' && hashFiles('tests/**') != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           repository: ${{ steps.kit.outputs.source_repo }}
           # Empty ref falls back to the default branch, which is the right
@@ -255,8 +331,14 @@ jobs:
       - name: Read the declared shape
         id: shape
         run: |
-          awk -F'"' '/^site[[:space:]]*=/{print "site="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
-          awk -F'=' '/^pdf[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print "pdf="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
+          # THE VALIDATED LOADER, not an awk scrape. The scrape misread two legal
+          # TOML spellings, always toward disabling the gates: `[outputs]` with
+          # no `pdf` key at all (legal — `Outputs.pdf` defaults to true) printed
+          # nothing, so the output was UNSET and read as "no PDF"; and
+          # `pdf = true  # a comment` yielded `true#acomment`, which is not
+          # `true`. `kitconfig` is stdlib-only by design, so plain `python3`
+          # reaches it with no pixi environment.
+          python3 -c "import kitconfig; c = kitconfig.load(); print(f'site={c.outputs.site}'); print(f'pdf={str(c.outputs.pdf).lower()}')" >> "$GITHUB_OUTPUT"
 
       # PDF build smoke — catches "the pipeline crashes" regressions. Skipped for
       # a shape that declares no PDF: `make` would be building an artifact the
@@ -264,6 +346,14 @@ jobs:
       - name: make (PDF build smoke)
         if: steps.shape.outputs.pdf == 'true'
         run: make
+
+      # The DECK's build smoke, and it had none. `make verify` and `make smoke`
+      # both inspect the COMMITTED reference, so "the deck renderer crashes" was
+      # caught by nothing here — only by someone running `make slides` by hand.
+      # `make slides` is a no-op with a notice when slides are undeclared, so this
+      # needs no shape gate of its own.
+      - name: make slides (deck build smoke)
+        run: make slides
 
       # The hub's equivalent: build the page offline from the committed
       # snapshot. Same purpose — catch a crash in the renderer — against the
@@ -286,11 +376,25 @@ jobs:
       # the site was undeclared, and the index.html assertion below failed on a
       # guide that had correctly switched its site off.
       - name: make web (web build smoke)
+        # Through env:, never interpolated into the body — the same rule the REF
+        # note in the dispatch step spells out, and `test_no_expression_is_
+        # interpolated_into_a_run_body` enforces it.
+        env:
+          SITE: ${{ steps.shape.outputs.site }}
         run: |
           SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
           DECLARED=$(pixi run python -c "import kitconfig; from pathlib import Path; print('site' in kitconfig.load(Path('.')).outputs.declared)")
           if [ "$DECLARED" != "True" ]; then
             echo "web layer not declared ([outputs] site); skipping web smoke"
+          # A HUB IS NOT BUILT BY `make web`, and saying so is the point.
+          # `deploy.yml` has always stated this; here it was skipped only by
+          # ACCIDENT, via the missing-PDF branch below — so a hub's CI reported
+          # "pre-first-release" for a repo whose `pdf = false` means it will
+          # never have one, and would have started failing the moment `hub` was
+          # removed from IMPLEMENTED_SITE_SHAPES. The hub build smoke above is
+          # this shape's real check.
+          elif [ "$SITE" = "hub" ]; then
+            echo "hub shape — built by hub.py, smoked in its own step above"
           elif [ ! -f "$SLUG.pdf" ]; then
             echo "pre-first-release — no reference PDF ($SLUG.pdf) yet; web smoke skipped"
           else
@@ -308,15 +412,13 @@ jobs:
       # real PDF worth checking, and if both are wrong an operator should see
       # both in one round rather than fix the stamp and only then discover the
       # render is broken.
-      - name: make smoke (does the reference PDF look like a guide?)
-        run: |
-          set -euo pipefail
-          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
-          if [ -f "$SLUG.pdf" ]; then
-            make smoke
-          else
-            echo "::notice::pre-first-release — no reference PDF ($SLUG.pdf) yet; nothing to smoke-check"
-          fi
+      # No PDF-existence wrapper. `make smoke` covers every declared artifact
+      # and reports a missing reference as pre-first-release itself, so the
+      # shell around this was duplicating that logic — and duplicating it for
+      # the PDF ALONE, which skipped the whole check on any guide whose PDF is
+      # absent while a deck reference is present.
+      - name: make smoke (do the committed references look finished?)
+        run: make smoke
 
       # Staleness gate — is the committed reference PDF up to date with the source?
       # No build, no render, so it is milliseconds. Run LAST so the
@@ -393,7 +495,7 @@ jobs:
             ${{ github.event_name == 'push'
                 && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
 
-      # ── Drift canary (D29) ───────────────────────────────────────────────
+      # ── Drift canary ─────────────────────────────────────────────────────
       #
       # `make verify` above asks "did the SOURCE change?". It hashes SOURCE_FILES,
       # and `pixi.lock` is not in that list — so a dependency bump that shifts how
@@ -404,9 +506,9 @@ jobs:
       # face substitution with identical text and pagination passes it.
       #
       # This renders afresh and compares BYTES plus the `pdffonts` face list. It
-      # reuses the render `make` already produced above — that is the whole reason
-      # D29 calls this cheap; it is one comparison against an artifact already in
-      # the workspace, not a second build.
+      # reuses the render `make` already produced above — which is what makes it
+      # cheap: one comparison against an artifact already in the workspace, not a
+      # second build.
       #
       # `steps.staleness.outputs.rc == '0'` is load-bearing, not an optimisation.
       # On a STALE reference a fresh render is SUPPOSED to differ, and calling
@@ -445,11 +547,53 @@ jobs:
           SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
           pixi run python driftcanary.py --fresh "build/$SLUG.pdf"
 
+  # ── Auto-baseline dispatch: its own job, for its own permission ───────────
+  #
+  # SPLIT OUT SO `actions: write` NEVER EXISTS ON THE PULL-REQUEST PATH. The
+  # grant used to sit at workflow level, where it applied to every trigger —
+  # including `pull_request`, whose `verify` job runs PR-authored code (`npm ci`,
+  # `pytest`, `make`). The consumer of the permission was already gated to
+  # default-branch pushes; the grant was not, so a PR's job held a token that can
+  # start any workflow in the repository for the whole of its run. A job boundary
+  # is the only place GitHub lets a permission be conditional.
+  #
+  # `needs.verify.outputs.staleness_rc`, not `needs.verify.result`. The staleness
+  # step exits 0 on an expected-stale push (see its own comment), so job success
+  # says nothing about whether a rebuild is owed — the VERDICT is what this keys
+  # on, exactly as the step's condition did.
+  #
+  # `!cancelled()` rather than a bare `if:`, matching what this condition was
+  # before the split: the verify job can fail for an unrelated reason while the
+  # reference is genuinely stale, and the rebuild is still owed.
+  dispatch-baseline:
+    name: dispatch baseline
+    needs: verify
+    if: >-
+      !cancelled()
+      && needs.verify.outputs.staleness_rc == '1'
+      && github.event_name == 'push'
+      && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # Full history: the guard below resolves this push's commit range with
+      # `git diff BEFORE AFTER`, and a shallow clone cannot.
+      - name: Check out repo
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          fetch-depth: 0
+
       # ── Auto-baseline: rebuild the reference PDF when a content push made it
       #    stale ───────────────────────────────────────────────────────────────
       #
-      # NOTE THE CONDITION BELOW KEYS ON `staleness`, NEVER ON THE CANARY, and
-      # that separation is the point of D29 rather than an accident of ordering.
+      # NOTE THE JOB CONDITION ABOVE KEYS ON `staleness`, NEVER ON THE CANARY,
+      # and that separation is deliberate rather than an accident of ordering.
       # A stale reference is repaired by re-baselining. Drift must NOT be: the
       # difference the canary found IS the finding, and committing a fresh render
       # over it would put the drift straight into the deliverable and turn the
@@ -481,22 +625,18 @@ jobs:
       # touching '*.pdf', which re-runs this workflow — now fresh, so rc == 0 and
       # no further dispatch. If a render can never satisfy the stamp, baseline's
       # own "no change to commit" path stops the chain instead of looping.
-      # `!cancelled()`, NOT `failure()`. This used to key on the run having
-      # failed, because a stale reference failed the step above — and the moment
-      # that step stopped failing on this path, `failure()` would have been false
-      # and the rebuild would silently never have been dispatched. The workflow
-      # would have gone green while the reference stayed stale forever: a green
-      # check that verified nothing, produced by the change that removed a red
-      # check that meant nothing.
+      # `!cancelled()`, NOT `failure()`. The condition used to key on the run
+      # having failed, because a stale reference failed the staleness step — and
+      # the moment that step stopped failing on this path, `failure()` would have
+      # been false and the rebuild would silently never have been dispatched. The
+      # workflow would have gone green while the reference stayed stale forever: a
+      # green check that verified nothing, produced by the change that removed a
+      # red check that meant nothing.
       #
-      # The condition now keys on the VERDICT (`rc == '1'`), which is what it was
-      # always really about.
+      # It keys on the VERDICT (`staleness_rc == '1'`) instead, which is what it
+      # was always really about — and that verdict now crosses a job boundary as
+      # a job output rather than a step output.
       - name: Rebuild the reference PDF (auto-dispatch baseline)
-        if: >-
-          !cancelled()
-          && steps.staleness.outputs.rc == '1'
-          && github.event_name == 'push'
-          && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         # REF is passed through env: rather than interpolated into the shell body,
         # because git permits ;, `, $, (, ), &, | and " in branch names. This note
         # lives HERE, as a YAML comment, and NOT inside the run: block below —
@@ -520,7 +660,7 @@ jobs:
             exit 1
           fi
           # REFUSE to auto-baseline a push that also moved pixi.lock. This is the
-          # laundering path D29 names: on a MIXED push (content + a dependency
+          # laundering path the canary exists to prevent: on a MIXED push (content + a dependency
           # bump) the reference is legitimately stale, so the drift canary skips —
           # a fresh render is supposed to differ — and baseline.yml would then
           # render and commit, folding the dependency-driven typography change

@@ -53,14 +53,14 @@ jobs:
         shell: bash
     steps:
       - name: Check out repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           # Full history so `git status` sees the real tree state for the
           # stamp's dirty marker, and so the refreshed PDF commit can be pushed.
           fetch-depth: 0
 
       - name: Install pixi
-        uses: prefix-dev/setup-pixi@v0.8.1
+        uses: prefix-dev/setup-pixi@ba3bb36eb2066252b2363392b7739741bb777659  # v0.8.1
         with:
           cache: true
           frozen: true
@@ -68,19 +68,27 @@ jobs:
       - name: Skip if the reference PDF is already fresh
         id: fresh
         run: |
-          # A guide with NO reference PDF yet needs a baseline more than any
-          # other — but `make verify` PASSES in that state, by design, with a
+          # A guide with NO reference yet needs a baseline more than any other —
+          # but `make verify` PASSES in that state, by design, with a
           # "pre-first-release" notice. Reading exit 0 as "already fresh" made
           # this workflow able to refresh an existing baseline while being
-          # structurally incapable of creating the FIRST one, which is exactly
-          # what a new guide needs it for. Check existence before freshness.
-          SLUG=$(awk -F'"' '/^OUTPUT_SLUG[[:space:]]*=/{print $2; exit}' guide.toml)
-          if [ -z "$SLUG" ]; then
-            echo "::error::could not read OUTPUT_SLUG from guide.toml"; exit 1
-          fi
-          if [ ! -f "$SLUG.pdf" ]; then
+          # structurally incapable of creating the FIRST one. Check existence
+          # before freshness.
+          #
+          # EVERY declared reference, not just `$SLUG.pdf`. Testing the PDF alone
+          # reproduced that exact bug one artifact over: a guide declaring slides
+          # with a fresh PDF got `already_fresh=true`, skipped every step below,
+          # and its deck reference was never rendered — green, and
+          # self-perpetuating, since nothing else creates a first reference.
+          # `--list-references` exists for this, and using it also drops the
+          # OUTPUT_SLUG scrape this step used to carry.
+          MISSING=""
+          for ref in $(pixi run python baseline.py --list-references); do
+            [ -f "$ref" ] || MISSING="$MISSING $ref"
+          done
+          if [ -n "$MISSING" ]; then
             echo "already_fresh=false" >> "$GITHUB_OUTPUT"
-            echo "No reference PDF yet ($SLUG.pdf) — rendering the first baseline."
+            echo "No reference yet for:$MISSING — rendering the first baseline."
             exit 0
           fi
 
@@ -143,6 +151,14 @@ jobs:
         # looks like a finished guide: enough pages, no blank ones, the title
         # present, no un-substituted placeholders, and the footer stamp not
         # wrapped.
+        #
+        # IT COVERS EVERY ARTIFACT THE LOOP ABOVE REFRESHED. It did not: `--smoke`
+        # ignored `--artifact` and resolved the guide PDF whatever it was asked
+        # for, so this step inspected one of the artifacts it had just rebaselined
+        # and the slide deck was committed and published unseen — in the step
+        # whose own comment, below, calls it the only inspection left. The deck's
+        # assertions differ where the question differs (a deck is a selection, so
+        # it is not asked for the guide's title, and IS asked for its stamp).
         #
         # It runs HERE, between rendering and committing, because this is the
         # last point at which a bad render can still be stopped. Now that
@@ -217,8 +233,13 @@ jobs:
         # the dispatch succeeds and the dispatched run goes red on its own.
         run: |
           if [ -f .github/workflows/deploy.yml ]; then
-            gh workflow run deploy.yml --ref "$REF" \
-              || echo "::warning::could not dispatch deploy.yml — the site may still be serving the previous PDF; run 'gh workflow run deploy.yml' by hand"
+            # FAILS the step. This was `|| ::warning::`, which left the run
+            # green — and the paragraph above already says a dispatch failure
+            # "reproduces the very bug this fixes". A warning on a green run is
+            # not visible: the commit lands, verify goes green, and the site
+            # keeps serving the previous PDF with nothing downstream checking
+            # the served copy.
+            gh workflow run deploy.yml --ref "$REF"
           else
             echo "no deploy.yml — PDF-only guide, nothing to redeploy"
           fi

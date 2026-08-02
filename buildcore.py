@@ -87,7 +87,6 @@ REFERENCE_PDF = ROOT / f"{OUTPUT_SLUG}.pdf"
 # activated. (Activating the hook does still bump the footer hash, because
 # the new file's bytes become part of the content. That gotcha is intrinsic
 # to a content-derived stamp and is called out in CLAUDE.md.)
-SOURCE_FILES = kitconfig.SOURCE_FILES  # canonical list (adds guide.toml, kitconfig.py) lives in kitconfig
 
 
 # ---------------------------------------------------------------------------
@@ -119,6 +118,20 @@ def _is_dirty(artifact: str = "pdf") -> bool:
         )
         return bool(result.stdout.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):
+        # FAILS OPEN — "not dirty" — and DELIBERATELY, which is worth stating
+        # because `baseline.py` and `release.py` fail CLOSED on this same error
+        # and the disagreement looks like an oversight.
+        #
+        # The cases are not the same. This runs on every render, including in a
+        # checkout that legitimately has no git at all: a tarball export, an
+        # unpacked source archive. Failing closed here stamps ` · dirty` on those
+        # renders, and `promotable_stamp` then refuses to promote any of them —
+        # measured, it breaks the whole promotion flow. The promotion tools run
+        # only when someone is blessing a reference, where refusing on an
+        # unanswerable question is right and there is always a repository.
+        #
+        # So nothing unreproducible can be promoted regardless: this decides a
+        # displayed marker, and the two gates that decide what SHIPS both stop.
         return False
 
 
@@ -683,13 +696,34 @@ def _covered_codepoints() -> set[int]:
     return covered
 
 
-def check_overrides(cascade_css: str) -> None:
+# The override stylesheet each artifact actually renders through.
+_OVERRIDE_SHEET = {
+    "pdf": "style.css",
+    "site": "style-screen.css",
+    "slides": "style-slides.css",
+}
+
+
+def check_overrides(cascade_css: str, artifact: str = "pdf") -> None:
     """Refuse any override that can reach a family the kit does not bundle.
 
-    Runs on the SHIPPING files, not on a fixture: the print and screen overrides
-    and — the vector a CSS-only guard misses entirely — the `font-family`
+    Runs on the SHIPPING files, not on a fixture: the artifact's own override
+    sheet and — the vector a CSS-only guard misses entirely — the `font-family`
     presentation attributes on the inline SVG diagrams in `guide.md`. A diagram
-    can set a family with no stylesheet involved at all."""
+    can set a family with no stylesheet involved at all.
+
+    THE ARTIFACT'S OWN SHEET, not all three. This read `style.css`,
+    `style-screen.css` and `style-slides.css` on every build, whichever artifact
+    was being made — so an illegal family in `style-slides.css` failed the PDF
+    build of a guide that declares no slides, and a `style.css` edit could fail
+    `make web`. Measured on a PDF-only guide: `build.py` exited 1 over a
+    stylesheet in no closure it reads. That directly contradicts the artifact
+    split these closures exist to create, and it fails the build a guide cannot
+    fix without editing a file it does not use.
+
+    Nothing is lost: each sheet is still checked, on the build that renders
+    through it, against the cascade that build actually assembles — which is the
+    stricter comparison, since the three cascades differ."""
     allowed = cascadecheck.bundled_families(cascade_css)
     if not allowed:
         raise SystemExit(
@@ -697,8 +731,7 @@ def check_overrides(cascade_css: str) -> None:
             "guard has nothing to check against. fontfaces.css is missing or empty."
         )
     try:
-        for sheet in ("style.css", "style-screen.css", "style-slides.css"):
-            cascadecheck.check_override(ROOT / sheet, allowed)
+        cascadecheck.check_override(ROOT / _OVERRIDE_SHEET[artifact], allowed)
         cascadecheck.check_svg_attributes(SRC, allowed)
     except cascadecheck.CascadeError as exc:
         raise SystemExit(f"build: {exc}") from exc
@@ -875,7 +908,7 @@ def check_glyph_coverage(cascade_css: str | None = None) -> None:
     fresh", not "can these fonts draw this text"; this answers the second
     question, and without it the determinism claim is unenforced.
 
-    Scans guide.md plus the strings build.py injects (TITLE via the running
+    Scans guide.md plus the strings the renderers inject (TITLE via the running
     footer, its `·` separator, and the colophon's author/copyright line).
     Markdown and inline-HTML syntax characters are all ASCII, so the raw file
     is *almost* a superset of the rendered text — with one exception that has
@@ -901,7 +934,7 @@ def check_glyph_coverage(cascade_css: str | None = None) -> None:
     covered = cascade_covered_codepoints(cascade_css) if cascade_css else _covered_codepoints()
     if not covered:
         raise SystemExit(
-            "build.py: the resolved cascade reaches NO bundled face — the "
+            "buildcore.py: the resolved cascade reaches NO bundled face — the "
             "glyph-coverage gate cannot run, and the render would silently depend "
             "on host fonts."
         )
@@ -920,16 +953,16 @@ def check_glyph_coverage(cascade_css: str | None = None) -> None:
     # Decoded, so a character reference is scanned as the codepoint it renders
     # as rather than as the covered ASCII an author typed.
     scan(_decode_char_refs(SRC.read_text(encoding="utf-8")), SRC.name)
-    # Strings build.py injects into the page itself; they are not in guide.md
+    # Strings the pipeline injects into the page itself; they are not in guide.md
     # but they are just as rendered, and an author's name is exactly where a
     # non-Latin character shows up first.
     scan(f"{TITLE}\n{AUTHOR}\n{COPYRIGHT}", "guide.toml")
-    # Literals build.py itself puts on the page: the running footer's stamp
+    # Literals this module itself puts on the page: the running footer's stamp
     # separator and the colophon's license names. All ASCII today — scanned so
     # they stay that way, since nothing else would catch an edit here.
     scan(
         f"{_STAMP_SEP}\n{LICENSE_CONTENT_NAME}\n{LICENSE_CODE_NAME}",
-        "build.py",
+        "buildcore.py",
     )
 
     if not missing:
@@ -937,7 +970,7 @@ def check_glyph_coverage(cascade_css: str | None = None) -> None:
 
     faces = ", ".join(p.name for p in _bundled_font_files())
     lines = [
-        f"build.py: {len(missing)} codepoint(s) in the source have no glyph in "
+        f"buildcore.py: {len(missing)} codepoint(s) in the source have no glyph in "
         f"the bundled fonts.",
         "",
     ]
@@ -949,7 +982,8 @@ def check_glyph_coverage(cascade_css: str | None = None) -> None:
         "",
         "Rendering would fall through to a host font for these, which is exactly",
         "the host-dependence bundled fonts exist to remove. Either add a face that",
-        "covers them (see fonts/README.md) or remove the characters from the source.",
+        "covers them (see fonts/vendor/README.md) or remove the characters from",
+        "the source.",
     ]
     raise SystemExit("\n".join(lines))
 
@@ -1090,8 +1124,8 @@ def _check_template_hygiene() -> None:
         return
     bullet = "\n  ".join(issues)
     raise SystemExit(
-        "build.py: template not initialized. Run\n"
-        "  pixi run python bootstrap.py \"My Guide Title\" my-guide-slug\n"
+        "buildcore.py: template not initialized. Run\n"
+        "  pixi run python bootstrap.py \"My Guide Title\" my-guide-slug --author \"Your Name\"\n"
         "to substitute placeholders, or delete `.template-uninitialized` to silence\n"
         "this check after handling them manually.\n\n"
         f"Issues:\n  {bullet}"

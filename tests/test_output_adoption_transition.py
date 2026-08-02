@@ -81,7 +81,7 @@ def test_enable_materializes_and_records_so_sync_does_not_refuse(sync_env):
 
 def test_enable_GENERATES_wrangler_rather_than_copying_the_kits(sync_env):
     """`adopt.py` is the third path that materializes the web layer, alongside
-    bootstrap.py and adopt-web.py, and it is the one that runs on a LIVE guide.
+    bootstrap.py, and it is the one that runs on a LIVE guide.
 
     Copying the kit's file here would enable a site whose Worker is named after
     the KIT, with no routes block — so the deploy would target the wrong Worker
@@ -330,3 +330,45 @@ def test_slides_has_no_managed_destinations_yet(sync_env):
     before = _tv(env)
     assert adopt.enable(env.kit, env.target, "slides") == 0
     assert _tv(env)["rendered_checksums"] == before["rendered_checksums"]
+
+
+def test_enable_writes_only_into_the_target_never_the_kit(sync_env):
+    """The two-root property, carried over from the retired `adopt-web.py` suite.
+
+    `adopt.py` takes an immutable kit_root — staging assets are READ from it,
+    never written — and an explicit target. The failure it guards against is
+    concrete: running the kit's own copy against another repo must not
+    materialize the web layer INTO the kit. Asserted on the kit's whole tree
+    being byte-identical afterwards, because "the target came out right" is
+    perfectly compatible with having also written somewhere it should not.
+
+    The fixture SHAPE is load-bearing, and getting it wrong is how this test was
+    hollow once already: `pdf-only`'s synthetic kit declares no `bootstrap-source`
+    entries, so `enable` materialized zero files and the kit snapshot was
+    trivially unchanged whatever `adopt.py` did. So: `web-enabled`, started from a
+    target that has un-materialized the projection, plus an assertion that the
+    target really GAINED it — the two-root property is only tested while there is
+    a write happening for it to be about.
+    """
+    env = sync_env(shape="web-enabled")
+    dest = env.target / ".github" / "workflows" / "deploy.yml"
+    dest.unlink()
+    tv = _tv(env)
+    tv["rendered_checksums"].pop(".github/workflows/deploy.yml", None)
+    (env.target / ".template-version").write_text(
+        json.dumps(tv, indent=2) + "\n", encoding="utf-8")
+    _commit(env.target, "site declared but not materialized")
+
+    def snapshot():
+        return {p.relative_to(env.kit): p.read_bytes()
+                for p in sorted(env.kit.rglob("*"))
+                if p.is_file() and ".git/" not in p.as_posix()}
+
+    before = snapshot()
+    adopt.enable(env.kit, env.target, "site")
+    assert dest.exists(), (
+        "the fixture materialized nothing, so the kit-snapshot comparison below "
+        "cannot fail — the test would pass on any adopt.py at all")
+    assert snapshot() == before, (
+        "adopt.py wrote into the KIT as well as the target; the two-root "
+        "separation is what stops the kit web-enabling itself")

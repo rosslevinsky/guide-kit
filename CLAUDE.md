@@ -99,8 +99,17 @@ Markdown cannot express — the fixed, allowed island vocabulary (each recognize
 | `<div class="embed youtube" data-id="VIDEO_ID">label</div>` | (Opt-in web layer) A YouTube embed; `transforms.py` rewrites it per output. Inert without an active `transforms.py`. |
 | `<svg viewBox="…">…</svg>` | Hand-authored inline diagram. See the constraints below — they are not style preferences, they are what WeasyPrint can actually render and what makes one drawing serve both outputs. |
 
+**Inside ANY island, `<` starts a tag — escape it as `&lt;`.** The content of these blocks is
+HTML, not Markdown, so a literal angle bracket is markup wherever it appears. A `<pre
+class="diagram">` panel whose last line read `<slug>.pdf` rendered as ` .pdf`: `<slug>` was
+emitted as an unknown element and dropped, silently, leaving a diagram that pointed at a
+filename with no name. The same text one paragraph above, inside Markdown backticks, was
+fine — which is what makes it easy to miss. This is the same failure family as the
+`<text>`-ending backslash below: the island is parsed by a different set of rules than the
+prose around it.
+
 **Inline `<svg>` — the constraints, and why each exists.** Measured against the pinned
-renderer (WeasyPrint 67), not assumed.
+renderer (WeasyPrint 69), not assumed.
 
 - **`viewBox` required; no hard-coded `width`/`height`.** One drawing has to serve a fixed
   Letter page and a 390px phone screen. A `viewBox` scales; fixed dimensions do not. Note
@@ -111,7 +120,7 @@ renderer (WeasyPrint 67), not assumed.
   `style-screen.css` — `max-width: 100%; height: auto;` plus whatever width cap the page
   wants — because the tag-specific `pre.diagram` rules do not reach an `<svg>`, and relying
   on the container's width alone leaves the size at the mercy of unrelated layout changes.
-- **Keep to the constructs the renderer actually implements.** WeasyPrint 67 handles
+- **Keep to the constructs the renderer actually implements.** WeasyPrint 69 handles
   `path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `text`, `tspan`,
   `textPath`, `use`, `clipPath`, `image` and `a`. Use the shape elements — a box-and-arrow
   diagram written with `<rect>` and `<line>` is far easier to edit than the same drawing
@@ -136,7 +145,10 @@ renderer (WeasyPrint 67), not assumed.
   drawing in `guide.md` is reviewable in the same diff as the paragraph it belongs to. Put
   **photographs, screenshots and generated figures** in `assets/` — inlining those is
   base64 noise in a Markdown file. Choose the directory by which outputs need it:
-  `assets/print/**` is a PDF input and not a site one, `assets/web/**` the reverse, and
+  **Write the path in full** — `![](assets/shared/x.png)`, not `assets/x.png`. The site
+  publishes each namespace at its own path, so the one spelling resolves in both outputs; a
+  shortened one resolves in neither. `assets/print/**` is a PDF input and not a site one,
+  `assets/web/**` the reverse, and
   `assets/shared/**` is in both closures, so a shared file re-stales the PDF *and* redeploys
   the site.
 - **Text stays real text.** Labels belong in `<text>`, never converted to paths, so
@@ -185,7 +197,8 @@ own inputs.
 
 Four commands, three questions. **Is the reference stale?** (`make verify`) — **has the
 toolchain drifted?** (`make drift-canary`, with `make verify-render` as its older, weaker local
-form) — **does the PDF look finished?** (`make smoke`). CI runs all but `verify-render`.
+form) — **does each artifact look finished?** (`make smoke`, which covers the deck as well as
+the PDF and asks each its own questions). CI runs all but `verify-render`.
 
 - **`make verify`** — the **staleness check**, and the one a red run usually means. It compares the
   content hash embedded in the committed reference PDF's stamp against a freshly computed hash
@@ -209,12 +222,33 @@ form) — **does the PDF look finished?** (`make smoke`). CI runs all but `verif
   any change that preserves line breaks, including a face substitution — which is exactly why the
   canary above compares bytes and faces instead.
 
-A fourth command asks something none of those three do. **`make smoke`** asks whether the PDF
-*looks like a finished guide*: the other three compare bytes, hashes or text against a reference,
+A fourth command asks something none of those three do. **`make smoke`** asks whether an
+artifact *looks finished*: the other three compare bytes, hashes or text against a reference,
 and on an intentional content edit the text is **supposed** to differ, so none of them would have
 caught the footer wrapping onto a second line on every page of three shipped guides. It is
 build-free and platform-independent, so CI runs it and `baseline.yml` gates the refreshed
-reference on it. `PDF=<path>` checks a fresh render instead of the committed one.
+reference on it.
+
+**It covers EVERY declared artifact that has a reference, and asks each one its own question.**
+It used to ignore `--artifact` outright — resolving `<slug>.pdf` whatever it was asked for — so
+`make smoke ARTIFACT=slides` printed a pass for the guide PDF and the deck was committed, pushed
+and published having never been inspected. Making it honour the selector showed why that had gone
+unnoticed: **a deck fails the guide's assertions correctly and uselessly.** Nothing is projected
+into a deck unless it is wrapped in a `::: slide` fence, so a perfectly good deck may never name
+the guide. So the deck is not asked for the title, one slide is a legitimate deck, and it **is**
+asked for its version stamp — the measured failure, since a full-bleed `margin: 0` makes
+WeasyPrint drop every `@bottom-*` box and produce a deck that cannot say what built it.
+
+`ARTIFACT=<pdf|slides|site>` narrows it; `PDF=<path>` inspects one file instead, which is how
+`make baseline` and `make release` check a **fresh** render before promoting it — pair it with
+`ARTIFACT=` for a deck, or the guide's assertions are the ones that run. Both promotion paths do
+exactly that now; they used to exempt the deck, on the reasoning above, back when that reasoning
+was true.
+
+**A guide with no reference artifact yet PASSES with a notice**, matching `make verify`. It used
+to exit 2 on the missing file, which made it the one command in the README's build block a
+brand-new fork could not run. The discriminator is the same one staleness uses — git history for
+the reference path — so a deliverable that WAS released and has gone missing still fails.
 
 There is no image comparison anywhere anymore, and there is no canonical host: the bundled faces
 make the render host-independent.
@@ -308,13 +342,16 @@ entries. Nesting is what keeps both.
 
 The class names below are a **contract**: each guide's `style-screen.css` is target-owned
 (`policy = "never"`), so renaming one here does not break a build — it silently unstyles every
-site. `guide-kit/tests/test_web_nav_and_favicon.py` pins them.
+site. `tests/test_web_nav_and_favicon.py` in the kit pins nineteen of the twenty;
+`.guide-chapter-part` is pinned by `tests/test_parts.py` instead, which is where the part label
+is built. Worth naming precisely, since the point of the paragraph is that an unpinned rename
+goes unnoticed.
 
 **Two tests, and the split matters.** That file searches the script's SOURCE for literals, which
 catches deletion and renaming — most of what happens to it. It cannot catch wrong *logic*: a
 cross-model review found an `aria-current` regression that every literal assertion passed
 through, because the literal was there and the code around it was wrong. So
-`guide-kit/tests/test_nav_dom.py` **runs** the script, in jsdom, over a real rendered site
+the kit's `tests/test_nav_dom.py` **runs** the script, in jsdom, over a real rendered site
 (`npm ci` in `verify.yml`; kit-only — `tests/**` never syncs, and the step is guarded on a root
 `package-lock.json` that no target has). jsdom does no layout, so the scroll-spy threshold, the
 drawer's live header bottom and `display: none` on a collapsed sub-list are still verified by
@@ -391,8 +428,7 @@ bootstrap (`bootstrap.py --with-web`) or later with
 `adopt.py --target <guide> --output site --enable` — which is **config-first**: you declare
 `[outputs] site` and its `[artifacts.site]` date and commit that, and `--enable` then
 materializes what the declaration implies. The tool never writes `guide.toml`, because
-`guide.toml` is `policy = "never"` — target-owned. (`adopt-web.py` is the older single-purpose
-form of the same transition.)
+`guide.toml` is `policy = "never"` — target-owned.
 
 Opting in is a **declaration, not a file**: `build_web()` keys on `[outputs] site`, so a guide
 that switches its site off does not keep rendering one because `style-screen.css` happens to
@@ -405,7 +441,7 @@ re-stale the PDF. `verify_web.py` asserts the per-output embed split and skips c
 is no web layer or no embed island.
 
 **The built tree is provider-neutral, and that is proven by serving it.** `make web` emits a
-plain static directory that any host can serve; `tests/test_static_portability.py` starts
+plain static directory that any host can serve; the kit's `tests/test_static_portability.py` starts
 `http.server` over the exact output and exercises the routes, the PDF's media type and 404
 semantics. The one Cloudflare-specific artifact is `_headers`, which `cfadapter.py` writes.
 Forced download is therefore **provider-optional**: on a host that ignores `_headers` the PDF
@@ -445,7 +481,7 @@ PR gets a build check instead. `preview_urls` still controls whether Cloudflare 
 URLs for versions at all, which is what the setting is actually about.
 
 Because sync never writes the file, the kit stays in control through a check rather than an
-overwrite: `tests/test_wrangler_generated.py` fails when a guide's committed
+overwrite: the kit's `tests/test_wrangler_generated.py` fails when a guide's committed
 `app/wrangler.jsonc` differs from what the generator produces. Change `guide.toml`, run
 `make wrangler`, commit.
 
@@ -498,7 +534,8 @@ deck permanently red. `baseline.py --artifact` plus a `baseline.yml` that loops 
 artifact with a reference is what made it safe, and both landed first.
 
 So `ArtifactSpec.reference` is `"<slug>-slides.pdf"` for slides, staleness IS asked of it, and
-`make verify` reports the deck by its own filename. `tests/test_slides_source_resolution.py`
+`make verify` reports the deck by its own filename. The kit's
+`tests/test_slides_source_resolution.py`
 pins both halves: `test_the_deck_has_a_committed_reference` and
 `test_the_refresh_path_that_makes_that_safe_exists`, the second of which fails if
 `baseline.yml` stops refreshing per artifact — because that is the precondition, and without
@@ -565,7 +602,10 @@ warn-only `kit-drift.yml` reports when the kit's managed content moves.
 ### When to run `make baseline` / `make release`
 
 Refresh a reference after any **intentional** change to that artifact's closure, from whatever
-host you have. Both commands take `ARTIFACT=` (`pdf`, the default, or `slides`) because the two
+host you have. Both commands take `ARTIFACT=` — `pdf` (the default) or `slides` for the two that HAVE a
+reference, and `site`, which is accepted and prints why it has none, because `baseline.yml` loops over
+every artifact name and must not error on the one that is deployed rather than committed. The two with
+references need separate refreshes because they
 have separate references and separate closures — but they also *share* `_COMMON_FILES`, so a
 `buildcore.py` or `kitconfig.py` edit stales both and both need refreshing.
 

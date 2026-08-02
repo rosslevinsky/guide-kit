@@ -2,7 +2,7 @@
   "name": "guide-kit-test-harness",
   "private": true,
   "description": "Kit-only test dependency: a DOM for tests/nav_dom.js to run WEB_NAV_JS in. Not part of any guide's build, never synced into a target, and not in any artifact's dependency closure.",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "devDependencies": {
     "jsdom": "^29.1.1"
   }

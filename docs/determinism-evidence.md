@@ -6,19 +6,20 @@ family's central determinism result existed only as prose in an unrelated plan's
 as-built.
 
 Captured 2026-07-26 on the `guide-kit/stage-0-1` integration branch, and
-**re-measured at phase 10** after the boundary's single re-baseline — see
-"What phase 10 changed" below.
+**re-measured after the boundary's single re-baseline** — see "What the
+re-baseline changed" below.
 
 ## What is claimed here, and by whom
 
 **The macOS/Linux byte-identity result is INHERITED, not re-measured.** It was
-established by `accounting-guide/plans/guide-polish`, which rendered all eight
+established by earlier work outside this repository, which rendered all eight
 guides on both platforms and compared them; the owner then acted on it, moving
-`baseline.yml` in all eight repositories to `ubuntu-latest`.
-**This plan used no macOS runner** and did not reproduce that measurement. It is
-cited, not asserted.
-(The `baseline_platform` config key that recorded the decision was retired in
-phase 10; what replaced it is `driftcanary.py`, which measures agreement instead
+`baseline.yml` in all eight repositories to `ubuntu-latest`. **No macOS runner
+was used for anything recorded in this file**, so that result is cited, not
+asserted — and the document establishing it is not in version control, which is
+precisely why the distinction is drawn here rather than glossed over.
+(The `baseline_platform` config key that recorded the decision has since been
+retired; what replaced it is `driftcanary.py`, which measures agreement instead
 of declaring it.)
 
 That distinction is the point of writing it down. Restating the result as though
@@ -30,7 +31,7 @@ fresh renders of the same committed source were produced back-to-back and their
 sha256 compared. All eight pairs are byte-identical, and both digests are recorded
 below so the comparison can be reconstructed rather than taken on trust.
 
-## What phase 10 changed
+## What the re-baseline changed
 
 Every digest below moved, and the reason is worth stating rather than leaving as
 an unexplained edit.
@@ -41,7 +42,7 @@ the file explicitly did **not** claim that a fresh render matched the committed
 reference. It could not: the comparison was not yet meaningful, and claiming it
 would have been the kind of overclaim this file exists to avoid.
 
-Phase 10 took the boundary's single re-baseline, so it now IS meaningful, and it
+The re-baseline is what makes the comparison meaningful, and it
 is recorded here as a third measurement per repository: **all eight fresh renders
 are byte-identical to their committed references.** That is the same comparison
 `driftcanary.py` makes on every CI run; this file is its first, dated result.
@@ -57,8 +58,8 @@ reference row is gone because it is no longer true.
 ### Why there is no "commit rendered" SHA — and what recovers the tree instead
 
 The re-measurement was taken on the tree that **this commit creates**, and a
-commit cannot contain its own SHA. Phase 9 could record one because it changed no
-render input, so its parent rendered identically; phase 10 changes `kitconfig.py`,
+commit cannot contain its own SHA. The previous round could record one because it
+changed no render input, so its parent rendered identically; this round changes `kitconfig.py`,
 `guide.toml` and one guide's `style.css`, so a parent SHA here would name a tree
 that produces a *different* PDF — a coordinate pointing at the wrong place, which
 is worse than none.
@@ -145,6 +146,20 @@ why rendering became host-independent. Read it as a dated record, not as a live 
 OIDs are still the honest coordinates they always were; some of them no longer resolve, and
 nothing depends on whether they do.
 
+**Each row used to carry a recovery command — `git log --all --find-object=<oid>` — and it has
+been removed rather than corrected, because there is nothing to correct it to.** It does not
+work even where the object survives: the kit's own blob still resolves with `git cat-file -t`,
+and `--find-object` for it returns nothing, because the commit that introduced it was amended
+away. For the other six rows the object is not in this repository at all. A command that names
+a real technique and produces no output on every row in the table teaches the reader that the
+document is unreliable, which is the opposite of what a provenance record is for.
+
+**Six of the seven rows describe OTHER repositories**, which are private and which a reader of
+this kit cannot open. They are kept because the cross-repository *agreement* is the measurement
+— seven independent renders, one toolchain, one result each — and dropping them would leave a
+claim about a family evidenced by one member. Read them as a dated note about how the
+conclusion was reached, not as something you can re-run.
+
 **Do not "update" a digest to track the current reference.** A record is refreshed only by
 re-running the measurement, and then the whole row changes together — blob, both fresh
 renders, and the committed-reference digest. A row edited to match today's file would name one
@@ -154,7 +169,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `a52fa757aa1c1f0321e8956174c636f50cf88387` — recover the commit with `git log --all --format=%H --find-object=a52fa757aa1c1f0321e8956174c636f50cf88387` |
+| reference PDF blob (git object) | `a52fa757aa1c1f0321e8956174c636f50cf88387` |
 | theme | `editorial` |
 | fresh render, sha256 | `b33bbd432829d41eb12cb8dabcfc28c1a6ed5f40ec093b2a4a7af487ae96a02d` |
 | second render, sha256 | `b33bbd432829d41eb12cb8dabcfc28c1a6ed5f40ec093b2a4a7af487ae96a02d` — **identical** |
@@ -167,7 +182,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `a358b6fd4738916a0443f14f9178b6137c1f5c75` — recover the commit with `git log --all --format=%H --find-object=a358b6fd4738916a0443f14f9178b6137c1f5c75` |
+| reference PDF blob (git object) | `a358b6fd4738916a0443f14f9178b6137c1f5c75` |
 | theme | `classic-sans` |
 | fresh render, sha256 | `81d6d923e1087fade0c20b57b548fb003ca0f71426f205b7bf7eb77aad0fd760` |
 | second render, sha256 | `81d6d923e1087fade0c20b57b548fb003ca0f71426f205b7bf7eb77aad0fd760` — **identical** |
@@ -180,7 +195,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `b54f837ccb711cde9f4bee6774786ba02a414973` — recover the commit with `git log --all --format=%H --find-object=b54f837ccb711cde9f4bee6774786ba02a414973` |
+| reference PDF blob (git object) | `b54f837ccb711cde9f4bee6774786ba02a414973` |
 | theme | `editorial` |
 | fresh render, sha256 | `ad44b36837e403fc3640e469a71d0f4fa0a6c71c8fcb93d08eb30ad7970a178a` |
 | second render, sha256 | `ad44b36837e403fc3640e469a71d0f4fa0a6c71c8fcb93d08eb30ad7970a178a` — **identical** |
@@ -193,7 +208,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `831bc45d9eff63d98b37e1641a4b45eeebdc384e` — recover the commit with `git log --all --format=%H --find-object=831bc45d9eff63d98b37e1641a4b45eeebdc384e` |
+| reference PDF blob (git object) | `831bc45d9eff63d98b37e1641a4b45eeebdc384e` |
 | theme | `classic-sans` |
 | fresh render, sha256 | `e1857f4f5d51ca1d5e9a85f36e192e61fb8d723a2bff1c32cc5833003e035af5` |
 | second render, sha256 | `e1857f4f5d51ca1d5e9a85f36e192e61fb8d723a2bff1c32cc5833003e035af5` — **identical** |
@@ -206,7 +221,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `4627e86f4fb998a05fe6074e84c7143900726188` — recover the commit with `git log --all --format=%H --find-object=4627e86f4fb998a05fe6074e84c7143900726188` |
+| reference PDF blob (git object) | `4627e86f4fb998a05fe6074e84c7143900726188` |
 | theme | `classic-sans` |
 | fresh render, sha256 | `90d16e484515af9e74f22e20089d389dc861f570086ed6f588491233a0e31e40` |
 | second render, sha256 | `90d16e484515af9e74f22e20089d389dc861f570086ed6f588491233a0e31e40` — **identical** |
@@ -219,7 +234,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `a2978ccd35803e0926534f1d17338707dcaf5023` — recover the commit with `git log --all --format=%H --find-object=a2978ccd35803e0926534f1d17338707dcaf5023` |
+| reference PDF blob (git object) | `a2978ccd35803e0926534f1d17338707dcaf5023` |
 | theme | `classic-sans` |
 | fresh render, sha256 | `400461355fd9f1c8cd91ff31fe116d30c1de14c463958fdc59d90bffaa6bfc47` |
 | second render, sha256 | `400461355fd9f1c8cd91ff31fe116d30c1de14c463958fdc59d90bffaa6bfc47` — **identical** |
@@ -232,7 +247,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `d6b014254f6eccf3373d5e387c639625003ee708` — recover the commit with `git log --all --format=%H --find-object=d6b014254f6eccf3373d5e387c639625003ee708` |
+| reference PDF blob (git object) | `d6b014254f6eccf3373d5e387c639625003ee708` |
 | theme | `classic-sans` |
 | fresh render, sha256 | `b364d802333eda53927139dfc7d1546ec6a10652377201ec7d63ffe2c4f26be9` |
 | second render, sha256 | `b364d802333eda53927139dfc7d1546ec6a10652377201ec7d63ffe2c4f26be9` — **identical** |
@@ -245,7 +260,7 @@ artifact and describe another.
 
 | field | value |
 |---|---|
-| reference PDF blob (git object) | `a74dda1f14158b4f37f703375d5c06168e285859` — recover the commit with `git log --all --format=%H --find-object=a74dda1f14158b4f37f703375d5c06168e285859` |
+| reference PDF blob (git object) | `a74dda1f14158b4f37f703375d5c06168e285859` |
 | theme | `classic-sans` |
 | fresh render, sha256 | `fc965bb6e4d8747d4daa39b7f494d61ff0f04bf5eb522158a79c00e13d15438b` |
 | second render, sha256 | `fc965bb6e4d8747d4daa39b7f494d61ff0f04bf5eb522158a79c00e13d15438b` — **identical** |

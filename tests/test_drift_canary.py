@@ -32,6 +32,7 @@ import pytest
 import yaml
 
 import driftcanary
+import kitconfig
 import verify_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -253,7 +254,7 @@ def test_a_broken_staleness_check_is_an_ERROR(tmp_path, monkeypatch):
 def test_pre_first_release_skips(tmp_path, monkeypatch):
     """No reference PDF yet — nothing to compare against."""
     monkeypatch.setattr(driftcanary, "_staleness_rc", lambda root, artifact="pdf": 0)
-    monkeypatch.setattr(driftcanary, "_reference_path", lambda root: tmp_path / "absent.pdf")
+    monkeypatch.setattr(driftcanary, "_reference_path", lambda root, artifact="pdf": tmp_path / "absent.pdf")
     result = driftcanary.run(tmp_path, render=lambda: pytest.fail("must not render"))
     assert result.status == "skipped"
     assert result.exit_code == 0
@@ -265,7 +266,7 @@ def test_drift_on_a_FRESH_reference_is_reported_as_drift(tmp_path, monkeypatch, 
     ref = pdfs("ref", font="Helvetica")
     fresh = pdfs("fresh", font="Courier")
     monkeypatch.setattr(driftcanary, "_staleness_rc", lambda root, artifact="pdf": 0)
-    monkeypatch.setattr(driftcanary, "_reference_path", lambda root: ref)
+    monkeypatch.setattr(driftcanary, "_reference_path", lambda root, artifact="pdf": ref)
 
     result = driftcanary.run(tmp_path, render=lambda: fresh)
 
@@ -286,6 +287,23 @@ def verify_workflow():
 
 def _steps(workflow):
     return workflow["jobs"]["verify"]["steps"]
+
+
+def _all_steps(workflow):
+    """Every step in every job. The auto-baseline dispatch moved into its own
+    `dispatch-baseline` job so `actions: write` would stop existing on the
+    pull-request path, so a lookup scoped to `verify` no longer finds it."""
+    return [s for job in workflow["jobs"].values() for s in (job.get("steps") or [])]
+
+
+def _dispatch_job(workflow):
+    """The job holding the auto-baseline dispatch, and its own `if:` — which is
+    now where the staleness gate lives."""
+    for job in workflow["jobs"].values():
+        for step in job.get("steps") or []:
+            if "workflow run baseline.yml" in yaml.dump(step):
+                return job
+    raise AssertionError("no job dispatches baseline.yml")
 
 
 def _canary_step(workflow):
@@ -381,19 +399,19 @@ def test_the_canary_step_NEVER_dispatches_a_baseline(verify_workflow):
 def test_auto_baseline_stays_gated_on_STALENESS_only(verify_workflow):
     """The separation that keeps drift out of the deliverable.
 
-    The canary and the auto-baseline now live in the SAME job, so nothing
-    structural stops someone widening the dispatch condition to cover a red
-    canary. This assertion is that guard.
+    The canary and the auto-baseline are in different jobs now — split so
+    `actions: write` never exists on the pull-request path — but the separation
+    that matters here is the CONDITION, not the boundary: nothing structural
+    stops someone widening the dispatch to cover a red canary. This assertion is
+    that guard, and it moves with the condition, which is now the job's.
     """
-    dispatch = [
-        s for s in _steps(verify_workflow)
-        if "baseline.yml" in yaml.dump(s) and "driftcanary" not in yaml.dump(s)
-    ]
-    assert dispatch, "the auto-baseline step disappeared"
-    for step in dispatch:
-        cond = str(step.get("if", ""))
-        assert "steps.staleness.outputs.rc == '1'" in cond, cond
-        assert "canary" not in cond.lower(), cond
+    job = _dispatch_job(verify_workflow)
+    cond = str(job.get("if", ""))
+    assert "needs.verify.outputs.staleness_rc == '1'" in cond, cond
+    assert "canary" not in cond.lower(), cond
+    # The verdict has to reach the job, or the condition compares against "".
+    assert verify_workflow["jobs"]["verify"]["outputs"]["staleness_rc"] == \
+        "${{ steps.staleness.outputs.rc }}"
 
 
 def test_the_canary_runs_after_the_staleness_check(verify_workflow):
@@ -438,7 +456,7 @@ def test_the_canary_runs_weekly_and_on_lock_or_workflow_changes(verify_workflow)
 # extracted from verify.yml, not retyped — against a temp repo.
 
 def _dispatch_step_script(workflow) -> str:
-    step = next(s for s in _steps(workflow)
+    step = next(s for s in _all_steps(workflow)
                 if "baseline.yml" in yaml.dump(s) and "driftcanary" not in yaml.dump(s))
     return step["run"]
 
@@ -532,3 +550,32 @@ def test_an_UNRESOLVABLE_range_refuses_rather_than_proceeding(
     r = _run_dispatch_script(_dispatch_step_script(verify_workflow), repo, before, head)
     assert r.returncode == 1, r.stdout + r.stderr
     assert "cannot be resolved" in (r.stdout + r.stderr)
+
+
+def test_every_committed_reference_is_watched_not_just_the_pdf(repo_root):
+    """The deck has committed bytes and was never drift-checked.
+
+    `run()` hardcoded the pdf staleness call and `_reference_path` returned
+    `<slug>.pdf`, so the one class of change this module exists for — a
+    dependency bump that moves typography with NO source change — was caught for
+    the guide and invisible for the deck. It is not a hypothetical gap for the
+    deck specifically: it shares `_COMMON_FILES` with the PDF, and `make verify`
+    cannot see the cause either, because `pixi.lock` is deliberately outside
+    SOURCE_FILES.
+
+    Asserted through `_watched`, against the artifact table rather than a
+    literal, so declaring a fourth artifact with a reference cannot quietly leave
+    it unwatched.
+    """
+    watched = set(driftcanary._watched(repo_root))
+    cfg = kitconfig.load(repo_root)
+    expected = {a for a in cfg.outputs.declared
+                if kitconfig.artifact_spec(a).reference is not None}
+    assert watched == expected and "slides" in watched, watched
+    # The site is excluded by construction, not by omission: it is deployed
+    # rather than blessed into the repo, so there are no committed bytes to diff.
+    assert "site" not in watched
+    for artifact in watched:
+        assert driftcanary._reference_path(repo_root, artifact).name.endswith(".pdf")
+    assert (driftcanary._reference_path(repo_root, "pdf")
+            != driftcanary._reference_path(repo_root, "slides"))

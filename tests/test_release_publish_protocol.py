@@ -113,7 +113,8 @@ def _run_main(repo, monkeypatch, message="release"):
     # nothing valid to read. Its own coverage is tests/test_promotion_smokes.py
     # (it is called, and before the copy) and tests/test_smoke_check.py (what it
     # rejects). Stubbing it here keeps this file about the protocol.
-    monkeypatch.setattr(verify_artifacts, "smoke_check", lambda p, r=None: 0)
+    monkeypatch.setattr(verify_artifacts, "smoke_check",
+                        lambda p, r=None, artifact="pdf": 0)
     monkeypatch.setattr(sys, "argv", ["release.py", "-m", message])
     return release.main()
 
@@ -809,7 +810,8 @@ def test_a_promotion_whose_commit_fails_leaves_no_residue(repo, monkeypatch):
     # nothing valid to read. Its own coverage is tests/test_promotion_smokes.py
     # (it is called, and before the copy) and tests/test_smoke_check.py (what it
     # rejects). Stubbing it here keeps this file about the protocol.
-    monkeypatch.setattr(verify_artifacts, "smoke_check", lambda p, r=None: 0)
+    monkeypatch.setattr(verify_artifacts, "smoke_check",
+                        lambda p, r=None, artifact="pdf": 0)
     monkeypatch.setattr(sys, "argv", ["release.py", "-m", "release"])
     monkeypatch.setattr(release, "_git", failing)
     with pytest.raises(RuntimeError):

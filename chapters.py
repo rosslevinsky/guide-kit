@@ -210,7 +210,7 @@ def split(md_path: Path, chapter_level: int) -> list[Chapter]:
     A chapter runs to the next heading at that level or shallower, so deeper
     headings stay inside it and a shallower one (an `#` Part above `##` chapters)
     closes it without opening a new one. Content before the first chapter heading
-    is front matter — see `front_matter`.
+    is front matter: the document's opening, before the first chapter.
     """
     doc = _ast(md_path)
     authored = _authored_ids(md_path)
@@ -398,29 +398,6 @@ def _api_version() -> list:
 def document(md_path: Path) -> dict:
     """The parsed document, for callers that need chapters AND the api version."""
     return _ast(md_path)
-
-
-def front_matter(md_path: Path, chapter_level: int) -> list:
-    """Blocks before the first chapter heading.
-
-    Not dropped: it is the document's opening — the title block and lede — and
-    the landing page needs it. A splitter that discarded it would lose prose no
-    chapter contains."""
-    doc = _ast(md_path)
-    out: list = []
-    for block in doc.get("blocks", []):
-        # A PART ends the front matter too. Usually redundant — a part is
-        # normally at or above `chapter_level`, so the depth test already stops
-        # here — but not always: a part is marked by class, not depth, so a guide
-        # may legitimately place one deeper. Without this, such a part and its
-        # blurb would be swallowed into the landing page's opening.
-        if is_part(block):
-            break
-        if (isinstance(block, dict) and block.get("t") == "Header"
-                and block["c"][0] <= chapter_level):
-            break
-        out.append(block)
-    return out
 
 
 # A heading line's trailing `{...}` attribute block, whatever else is in it.

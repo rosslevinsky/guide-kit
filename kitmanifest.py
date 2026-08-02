@@ -116,7 +116,7 @@ class Entry:
     @property
     def web_only(self) -> bool:
         # Every bootstrap-source entry is a web-layer file: its destination is
-        # materialized only by bootstrap --with-web / adopt-web, so it is inert
+        # materialized only by bootstrap --with-web / adopt --enable, so it is inert
         # in a PDF-only target.
         return self.lifecycle == "bootstrap-source"
 
@@ -279,16 +279,6 @@ class Manifest:
                 out.add(proj.dest)
         return out
 
-    def tree_dests(self, shape: str, slug: str | None = None) -> list[str]:
-        """The destination PREFIXES of every managed tree projection.
-
-        Deletion is no longer scoped to these — `dests_under_any_shape` is what
-        decides it, so a removed literal entry and a file gone from a tree are
-        one event. This survives as the answer to "which destinations does the
-        kit own wholesale", which is a different question with other callers."""
-        return [p.dest[:-3] for p in self.projections(shape, slug=slug)
-                if p.dest.endswith("/**") and p.policy != "never"]
-
     def projections(self, shape: str, slug: str | None = None) -> list[Projection]:
         """Source -> destination list for a target shape.
 
@@ -312,20 +302,6 @@ class Manifest:
             out.append(Projection(e.path, dest, e.policy, e.web_only))
         return out
 
-    def projections_for(self, cfg, slug: str | None = None) -> list[Projection]:
-        """Source -> destination list for a DECLARED shape.
-
-        The config-driven entry point, and the one callers should use. Shape is
-        read from `[outputs]`, never probed from the filesystem: creating
-        `style-screen.css` must not silently enable a web layer the guide never
-        declared, and — the reason this matters beyond tidiness — a third and
-        fourth output cannot be expressed as "some file exists".
-
-        `slug` defaults to the config's own OUTPUT_SLUG, since the two always
-        agreed at every call site anyway."""
-        return self.projections(
-            shape_of(cfg), slug=cfg.OUTPUT_SLUG if slug is None else slug
-        )
 
 
 def shape_of(cfg) -> str:

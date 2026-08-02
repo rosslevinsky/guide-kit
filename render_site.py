@@ -233,7 +233,7 @@ WEB_NAV_JS = """
     // A heading can be image-only, in which case textContent is empty and the
     // link would be unclickable and unnamed. Fall back to the image's alt text,
     // then to the id.
-    var label = (h.textContent || '').replace('#', '').trim();
+    var label = (h.textContent || '').trim();
     if (!label) {
       var img = h.querySelector('img[alt]');
       label = (img && img.getAttribute('alt')) || h.id;
@@ -964,7 +964,7 @@ hr + .part { border-top: none; padding-top: 0; }
   max-width: 100%;
   overflow-x: auto;
   /* A scroll container is a focusable region for keyboard users; without this
-     they cannot reach it to scroll. tabindex is set on the element by build.py. */
+     they cannot reach it to scroll. tabindex is set on the element by render_site.py. */
   margin-block: 1.25rem;
 }
 /* The table's own width rules are deliberately left alone here — a guide that
@@ -1130,13 +1130,14 @@ body > .guide-chapters {
 """
 
 
-# A `<table>` that is NOT already immediately preceded by the breakout wrapper.
-# The negative lookbehind makes the transform IDEMPOTENT: applying it twice
-# cannot nest wrappers. That matters because the call site is one line in one
-# function today, and a future `transforms.py` or a second pass would otherwise
-# silently produce nested scroll containers — two focusable regions around one
-# table, and a table inside a scroll box inside a scroll box.
-_TABLE_OPEN_RE = re.compile(r'(?<!role="region">)<table(\s[^>]*)?>')
+# A `<table>` opening tag. This and its SVG twin below each used to carry a
+# `(?<!role="region">)` lookbehind, documented as THE mechanism making the
+# transform idempotent — and it could never fire: `_wrap_each` emits
+# `role="region" aria-label="…"` before the `>`, so the 14 characters preceding
+# `<table` are never `role="region">`. Idempotence is real, but it comes from the
+# separate `<div class="wide-block"` scan in `_wrap_each`, which is what actually
+# stops a second pass nesting scroll containers.
+_TABLE_OPEN_RE = re.compile(r'<table(\s[^>]*)?>')
 
 # An inline `<svg class="diagram">` gets the same breakout treatment as a table,
 # and for the same reason: it is wide content that must not shrink to
@@ -1145,7 +1146,7 @@ _TABLE_OPEN_RE = re.compile(r'(?<!role="region">)<table(\s[^>]*)?>')
 # at a 358px phone measure renders its 13-unit labels at under 7px. Scrolling a
 # readable drawing beats fitting an unreadable one.
 _SVG_DIAGRAM_OPEN_RE = re.compile(
-    r'(?<!role="region">)<svg(?=[^>]*\bclass="[^"]*\bdiagram\b)([^>]*)>'
+    r'<svg(?=[^>]*\bclass="[^"]*\bdiagram\b)([^>]*)>'
 )
 
 
@@ -1392,7 +1393,7 @@ def render_web_html() -> str:
         _mode = _mode_link(_chs, None)
         _chapters_nav = _chapter_nav(_chs, None)
     # A trailing `---` in guide.md is the PDF's separator between the body and
-    # the colophon build.py appends there. The website appends no colophon — the
+    # the colophon render_pdf.py appends there. The website appends no colophon — the
     # licence lives in the footer below, and that footer draws its own rule — so
     # on this output the authored rule has nothing to separate and lands directly
     # above the footer's, as two lines 51px apart. Measured in accounting-guide,
@@ -1447,7 +1448,7 @@ def render_web_html() -> str:
     # The SAME guard the PDF path runs. Without it a screen-only override could
     # name a host family and deploy, while the print build rejected it — the
     # guard would be protecting the output nobody visits.
-    buildcore.check_overrides(css)
+    buildcore.check_overrides(css, "site")
     css = css.replace("__TITLE__", buildcore.TITLE).replace("__VERSION__", buildcore._version_stamp("site"))
     return buildcore._wrap_html(body, css, head_extra=_indexing_head(_cfg, ""))
 
@@ -1699,7 +1700,7 @@ def _write_chapter_pages(cfg) -> None:
         )
     css = buildcore.theme_css(
         "screen", WEB_CHROME_CSS + STYLE_SCREEN.read_text(encoding="utf-8"))
-    buildcore.check_overrides(css)
+    buildcore.check_overrides(css, "site")
     css = css.replace("__TITLE__", buildcore.TITLE).replace(
         "__VERSION__", buildcore._version_stamp("site"))
     api = chapters.document(buildcore.SRC).get("pandoc-api-version")
@@ -1896,14 +1897,24 @@ def write_guide_json(cfg, web_dir: Path) -> Path:
                for c in chapters.split(buildcore.SRC,
                                        chapter_level=cfg.site.chapter_level)]
     manifest = {
-        "schema": "https://guide-kit.dev/schema/guide.v1.json",
+        # AN IDENTIFIER, NOT A LOCATION, and the distinction is the fix.
+        # This was `https://guide-kit.dev/schema/guide.v1.json`, baked into the
+        # manifest of every published site. `guide-kit.dev` is NXDOMAIN —
+        # nobody registered it — so the schema authority of every guide in the
+        # family was a name anyone could buy and then control. Nothing ever
+        # fetched it: no tool, no page and no check reads this value, and there
+        # is no schema document at the other end to read. A `urn:` says that
+        # plainly, where an `https://` promises a document and, here, promised
+        # someone else's. The format itself is defined by `write_guide_json`
+        # and by `hub.py`, which consumes it.
+        "schema": "urn:guide-kit:guide-manifest:1",
         "slug": cfg.OUTPUT_SLUG,
         "title": cfg.TITLE,
         "description": cfg.DESCRIPTION,
         "site": cfg.outputs.site,
         "canonical": cfg.site.canonical or None,
         "stamp": buildcore._version_stamp("site"),
-        # `null`, not an omitted key: the hub's "romance-languages has no PDF"
+        # `null`, not an omitted key: the hub's "this entry has no PDF"
         # rule is enforced by DATA, so absence has to be expressible.
         "pdf": pdf.name if pdf.exists() else None,
         "chapters": chs,
@@ -1922,11 +1933,25 @@ def _publish_assets() -> int:
     root as its base_url) and 404 on the site. Cloudflare serves `app/dist` and
     nothing else, so an asset that is not copied here does not exist.
 
-    Both namespaces the site's closure names, flattened into one `assets/`
-    directory so a single `![](assets/x.png)` in `guide.md` resolves in the PDF
-    (against the repo root) and on the site (against the built tree). `print/` is
-    NOT copied — it is not a site input, and shipping it would put bytes on the
-    web that the site's own closure hash does not cover."""
+    Both namespaces the site's closure names, AT THEIR OWN PATHS — `shared/` and
+    `web/` are preserved under `dist/assets/`, not flattened into it. That is
+    what makes one markdown path work in both outputs: `![](assets/shared/x.png)`
+    resolves in the PDF (WeasyPrint gets the repo root as base_url, and the file
+    is at `assets/shared/x.png`) and on the site (Cloudflare serves `dist`, and
+    the file is at `dist/assets/shared/x.png`).
+
+    Flattening was the bug, and its reasoning was self-defeating: it claimed a
+    single `![](assets/x.png)` would resolve in both, which requires the file to
+    be at `assets/x.png` in the REPO — and the three-namespace split means it
+    never is. Measured: with `assets/shared/x.png` on disk, the site published
+    `dist/assets/x.png` while the PDF needed `assets/x.png`, so
+    `assets/shared/…` rendered in print and 404'd on the web, and `assets/…` did
+    the reverse. WeasyPrint does not fail a build on a missing image, so the
+    print half was silent. Flattening also collided `shared/x.png` with
+    `web/x.png` at one destination, last writer winning.
+
+    `print/` is NOT copied — it is not a site input, and shipping it would put
+    bytes on the web that the site's own closure hash does not cover."""
     published = 0
     for source in (kitconfig.ASSET_SHARED_DIR, kitconfig.ASSET_WEB_DIR):
         src_dir = buildcore.ROOT / source
@@ -1935,7 +1960,7 @@ def _publish_assets() -> int:
         for src in sorted(src_dir.rglob("*")):
             if not src.is_file() or src.is_symlink():
                 continue
-            dest = WEB_DIR / "assets" / src.relative_to(src_dir)
+            dest = WEB_DIR / source / src.relative_to(src_dir)
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(src, dest)
             published += 1

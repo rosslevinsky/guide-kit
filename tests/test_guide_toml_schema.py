@@ -223,7 +223,7 @@ def test_content_hash_covers_every_source_file(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Stage 0 — declared shape: [outputs] / [theme] / [site] / [slides] / [fonts] /
+# Declared shape: [outputs] / [theme] / [site] / [slides] / [fonts] /
 # [deploy] / [hub] / [artifacts.*] / [kit].
 #
 # The loader VALIDATES rather than trusts, so every table below is checked for
@@ -412,7 +412,7 @@ def test_artifact_unknown_key_rejected(tmp_path):
 
 
 def test_pdf_disabled_needs_no_pdf_artifact_table(tmp_path):
-    # An app-shaped target (romance-languages) declares no PDF and skips every
+    # An app-shaped target declares no PDF and skips every
     # PDF gate, so requiring [artifacts.pdf] there would be wrong.
     d = dict(VALID)
     d["outputs"] = {"pdf": False, "site": "app", "slides": False}
