@@ -113,13 +113,22 @@ class Probe:
         got = self._api(f"/accounts/{account_id}/workers/subdomain")
         return (got or {}).get("result", {}).get("subdomain") or None
 
-    def token_permissions(self) -> set:
+    def token_permissions(self, account_id: str = "") -> set:
         # `/user/tokens/verify` confirms the token is live. It does not enumerate
         # scopes, so Workers Scripts:Edit is probed by asking a Workers endpoint
         # the account must be able to read — an answer means the scope is present.
+        #
+        # THE ACCOUNT ID IS PASSED IN, and it used to be read straight from the
+        # environment here. That silently dropped `--account-id`: the flag reached
+        # `account_subdomain()` and this probe alone kept consulting
+        # `CLOUDFLARE_ACCOUNT_ID`, so an operator who supplied the account on the
+        # command line and had no env var got "no Cloudflare API token, or it
+        # lacks the Workers Scripts:Edit permission" from a perfectly good token —
+        # a refusal naming the one thing that was not wrong. The env var stays as
+        # the fallback, because that is where the id normally lives.
         if self._api("/user/tokens/verify") is None:
             return set()
-        account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        account_id = account_id or os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
         if account_id and self._api(f"/accounts/{account_id}/workers/scripts") is not None:
             return {"workers_scripts:edit"}
         return set()
@@ -211,7 +220,7 @@ def check_workers_dev(probe, account_id: str) -> list[str]:
     # permission", so a reader with no token was sent to widen the permissions of
     # something that does not exist. Asking the probe for a second signal would
     # be the other fix; it is not worth an interface for a sentence.
-    if "workers_scripts:edit" not in probe.token_permissions():
+    if "workers_scripts:edit" not in probe.token_permissions(account_id):
         problems.append(
             "no Cloudflare API token, or it lacks the Workers Scripts:Edit "
             "permission — set CLOUDFLARE_API_TOKEN to a token that has it "
@@ -344,8 +353,14 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--persona", default=WORKERS_DEV, choices=PERSONAS,
                        help="workers.dev needs no zone; custom-domain does")
         p.add_argument("--account-id", default="")
-        p.add_argument("--worker-name", default="")
         p.add_argument("--domain", default=None)
+    # PREFLIGHT ONLY. `init` carried this too, through the shared loop above, and
+    # never read it: it validates the positional slug instead, deliberately,
+    # because the slug is what `cfadapter` turns into the worker name. A flag in
+    # the help text that the command silently ignores is worse than no flag —
+    # someone who passes `init --worker-name other-name` gets no error and no
+    # effect, and a worker named after the slug they thought they had overridden.
+    pf.add_argument("--worker-name", default="")
 
     args = parser.parse_args(argv)
 
@@ -396,6 +411,21 @@ def main(argv: list[str] | None = None) -> int:
         if not args.author.strip():
             print("FAIL  --author cannot be blank — it becomes the PDF's /Author "
                   'and its visible `© <year> <author>` colophon.', file=sys.stderr)
+            return 1
+        # BEFORE bootstrap too, and for a harder reason than the author check: the
+        # combination has no repair. `--domain` without `--with-web` bootstrapped a
+        # PDF-ONLY guide, wrote `[deploy] domain` into its guide.toml, then failed
+        # to regenerate the wrangler config — because `cfadapter.write_wrangler`
+        # refuses a guide that declares no site — and printed "Run `make wrangler`
+        # before deploying", a remedy `make wrangler` refuses for exactly the same
+        # reason. Bootstrap has deleted itself by then, so the reader is left with
+        # a stray domain key, a dead instruction, and no way back short of
+        # re-forking. Refused up front, where re-running with the right flags is
+        # still free.
+        if args.domain and not args.with_web:
+            print("FAIL  --domain needs --with-web — a domain is a website fact, "
+                  "and a PDF-only guide has no site for it to bind. Re-run with "
+                  "--with-web, or drop --domain.", file=sys.stderr)
             return 1
         # Preflight FIRST and by default. Bootstrapping is cheap to redo, but the
         # failure it protects against is not: without it the adopter discovers a
@@ -487,8 +517,11 @@ def apply_domain(domain: str) -> int:
     # SystemExit too, and not by accident: `write_wrangler` refuses a guide that
     # declares no site with one, and SystemExit is a BaseException — so a bare
     # `except Exception` would let it escape and take `init` down with a
-    # traceback after the domain had already been written. That is the case a
-    # `--domain` without `--with-web` produces.
+    # traceback after the domain had already been written. `init` now rejects
+    # `--domain` without `--with-web` up front, so the one case that reliably
+    # produced that refusal can no longer reach here; the handler stays because
+    # the domain is written before the regeneration is attempted, and anything
+    # that stops the regeneration must still be reported rather than raised.
     except (Exception, SystemExit) as exc:
         print(f"guide-kit: wrote the domain but could not regenerate the wrangler "
               f"config ({exc}). Run `make wrangler` before deploying, or the site "

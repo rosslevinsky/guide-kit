@@ -602,12 +602,16 @@ warn-only `kit-drift.yml` reports when the kit's managed content moves.
 ### When to run `make baseline` / `make release`
 
 Refresh a reference after any **intentional** change to that artifact's closure, from whatever
-host you have. Both commands take `ARTIFACT=` — `pdf` (the default) or `slides` for the two that HAVE a
-reference, and `site`, which is accepted and prints why it has none, because `baseline.yml` loops over
-every artifact name and must not error on the one that is deployed rather than committed. The two with
-references need separate refreshes because they
-have separate references and separate closures — but they also *share* `_COMMON_FILES`, so a
-`buildcore.py` or `kitconfig.py` edit stales both and both need refreshing.
+host you have. Both commands take `ARTIFACT=` — `pdf` (the default) or `slides`, the two that HAVE a
+reference. **On `site` the two commands deliberately differ.** `make baseline ARTIFACT=site` is accepted
+and exits 0 printing why there is nothing to promote, because `baseline.yml` loops over every artifact
+name and must not error on the one that is deployed rather than committed. `make release ARTIFACT=site`
+**refuses by name and exits 1**: a release admits a new *edition*, proved against the last released
+reference, and a site has none by construction — so there is no identity to prove freshness against and
+every invocation would look like a first release. It refuses rather than pretending every deployment is
+one. The two with references need separate refreshes because they have separate references and separate
+closures — but they also *share* `_COMMON_FILES`, so a `buildcore.py` or `kitconfig.py` edit stales both
+and both need refreshing.
 
 Commit source **first**: `make baseline` on an uncommitted tree produces a `· dirty` stamp that
 future `make verify` runs won't match (and `make baseline` refuses a dirty tree for exactly this

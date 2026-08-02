@@ -163,8 +163,11 @@ Letter, stamp present.
 
 - **Cross-platform agreement.** Everything above was measured on Linux. The
   macOS/Linux byte-identity result is inherited from an earlier measurement made
-  outside this repository, and is cited rather than re-measured here — see
-  [determinism-evidence.md](determinism-evidence.md), which is careful about the
-  same distinction and says exactly which half is proved.
+  outside this repository, and is cited rather than re-measured here. What IS
+  measured, continuously, is the drift canary in `verify.yml`: it re-renders and
+  compares PDF bytes plus the `pdffonts` embedded-face list against the committed
+  reference, weekly and on any `pixi.lock` or workflow change. So the standing
+  claim is "the host cannot choose the typography, and drift is watched for",
+  not "every platform is proven identical".
 - **Content correctness.** This is a typography sign-off. It says the pages look
   right; it does not say the guides are right.

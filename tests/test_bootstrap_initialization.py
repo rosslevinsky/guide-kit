@@ -473,3 +473,39 @@ def test_a_projected_exception_survives_inside_a_kit_only_tree(tmp_path):
     assert not (fork / "docs" / "family-as-built.md").exists(), (
         "the maintainer's decision record leaked into a fork"
     )
+
+
+def test_a_web_enabled_forks_readme_does_not_still_teach_opting_in(tmp_path):
+    """A web-enabled fork must not describe enabling the web layer.
+
+    Third instance of one defect, which is why it is pinned rather than just
+    fixed. `_prune_readme` rewrites the "Website deploy" section for a
+    `--with-web` fork, and the rewrite was a pattern ending at the block's own
+    closing sentence. That sentence was later reworded; the pattern stopped
+    matching; `re.sub` reported it by returning the text unchanged. Every
+    web-enabled fork built after the rewording opened its deploy section with
+    "The website is an **opt-in** second output" and told the reader to "pass
+    `--with-web` when you initialize the fork" — a flag for a script bootstrap
+    deletes, in a repository that has already opted in.
+
+    The other two instances were the make-block heading and the
+    `.template-version` row. All three are now bounded by landmarks that have no
+    reason to move and warn when they miss, because a `re.sub` that matches
+    nothing is indistinguishable from one with nothing to do.
+    """
+    fork = _mkcopy(tmp_path / "fork")
+    proc = _run_bootstrap(fork, "--with-web")
+    assert proc.returncode == 0, proc.stderr
+    assert "WARNING" not in proc.stdout, proc.stdout
+    readme = (fork / "README.md").read_text(encoding="utf-8")
+
+    for phrase in (
+        "opt-in** second output",
+        "pass `--with-web` when you initialize",
+        "bootstrap.py --with-web",
+    ):
+        assert phrase not in readme, (
+            f"a web-enabled fork's README still says {phrase!r} — it describes "
+            f"opting in to something this repository already has"
+        )
+    assert "The website is **enabled for this guide**" in readme

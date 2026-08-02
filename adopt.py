@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 """adopt.py — turn a declared output ON or OFF in an ALREADY-ADOPTED guide.
 
-    python guide-kit/adopt.py --target ../mac-terminal-guide --output site --enable
-    python guide-kit/adopt.py --target ../mac-terminal-guide --output site --disable
+    python guide-kit/adopt.py --target mac-terminal-guide --output site --enable
+    python guide-kit/adopt.py --target mac-terminal-guide --output site --disable
+
+BOTH HALVES OF THAT LINE ARE RELATIVE TO THE SAME DIRECTORY, and they used to
+disagree. `--target` is resolved with a bare `Path()` — against the CURRENT
+WORKING DIRECTORY, not against the kit — so `guide-kit/adopt.py --target
+../my-guide` named two different places at once: reaching the script requires a
+cwd holding `guide-kit/`, and from there `../my-guide` is a sibling of the
+WORKSPACE, one level above every guide. Run these from the directory that holds
+both checkouts. From inside the guide itself the mirror form works and is what
+the Makefile's own remedy prints: `python ../guide-kit/adopt.py --target .`.
 
 This is a **state transition**, not a fresh adoption. `sync.py --adopt` is
 first contact and refuses a target that already has `.template-version`; this

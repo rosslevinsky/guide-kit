@@ -12,6 +12,8 @@ stamp at its middle dot and orphaning the hash. Every automated gate was green.
 """
 from __future__ import annotations
 
+import inspect
+
 import verify_artifacts
 
 TITLE = "A Beginner's Guide to the Thing"
@@ -245,3 +247,52 @@ class TestSmokeHonoursTheArtifactSelector:
                             lambda root, ref: True)
         root = self._root(tmp_path, references=False)
         assert verify_artifacts.smoke_check_all(root, "all") == 1
+
+
+class TestInheritedTemplateProse:
+    """The kit's worked example, still being shipped as somebody's own guide.
+
+    `bootstrap.py` leaves `guide.md` untouched on purpose — a fresh fork can run
+    `make` and get a PDF before writing a word, and the README says so. Identity
+    comes from `guide.toml`, though, so the fork's PDF carries the FORK's title
+    and author over the template's demo tables and sample callouts, and nothing
+    objected: measured on a real fork, `make`, `make verify` and `make smoke`
+    were all green on a PDF whose first line of prose was "This placeholder
+    guide is shipped with guide-kit".
+
+    Smoke is where this belongs rather than staleness or the canary: those three
+    compare an artifact against a reference, and here the bytes are exactly what
+    the source says they should be. The question "does this look finished?" is
+    the only one that catches it.
+    """
+
+    BODY = ("Outsider Guide\n\nThis placeholder guide is shipped with "
+            "`guide-kit`.\n\n2026-01-01 · abc123456789\n")
+
+    def test_a_fork_shipping_the_templates_prose_fails(self):
+        failures = verify_artifacts.smoke_failures(
+            self.BODY, 5, "Outsider Guide", "pdf", is_template=False)
+        assert any("template prose" in f for f in failures), failures
+
+    def test_the_template_itself_is_exempt(self):
+        """The kit renders its own worked example deliberately — here the prose
+        is the deliverable. Keyed on `.template-uninitialized`, the same sentinel
+        `buildcore._check_template_hygiene` uses; `bootstrap.py` deletes it, so a
+        fork is checked from its very first render."""
+        assert verify_artifacts.smoke_failures(
+            self.BODY, 5, "Outsider Guide", "pdf", is_template=True) == []
+
+    def test_the_deck_is_checked_too(self):
+        """A deck projected from an untouched `guide.md` is the same unfinished
+        artifact in a different shape, so this assertion is not one of the ones
+        the deck is excused from."""
+        failures = verify_artifacts.smoke_failures(
+            self.BODY, 2, "Outsider Guide", "slides", is_template=False)
+        assert any("template prose" in f for f in failures), failures
+
+    def test_smoke_check_reads_the_sentinel_from_the_root_it_was_given(self):
+        """Resolved against `root`, not the module's directory — promotion paths
+        and tests both call `smoke_check` with an explicit root, and asking the
+        wrong tree would exempt a real guide."""
+        src = inspect.getsource(verify_artifacts.smoke_check)
+        assert 'root / ".template-uninitialized"' in src

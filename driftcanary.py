@@ -21,7 +21,8 @@ So this compares on two axes:
     justification and glyph metrics that preserve line breaks. Available because
     the render is deterministic — `SOURCE_DATE_EPOCH` comes from the artifact's
     authored date and qpdf canonicalizes the output, so two builds of identical
-    committed source are byte-identical (docs/determinism-evidence.md).
+    committed source are byte-identical. This check is itself the standing
+    evidence for that: a repeated render that stopped matching would fail here.
   * **The `pdffonts` embedded-face list.** Not redundant with bytes: it NAMES a
     substitution rather than merely reporting that the render moved, and a
     typeface swap is the most likely drift in a font-bundling family.

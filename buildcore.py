@@ -510,6 +510,16 @@ _CJK_FAMILY = {"jp": "Guide CJK JP", "sc": "Guide CJK SC",
                "tc": "Guide CJK TC", "kr": "Guide CJK KR"}
 _CJK_LANG = {"jp": "ja", "sc": "zh-Hans", "tc": "zh-Hant", "kr": "ko"}
 
+# The filename `tools/subset-cjk.py` writes, per locale. A CONVENTION rather than
+# a config key: the guide already declares the locale, and a second place to
+# state where its face lives is a second place for the two to disagree.
+_CJK_SUBSET = "subset-{loc}.otf"
+
+
+def cjk_subset_path(loc: str) -> Path:
+    """Where the subset face for `loc` must be, absolute."""
+    return ROOT / kitconfig.GENERATED_FONT_DIR / _CJK_SUBSET.format(loc=loc)
+
 
 def cjk_css() -> str:
     """`:lang()`-keyed font selection for every declared CJK locale.
@@ -525,13 +535,58 @@ def cjk_css() -> str:
     The selector is `:lang()`, so the ANNOTATION carries the answer. That makes
     the `lang` attribute a hard requirement rather than a nicety: text with no
     annotation falls through to the first declared locale, which is a guess.
-    `check_cjk_annotations()` refuses a build that relies on that guess."""
+    `check_cjk_annotations()` refuses a build that relies on that guess.
+
+    EACH FAMILY IS DEFINED HERE AS WELL AS NAMED, and it did not used to be. The
+    `:lang()` rules named "Guide CJK JP"; no `@font-face` anywhere declared it,
+    and `tools/subset-cjk.py` keeps the SOURCE font's name table (`name_IDs =
+    ["*"]`), so the subset called itself "Noto Sans JP" or whatever it was cut
+    from. The cascade therefore pointed at a family nothing defined, the rule
+    fell through to `var(--body-font)`, and a guide that declared `cjk = ["jp"]`
+    and ran the documented subsetter got no CJK face at all. The two tests that
+    covered this asserted the string "Guide CJK JP" appeared in the generated
+    CSS — which it did, on the side of the rule that was never the problem.
+
+    ALIASED IN CSS, not renamed in the binary, and that is deliberate. It is what
+    the kit already does for its bundled faces — Source Serif 4 is served as
+    "Guide Serif" by `fontfaces.css` and its name table is untouched — and here
+    it is also the only safe option: the obvious CJK sources carry OFL Reserved
+    Font Names (Source Han Sans reserves "Source"), and rewriting a reserved name
+    into a redistributed binary is precisely what that clause forbids. An
+    `@font-face` alias is a CSS-level name and touches no font data.
+
+    Not in `fontfaces.css` with the rest, because these faces are per-guide
+    generated output rather than kit-bundled binaries: the file that exists is
+    decided by `[fonts] cjk`, which `fontfaces.css` cannot see."""
     locales = _cfg.fonts.cjk
     if not locales:
         return ""
+    missing = [loc for loc in locales if not cjk_subset_path(loc).is_file()]
+    if missing:
+        wanted = "\n".join(
+            f"  {kitconfig.GENERATED_FONT_DIR}/{_CJK_SUBSET.format(loc=loc)}"
+            for loc in missing)
+        raise SystemExit(
+            f"build: guide.toml declares [fonts] cjk = {list(locales)}, but the "
+            f"subset face(s) for {missing} are missing:\n{wanted}\n"
+            f"  Generate each one from a full CJK face you supply — the kit "
+            f"bundles no CJK binary:\n"
+            f"    pixi run python tools/subset-cjk.py --source <full-cjk>.otf "
+            f"--out {kitconfig.GENERATED_FONT_DIR}/"
+            f"{_CJK_SUBSET.format(loc=missing[0])}\n"
+            f"  Rendering without them would silently fall back to the body face, "
+            f"which has no CJK glyphs."
+        )
     rules = ["/* ---- CJK: per-locale faces, selected by :lang() ---- */"]
     for loc in locales:
         family, tag = _CJK_FAMILY[loc], _CJK_LANG[loc]
+        src = f"{kitconfig.GENERATED_FONT_DIR}/{_CJK_SUBSET.format(loc=loc)}"
+        rules.append(
+            f'@font-face {{\n'
+            f'  font-family: "{family}";\n'
+            f'  src: url("{src}") format("opentype");\n'
+            f'  font-weight: 400; font-style: normal;\n'
+            f'}}')
         rules.append(
             f':lang({tag}) {{ font-family: "{family}", var(--body-font); }}')
     return "\n".join(rules) + "\n"

@@ -37,9 +37,16 @@ Every file below was extracted from an upstream release archive, unmodified.
 - Source Sans 3 — SIL OFL 1.1 (`LICENSE-SourceSans3-OFL.md`)
 - DejaVu — Bitstream Vera, plus Tavmjong Bah's Arev additions, plus public-domain
   changes (`LICENSE-DejaVu.txt`, which carries all three notices)
+- `OFL.txt` — the **canonical SIL OFL 1.1 text itself**, governing both Source
+  families at once, with a header naming each family's copyright holder and
+  Reserved Font Name and stating that DejaVu is *not* under the OFL. It is not a
+  fourth licence and it does not replace the two `LICENSE-*-OFL.md` files above:
+  the OFL requires each family's own copyright line and Reserved Font Name
+  declaration to be preserved, and those live in the per-family files, so both
+  forms ship. `tests/test_font_assets.py` asserts all four are present.
 
-All three permit redistribution. The OFL requires the license text to travel with the
-font files, which is why these are committed alongside rather than linked.
+All three families permit redistribution. The OFL requires the license text to travel
+with the font files, which is why these are committed alongside rather than linked.
 
 ## Changing anything in here
 

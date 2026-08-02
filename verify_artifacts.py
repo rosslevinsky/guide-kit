@@ -580,6 +580,30 @@ _PLACEHOLDERS = (
     "<DESCRIBE YOUR GUIDE>", "__TITLE__", "__VERSION__",
 )
 
+# Sentences that exist ONLY in the kit's shipped `guide.md`. Unlike the tokens
+# above, these are ordinary prose — nothing marks them as unsubstituted, which is
+# exactly why they got through.
+#
+# THE GAP THIS CLOSES. `bootstrap.py` deliberately leaves `guide.md` alone so a
+# fresh fork can run `make` and get a PDF before writing a word; the README says
+# so. But identity comes from `guide.toml`, so the fork's PDF is stamped with the
+# fork's TITLE and AUTHOR while its body is still the template's demo tables and
+# sample callouts — and every check passed. Measured on a real fork: `make`,
+# `make verify` and `make smoke` were all green on a PDF titled "Outsider Guide"
+# whose first line of prose was "This placeholder guide is shipped with
+# guide-kit". Since smoke gates `baseline.yml`'s commit and `release.py`'s
+# promotion, that is the last gate before publication.
+#
+# SKIPPED IN THE TEMPLATE ITSELF, keyed on `.template-uninitialized` — the same
+# sentinel `buildcore._check_template_hygiene` uses, and for the same reason: the
+# kit renders its own worked example on purpose, so here these sentences are the
+# deliverable rather than a defect. `bootstrap.py` deletes the sentinel, so a
+# fork is checked from its first render.
+_TEMPLATE_BODY = (
+    "This placeholder guide is shipped with",
+    "exercising every styled element so the stylesheet has surface area",
+)
+
 MIN_PAGES = 2
 
 
@@ -596,7 +620,7 @@ def _pdftotext_layout(pdf: Path) -> str:
 
 
 def smoke_failures(text: str, pages: int, title: str,
-                   artifact: str = "pdf") -> list[str]:
+                   artifact: str = "pdf", is_template: bool = False) -> list[str]:
     """Every smoke assertion, as a PURE function over already-extracted text.
 
     Split out from smoke_check so the assertions are testable without a
@@ -611,6 +635,9 @@ def smoke_failures(text: str, pages: int, title: str,
     the guide's assertions against it produced a failure that says nothing —
     which is the other way a check stops meaning anything, and the reason to fix
     this at the same time as making `--smoke` honour `--artifact`.
+
+    `is_template` suppresses the inherited-content check alone, and only the kit
+    itself ever passes it — see `_TEMPLATE_BODY`.
     """
     failures: list[str] = []
     is_deck = artifact == "slides"
@@ -660,7 +687,19 @@ def smoke_failures(text: str, pages: int, title: str,
         if marker in text:
             failures.append(f"unsubstituted placeholder {marker!r} is in the rendered text")
 
-    # 5. THE FOOTER-WRAP CHECK is now geometric and needs the PDF itself, not
+    # 5. The kit's own worked example, still being shipped as somebody's guide.
+    #    Applies to the deck too: a deck projected from an untouched `guide.md`
+    #    is the same unfinished artifact in a different shape.
+    if not is_template:
+        for phrase in _TEMPLATE_BODY:
+            if phrase in text:
+                failures.append(
+                    f"the kit's template prose is still in the body "
+                    f"({phrase!r}) — guide.md has not been replaced with this "
+                    f"guide's own content"
+                )
+
+    # 6. THE FOOTER-WRAP CHECK is now geometric and needs the PDF itself, not
     #    extracted text, so smoke_check() runs it separately and merges the
     #    result. See footer_wrap_failures().
 
@@ -694,7 +733,12 @@ def smoke_check(pdf: Path, root: Path = HERE, artifact: str = "pdf") -> int:
         sys.stderr.write(f"ERROR smoke: could not read {pdf.name} ({exc})\n")
         return 2
 
-    failures = smoke_failures(text, pages, title, artifact)
+    # Resolved against `root`, not the module's own directory: `smoke_check` is
+    # called with an explicit root by the tests and by promotion paths inspecting
+    # a render elsewhere, and asking the wrong tree whether it is the template
+    # would exempt a real guide.
+    failures = smoke_failures(text, pages, title, artifact,
+                              is_template=(root / ".template-uninitialized").exists())
     # The footer-wrap check is geometric, so it reads the PDF's word boxes
     # rather than the extracted text, and is merged in here.
     try:

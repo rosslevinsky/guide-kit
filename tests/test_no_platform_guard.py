@@ -10,10 +10,9 @@ where the host genuinely chose the typeface and a Linux VM really could bless a
 Linux-typography PDF into a family of macOS-rendered ones. Bundled faces plus
 `fontconfig/fonts.conf` — both in every artifact's closure — removed that
 premise: the render no longer consults the host's fonts, and macOS/Linux
-byte-identity was measured across all eight repositories
-(`docs/determinism-evidence.md`). What was left was a config key recording an
-intention nothing could violate, and a CLI flag to override a check that could
-not fail for a real reason.
+byte-identity was measured across the family at the time the faces were bundled.
+What was left was a config key recording an intention nothing could violate, and
+a CLI flag to override a check that could not fail for a real reason.
 
 WHY A TEST INSTEAD OF A DELETION. Deleting the old file would leave the retirement
 asserted by nothing, and the shape of it is easy to reintroduce by accident — a

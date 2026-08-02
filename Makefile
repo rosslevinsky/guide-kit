@@ -47,6 +47,8 @@ help:
 	@echo "  make smoke [ARTIFACT=x]    Does each committed reference look finished? (no build; CI-safe)"
 	@echo "                             (PDF=<path> inspects one file instead)"
 	@echo "  make baseline [ARTIFACT=x] Promote a fresh render onto its committed reference (pdf|slides)"
+	@echo "                             (site is accepted and says why it has none — baseline.yml"
+	@echo "                             loops over every artifact and must not error on that one)"
 	@echo "  make release MSG=\"...\"     Stage source + refresh reference + amend, in one commit"
 	@echo "                             (add ARTIFACT=slides to release the deck)"
 	@echo "  make install               Install all dependencies via pixi"
@@ -101,13 +103,21 @@ wrangler:
 # pruned. The reachable path is the kit checkout beside the guide, which is how
 # `adopt.py` is documented everywhere else.
 #
+# AND IT RESOLVES FROM ONE DIRECTORY, which the first correction did not. It read
+# `python guide-kit/adopt.py --target .`, whose two halves assume different
+# working directories: `adopt.py` resolves `--target` against the CURRENT one, so
+# `--target .` means the guide, while `guide-kit/adopt.py` can only be reached
+# from the workspace root above it. `make` runs in the guide, so the path to the
+# kit from here is `../guide-kit` and `--target .` is then right.
+#
 # NO BACKTICKS in the message: it is expanded into a `sh` command line, where a
 # backtick opens a command substitution. The first draft shipped a guard whose
 # error message ran `site` as a program and printed "site: not found" above
 # itself.
 WEB_OFF_MSG := web layer not enabled. Declare 'site' in [outputs] (and add an \
-[artifacts.site] table) in guide.toml, commit that, then from a guide-kit \
-checkout: python guide-kit/adopt.py --target . --output site --enable
+[artifacts.site] table) in guide.toml, commit that, then run (with the kit \
+checked out beside this guide): python ../guide-kit/adopt.py --target . \
+--output site --enable
 dev:
 	@test -d app || { echo "$(WEB_OFF_MSG)"; exit 1; }
 	pixi run web

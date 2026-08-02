@@ -203,14 +203,25 @@
 ------------------------------------------------------------------------
 
 Scope:
-  The Apache License 2.0 above applies to the code in this repository
-  (build scripts, CSS, configuration files).
+  The split is by what a file IS, not by file type.
 
-  The guide content -- guide.md and the rendered PDF -- is licensed
-  separately under Creative Commons Attribution 4.0 International
-  (CC BY 4.0). The full text is at:
+  Guide content -- guide.md and the PDF, slide deck and website
+  rendered from it -- is licensed under Creative Commons
+  Attribution 4.0 International (CC BY 4.0). The full text is in
+  LICENSE-CONTENT and at:
 
       https://creativecommons.org/licenses/by/4.0/legalcode
 
   In short: share and adapt the content for any purpose, including
   commercially, as long as you give appropriate credit.
+
+  Everything else in this repository -- build scripts, stylesheets,
+  themes, configuration, workflows, the test suite, and all
+  documentation that is not the guide itself -- is covered by the
+  Apache License 2.0 above.
+
+  The bundled typefaces under fonts/vendor/ are the exception:
+  they are third-party works under their own upstream licences
+  (SIL OFL 1.1 for the Source families; Bitstream Vera plus
+  Tavmjong Bah's Arev additions for DejaVu), and those licences
+  travel with the files. See fonts/vendor/README.md.

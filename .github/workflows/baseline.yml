@@ -43,9 +43,9 @@ jobs:
   baseline:
     # Linux, since bundling fonts made the render host-independent: the same
     # commit produces a byte-identical PDF on macOS and Linux, measured across
-    # all eight repos (docs/determinism-evidence.md). macOS runners bill at 10x
-    # the Linux rate and bought nothing once typography stopped depending on the
-    # host.
+    # the family when the faces were bundled. macOS runners bill at 10x the Linux
+    # rate and bought nothing once typography stopped depending on the host, and
+    # the drift canary in verify.yml is what watches for that changing.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     defaults:

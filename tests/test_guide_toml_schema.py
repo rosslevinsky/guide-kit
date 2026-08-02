@@ -246,7 +246,20 @@ def test_declared_shape_defaults(tmp_path):
     assert c.slides.source == "auto"
     assert c.fonts.cjk == ()
     assert c.deploy.domain == ""
-    assert c.kit.min_version == ""
+
+
+def test_the_retired_kit_table_is_rejected_rather_than_ignored(tmp_path):
+    """`[kit] min_version` was loaded, validated, stored — and read by nothing.
+
+    A key that type-checks and then decides nothing is worse than no key: the
+    guide that sets it believes it has stated a requirement. Retired the same way
+    `[release]` and `baseline_platform` were, so a leftover fails loudly instead
+    of quietly meaning nothing.
+    """
+    d = dict(VALID)
+    d["kit"] = {"min_version": "2.0"}
+    with pytest.raises(kitconfig.KitConfigError, match="kit"):
+        _load(tmp_path, d)
 
 
 def test_unknown_top_level_key_rejected(tmp_path):
@@ -266,7 +279,7 @@ def test_release_table_rejected_as_unknown(tmp_path):
         _load(tmp_path, d)
 
 
-@pytest.mark.parametrize("table", ["outputs", "theme", "site", "slides", "fonts", "deploy", "hub", "kit"])
+@pytest.mark.parametrize("table", ["outputs", "theme", "site", "slides", "fonts", "deploy", "hub"])
 def test_unknown_key_inside_table_rejected(tmp_path, table):
     d = dict(VALID)
     d[table] = dict(d.get(table, {}))

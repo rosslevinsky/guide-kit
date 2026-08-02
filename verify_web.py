@@ -87,10 +87,14 @@ def main() -> int:
         # skipping here would report a site as fine that cannot be built.
         # The remedy names a REACHABLE command. `adopt.py` is kit-only and
         # pruned from every guide, and it requires --target, so the bare form
-        # this printed could not be run where the message fires.
+        # this printed could not be run where the message fires. The path is
+        # written from THIS guide's directory, which is where the message
+        # appears: `adopt.py` resolves `--target` against the current working
+        # directory, so `guide-kit/adopt.py --target .` named two different
+        # places at once.
         _fail("guide.toml declares a site but style-screen.css is absent — "
-              "materialize it from a guide-kit checkout with "
-              "`python guide-kit/adopt.py --target . --output site --enable`")
+              "materialize it from the guide-kit checkout beside this guide with "
+              "`python ../guide-kit/adopt.py --target . --output site --enable`")
         return 1
 
     m = _EMBED_ID.search(SRC.read_text(encoding="utf-8"))

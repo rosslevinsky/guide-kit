@@ -19,9 +19,18 @@ import kitconfig
 
 
 def _with_cjk(monkeypatch, *locales):
+    """Declare `locales`, and pretend their subset faces have been generated.
+
+    The subset path is redirected at a bundled face rather than written into
+    `fonts/generated/`, because that directory is matched by every artifact's
+    stamp globs — a test that dropped a file there would move the version stamp
+    of whatever ran next.
+    """
     fonts = kitconfig.FontsConfig(cjk=tuple(locales))
     monkeypatch.setattr(buildcore, "_cfg",
                         type(buildcore._cfg)(**{**vars(buildcore._cfg), "fonts": fonts}))
+    stand_in = buildcore.ROOT / "fonts" / "vendor" / "SourceSerif4-Regular.otf"
+    monkeypatch.setattr(buildcore, "cjk_subset_path", lambda loc: stand_in)
 
 
 def test_no_declared_locales_emits_nothing(monkeypatch):
@@ -72,6 +81,70 @@ def test_the_cascade_includes_the_lang_rules(monkeypatch):
     # After the theme and before the guide's own sheet, so a guide can still
     # override the selection it was given.
     assert css.index("theme:") < css.index(":lang(ja)") < css.index("OVERRIDE")
+
+
+# ----- the family has to be DEFINED, not just named ---------------------------
+#
+# The defect these cover shipped for as long as `[fonts] cjk` existed, and the
+# two tests that were meant to cover it asserted `"Guide CJK JP" in css` — true
+# of the `:lang()` rule, which was never the broken half. Nothing anywhere
+# declared the family, and `tools/subset-cjk.py` preserves the source font's name
+# table (`name_IDs = ["*"]`), so the subset called itself whatever it was cut
+# from. The cascade named a family no `@font-face` defined, the rule fell through
+# to `var(--body-font)`, and a guide following the documented steps got no CJK
+# face while every test passed.
+
+def test_the_declared_family_is_defined_by_a_font_face(monkeypatch):
+    """The regression, stated as the property it broke: every family the cascade
+    NAMES must be one some `@font-face` DEFINES."""
+    import cascadecheck
+
+    _with_cjk(monkeypatch, "jp")
+    cascade = buildcore.theme_css("print", "/* OVERRIDE */")
+    named = cascadecheck.reachable_families(cascade)
+    # The bundled binaries, plus the subset a guide declaring `jp` generates.
+    # Named rather than globbed off disk: `fonts/generated/` is empty in the kit
+    # (it holds per-guide output), and writing into it would move the stamp.
+    faces = [f.name for f in kitconfig.font_files(buildcore.ROOT)] + ["subset-jp.otf"]
+    defined = set()
+    for name in faces:
+        defined |= cascadecheck.families_for_source(cascade, name)
+    assert "Guide CJK JP" in named
+    assert not (named - defined), f"named but never defined: {sorted(named - defined)}"
+
+
+def test_the_font_face_points_at_the_generated_subset(monkeypatch):
+    """Aliased in CSS, not renamed in the binary — the same thing `fontfaces.css`
+    does for Source Serif. Renaming is not merely unnecessary here, it is unsafe:
+    the obvious CJK sources carry OFL Reserved Font Names (Source Han Sans
+    reserves "Source"), and rewriting one into a redistributed file is what that
+    clause forbids."""
+    _with_cjk(monkeypatch, "jp")
+    css = buildcore.cjk_css()
+    assert "@font-face" in css
+    assert 'font-family: "Guide CJK JP"' in css
+    assert "fonts/generated/subset-jp.otf" in css
+
+
+def test_a_declared_locale_with_no_subset_face_refuses_the_build():
+    """Silently falling back to the body face is the failure worth refusing: it
+    has no CJK glyphs, so the page renders boxes or nothing, and the stamp moves
+    for neither. The message has to name the file and the command that makes it —
+    the kit bundles no CJK binary, so there is nothing to guess."""
+    import dataclasses
+
+    cfg = kitconfig.load()
+    cfg = dataclasses.replace(cfg, fonts=dataclasses.replace(cfg.fonts, cjk=("jp",)))
+    saved = buildcore._cfg
+    buildcore._cfg = cfg
+    try:
+        with pytest.raises(SystemExit) as exc:
+            buildcore.cjk_css()
+    finally:
+        buildcore._cfg = saved
+    message = str(exc.value)
+    assert "fonts/generated/subset-jp.otf" in message
+    assert "tools/subset-cjk.py" in message
 
 
 # ----- the annotation requirement --------------------------------------------

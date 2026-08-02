@@ -63,6 +63,7 @@ import datetime as _datetime
 import json
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -470,6 +471,80 @@ def _prune_kit_only(manifest) -> None:
 
 _README_ROW_RE = re.compile(r"^\|\s*`([^`]+)`")
 
+# THE PATHS THAT ARE STILL ON DISK BUT WILL NOT BE. `main()` deletes these at the
+# very end of the run — after `_prune_readme` has looked at the tree — so an
+# existence test alone reports them as present and every row and mention of them
+# survives into the fork's landing page. Measured on a real fork: the README kept
+# rows for `bootstrap.py`, `.template-uninitialized` and all three `templates/`
+# staging directories, and listed `bootstrap.py` among the files a doc-only edit
+# may touch.
+#
+# Reordering is not the fix. `bootstrap.py` is the script doing the pruning, and
+# the sentinel and `templates/` are read right up until the end; what is wrong is
+# asking the disk a question whose answer changes a few lines later. So the
+# predicate answers for the FINISHED fork instead.
+_REMOVED_AT_THE_END = ("bootstrap.py", SENTINEL.name, "templates")
+
+
+def _survives(rel: str) -> bool:
+    """Will `rel` exist in the fork once bootstrap has finished?
+
+    Not `(ROOT / rel).exists()`: see `_REMOVED_AT_THE_END`. Compared on the first
+    path segment so a row naming `templates/web/` is answered by the directory
+    that actually goes.
+    """
+    if rel.split("/", 1)[0] in _REMOVED_AT_THE_END:
+        return False
+    return (ROOT / rel).exists()
+
+
+def _relock() -> None:
+    """Bring `pixi.lock` back into agreement with the pixi.toml we just wrote.
+
+    THE FORK INHERITS A LOCKFILE FOR A MANIFEST IT NO LONGER HAS. `pixi.toml` is
+    a `templated` file and its kit-only region — `[feature.kit]`, the `test` task
+    and the whole `[environments]` block — is stripped on the way into a target.
+    The inherited `pixi.lock` still describes the `kit` environment, so the two
+    disagree from the fork's very first commit, and the next `pixi` invocation
+    rewrites the lock to drop it.
+
+    That landed on the FIRST command the fork is told to run. `main()` prints
+    "commit, write your guide, then `make release`"; `make` re-solved, `pixi.lock`
+    showed up modified, and `release.py` refused — correctly, since the lockfile
+    is outside the authorable set — with "working tree has changes outside the
+    authorable set: pixi.lock". Measured end to end on a generated fork.
+
+    Fixing it here rather than teaching `release.py` to tolerate the drift: the
+    disagreement is real, and a release path that shrugs at it would also shrug
+    when a lockfile moved for a reason that mattered. A fork whose first commit
+    is self-consistent has nothing to tolerate.
+
+    Cheap, because this is a DELETION rather than a re-solve — the `default`
+    environment's own resolution is untouched, so no network and no solver work.
+    BEST-EFFORT, though: `pixi` is not guaranteed to be on PATH inside the
+    environment it created, and a fork with a stale lock is an inconvenience
+    while a bootstrap that dies here is a half-initialized repository. So a
+    failure says what to run and moves on.
+    """
+    if not (ROOT / "pixi.lock").exists():
+        return
+    pixi = shutil.which("pixi")
+    if pixi is None:
+        print("  pixi.lock        SKIPPED: pixi is not on PATH — run `pixi lock` "
+              "and include the result in your initialization commit")
+        return
+    proc = subprocess.run([pixi, "lock", "--quiet"], cwd=ROOT,
+                          capture_output=True, text=True)
+    if proc.returncode == 0:
+        print("  pixi.lock        relocked (the kit-only environment is gone from "
+              "pixi.toml, so it goes from the lock too)")
+    else:
+        detail = (proc.stderr or proc.stdout).strip().splitlines()
+        print(f"  pixi.lock        WARNING: `pixi lock` failed "
+              f"({detail[-1] if detail else 'no output'}). Run it yourself and "
+              f"include the result in your initialization commit, or the first "
+              f"`make release` will refuse on an unrelated lockfile change")
+
 
 def _prune_readme(with_web: bool) -> None:
     """Make README.md describe THIS guide rather than the kit it came from.
@@ -494,16 +569,55 @@ def _prune_readme(with_web: bool) -> None:
             # keep it if ANY of them survived, so shared rows are not lost.
             paths = re.findall(r"`([^`]+)`", line.split("|")[1])
             candidates = [c.split()[0].rstrip("/") for c in paths if c and not c.startswith("<")]
-            if candidates and not any((ROOT / c).exists() for c in candidates):
+            if candidates and not any(_survives(c) for c in candidates):
                 dropped += 1
                 continue
         kept.append(line)
     text = "".join(kept)
 
+    # The make block's web-layer heading names the two ways to opt in, and one of
+    # them — `bootstrap.py --with-web` — is unreachable by the time anybody reads
+    # it, because this run deletes that script. Rewritten for BOTH shapes: the
+    # web-enabled fork has already opted in, and the PDF-only fork's only
+    # remaining route is `adopt.py`.
+    #
+    # MATCHED AS A PATTERN, not as a literal, and that is the lesson rather than a
+    # style choice. This was a `str.replace` of the exact one-line comment; the
+    # comment later gained its second clause and wrapped onto two lines, the
+    # literal stopped matching, and a replacement that silently does nothing left
+    # `bootstrap.py --with-web` on the landing page of every fork made since. A
+    # `.replace` that misses is indistinguishable from one that had nothing to do.
+    web_heading = re.compile(
+        r"^# Opt-in web layer \(.*?see \"Website deploy\"\):$",
+        re.S | re.M)
+    text, swapped = web_heading.subn(
+        "# Website (enabled for this guide):" if with_web
+        else "# Opt-in web layer (after `adopt.py --output site --enable` — see\n"
+             "# \"Website deploy\"):",
+        text, count=1)
+    if not swapped:
+        print("  README.md        WARNING: the make block's web-layer heading has "
+              "been reworded; it was left as the kit wrote it")
+
+    # The rows that SURVIVE but describe themselves in terms of the script that
+    # is about to go. Row pruning cannot reach these — `.template-version` and
+    # `style-screen.css.example` are both real files in the fork — so the row is
+    # right and one clause inside it is not. Same warn-on-miss discipline as
+    # above, for the same reason.
+    for pattern, replacement, what in (
+        (r"Written by `bootstrap\.py`; updated by `sync\.py`\.",
+         "Written when this guide was initialized from the kit; updated by `sync.py`.",
+         "the .template-version row"),
+        (r"`bootstrap\.py --with-web` copies it to `style-screen\.css`",
+         "Enabling the web layer copies it to `style-screen.css`",
+         "the style-screen.css.example row"),
+    ):
+        text, hits = re.subn(pattern, replacement, text, count=1)
+        if not hits:
+            print(f"  README.md        WARNING: {what} no longer matches; it may "
+                  f"still name bootstrap.py")
+
     if with_web:
-        text = text.replace(
-            "# Opt-in web layer (only after `bootstrap.py --with-web` — see \"Website deploy\"):",
-            "# Website (enabled for this guide):")
         text = text.replace(
             "The PDF is the default deliverable; the website is **opt-in**. On a PDF-only fork "
             "`make web` no-ops cleanly and `make dev`/`make deploy` exit with a \"web layer not "
@@ -516,17 +630,44 @@ def _prune_readme(with_web: bool) -> None:
             "(The web layer is live in this guide: `app/`, `style-screen.css` and `deploy.yml` "
             "are all present.")
 
-        # The "how to enable the web layer" recipe instructs running bootstrap.py,
-        # which no longer exists here and would refuse anyway. Replace the whole
-        # enable-it block with a statement of what this guide already has.
-        text = re.sub(
-            r"The website is an \*\*opt-in\*\* second output\..*?re-baseline with `make release`\.\)",
-            "The website is already enabled for this guide: `style-screen.css`, the `app/` "
+        # The "how to enable the web layer" block is two recipes for a decision
+        # this repository has already made, and the first of them — "pass
+        # --with-web when you initialize the fork" — names a script this run
+        # deletes. Replaced wholesale with what the guide actually has.
+        #
+        # BOUNDED BY TWO LANDMARKS rather than by its own closing sentence, and
+        # that is the repair as much as the replacement is. The pattern used to
+        # end at "re-baseline with `make release`.)"; the block's last paragraph
+        # was later reworded and lost the parenthesis, the match stopped
+        # happening, and `re.sub` reported that by doing nothing. Every
+        # web-enabled fork built since has been telling its reader to pass
+        # `--with-web` to a file that is not there. The trailing lookahead is a
+        # paragraph on a different subject (provider-neutrality) that is true of
+        # every guide and therefore has no reason to move.
+        enable_block = re.compile(
+            r"The website is an \*\*opt-in\*\* second output\..*?"
+            r"(?=The built tree is \*\*provider-neutral\*\*)", re.S)
+        text, swapped = enable_block.subn(
+            "The website is **enabled for this guide**: `style-screen.css`, the `app/` "
             "Cloudflare scaffold (with this guide's slug as the worker name) and a live "
-            "`.github/workflows/deploy.yml` are all present. `transforms.py` is deliberately "
-            "**not** activated — it is a `SOURCE_FILES` entry, so creating it shifts the version "
-            "stamp, and this guide has no embeds to split per output.",
-            text, count=1, flags=re.S)
+            "`.github/workflows/deploy.yml` are all present, and `[outputs] site` is "
+            "declared in `guide.toml`.\n\n"
+            "Note `make web` **fails** until the first reference PDF exists — the site's "
+            "download link would otherwise 404.\n\n"
+            "`transforms.py` is **not** activated unless you ask for it. It is a "
+            "`SOURCE_FILES` entry, so creating it shifts the PDF's version stamp; copy "
+            "`transforms.py.example` to `transforms.py` if this guide needs per-output HTML "
+            "rewriting (the worked example is the YouTube-embed split — an iframe on the "
+            "site, a watch-link in print), then refresh the reference with "
+            "`make release`.\n\n",
+            text, count=1)
+        if not swapped:
+            print("  README.md        WARNING: the web-layer enable block has been "
+                  "reworded; it still describes opting in, which this guide has done")
+
+        # The fenced `bootstrap.py --with-web` recipe, if the block above did not
+        # already take it. Harmless when it did — `subn` on no match is a no-op —
+        # but it is reported either way, for the same reason.
         text = re.sub(
             r"```bash\npixi run python bootstrap\.py [^\n]*--with-web\n```\n\n", "", text, count=1)
 
@@ -535,7 +676,7 @@ def _prune_readme(with_web: bool) -> None:
     def _prune_doconly(m: re.Match) -> str:
         kept = [seg for seg in re.findall(r"`[^`]+`", m.group(0))
                 if not seg.strip("`").endswith((".py", ".toml"))
-                or (ROOT / seg.strip("`")).exists()
+                or _survives(seg.strip("`"))
                 or seg.strip("`").startswith(("LICENSE", "pixi", "README", "CLAUDE"))]
         return ", ".join(kept)
 
@@ -707,6 +848,8 @@ def main() -> int:
     if templates.exists():
         shutil.rmtree(templates)
         print("  templates/       removed (staging seeds, copied from the kit)")
+
+    _relock()
 
     SENTINEL.unlink()
     print("  .template-uninitialized  removed")

@@ -4,6 +4,23 @@
     python tools/subset-cjk.py --source <full.otf> --out fonts/generated/subset-jp.otf
     python tools/subset-cjk.py --check-deterministic
 
+WHERE THE SOURCE COMES FROM. You supply it; the kit bundles no CJK binary. Any
+face you may redistribute works — Noto Sans JP/SC/TC/KR and Source Han Sans are
+both SIL OFL 1.1. See the README's "CJK text" section.
+
+THE OUTPUT FILENAME IS LOAD-BEARING. `buildcore.cjk_css()` looks for
+`fonts/generated/subset-<locale>.otf`, one per locale in `[fonts] cjk`, and
+writes the `@font-face` that aliases it to the CSS family `Guide CJK <LOCALE>`.
+Write it anywhere else and the build stops saying which file it wanted.
+
+THE NAME TABLE IS LEFT ALONE, deliberately (`options.name_IDs = ["*"]`). The
+subset keeps calling itself whatever it was cut from, and the CSS family name is
+attached by `@font-face` instead — exactly how `fontfaces.css` serves Source
+Serif 4 as "Guide Serif". That is not only simpler than rewriting the binary's
+name, it is the only safe option: Source Han Sans and friends carry an OFL
+Reserved Font Name, and renaming a reserved name inside a redistributed file is
+what that clause prohibits. A CSS alias touches no font data.
+
 WHY SUBSET AT ALL. A full CJK face is 10-20 MB. Bundling one per guide would
 dominate every repository and every PDF, when a guide needs the few hundred
 codepoints it actually uses. Subsetting keeps the hermetic-font guarantee — the

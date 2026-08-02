@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""The slides renderer — the seam, not yet the implementation.
+"""The slides renderer: a 16:9 PDF deck at `build/<slug>-slides.pdf`.
 
-This module exists now, empty of rendering logic, because its **absence** is what
-the split is trying to prevent. `kitconfig`'s `ArtifactSpec` already declares a
-`slides` artifact whose closure includes this file and `style-slides.css`; with
-nowhere for slides code to live, the first person to add it would reach for
-`buildcore.py` or `build.py`, both of which are PDF stamp inputs — and adding
-slides would re-stale all eight reference PDFs. That is precisely the coupling
-the split exists to remove: editing `slides.css` would re-stale the PDF and
-force a pointless re-render of a document that did not change.
+`build_slides()` is the whole of `make slides`. It resolves where the deck's
+source comes from (`resolve_source`), collects the marked regions into slides
+(`slide_blocks` — `::: slide` fences from `guide.md`, or a separate `[slides]
+file` grouped on the way in), renders them through `buildcore`'s shared pandoc +
+HTML wrapper, and adds the geometry, the pagination rules and the bundled-family
+floor that a target-owned `style-slides.css` cannot be relied on to carry.
+`coverage()` answers `make slides-coverage`. The deck is OFF by default; the
+Makefile no-ops with a notice when `[outputs] slides` is false.
 
-So the seam is established and asserted (the stage-boundary test in
-`tests/test_artifact_spec.py` renders a slides-stylesheet edit and a slides
-source edit and requires the PDF's bytes, stamp and date to be unchanged), while
-the rendering itself lands with the slides stage.
+WHY THIS IS ITS OWN MODULE, which is the part that outlives any of the above.
+`kitconfig`'s `ArtifactSpec` declares a `slides` artifact whose closure includes
+this file and `style-slides.css`, and nothing else's. Slides code living in
+`buildcore.py` or `build.py` would be slides code inside a PDF stamp input, so
+every edit to the deck would re-stale all eight reference PDFs and force a
+re-render of documents that did not change. The separation is enforced rather
+than intended: the stage-boundary test in `tests/test_artifact_spec.py` makes a
+slides-stylesheet edit and a slides-source edit and requires the PDF's bytes,
+stamp and date to be unchanged.
 
-Deliberately raises rather than no-ops: a silent no-op would let `make slides`
-report success and write nothing.
+The module was created empty, ahead of the rendering, for exactly that reason —
+so that the first person to write slide code would have somewhere to put it that
+was not a PDF input.
 """
 from __future__ import annotations
 

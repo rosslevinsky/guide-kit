@@ -40,6 +40,8 @@ ships Markdown and a PDF that disagree.
 detail, and it is three commands:
 
 ```bash
+# <your-fork> is a repository YOU create from this template first — one command,
+# in "How to fork" below: gh repo create my-new-guide --template rosslevinsky/guide-kit
 git clone git@github.com:<you>/<your-fork>.git && cd <your-fork>
 pixi install
 ```
@@ -107,7 +109,7 @@ The template was extracted in 2026 from three guides (`mac-terminal-guide`, `git
 - **pandoc** for Markdown → HTML, not a custom parser. Smart-quote conversion is **disabled** (`-smart`) so the literal characters in your source land in the PDF — important for ASCII diagrams and copy-pasteable command snippets.
 - **A `transforms.py` hook**, not config files. If a fork needs to rewrite the HTML pandoc produces (turn `Debit / Credit` code blocks into ruled tables, inject TOC anchors, classify numeric vs. prose tables), it provides per-output `post_pandoc_html_for_pdf` / `post_pandoc_html_for_web` functions (or a single-entry `post_pandoc_html` fallback for PDF-only forks). The template ships `transforms.py.example` demonstrating the per-output YouTube-embed split (iframe on the site, watch-link in print); activate by copying to `transforms.py` and the build picks it up automatically. See [Website deploy](#website-deploy-cloudflare).
 - **Staleness verification, computed not rendered.** `make verify` compares the content hash embedded in the committed PDF's footer stamp against a fresh hash over `SOURCE_FILES` — no build, no fonts, no platform sensitivity — so it runs identically everywhere, including CI. Whether the *rendering* reproduced is a separate question, answered by `make drift-canary`. `SOURCE_DATE_EPOCH` + `qpdf --deterministic-id` make repeated builds of identical source content-identical.
-- **The render does not consult the host's fonts.** The repo bundles its own faces under `fonts/vendor/` and ships `fontconfig/fonts.conf` in place of the system config, so the host never selects a typeface and there is no canonical rendering host. `make baseline` / `make release` refuse a dirty-tree render; `.github/workflows/baseline.yml` renders on an `ubuntu-latest` runner, and `verify.yml` dispatches it for you when a push leaves the reference stale. A **drift canary** in `verify.yml` re-renders and compares bytes plus the embedded-face list against the committed reference, so agreement is measured rather than assumed. **What that measurement covers, stated plainly:** repeated Linux renders of identical source are byte-identical, and the canary re-checks that on every CI run and weekly. The macOS/Linux cross-platform result is *inherited* from an earlier measurement and is not re-run here — [`docs/determinism-evidence.md`](docs/determinism-evidence.md) says which half is proved and which is cited. Native Windows is declared and untested. So the honest claim is "the host cannot choose the typography, and drift is watched for", not "every platform is proven identical".
+- **The render does not consult the host's fonts.** The repo bundles its own faces under `fonts/vendor/` and ships `fontconfig/fonts.conf` in place of the system config, so the host never selects a typeface and there is no canonical rendering host. `make baseline` / `make release` refuse a dirty-tree render; `.github/workflows/baseline.yml` renders on an `ubuntu-latest` runner, and `verify.yml` dispatches it for you when a push leaves the reference stale. A **drift canary** in `verify.yml` re-renders and compares bytes plus the embedded-face list against the committed reference, so agreement is measured rather than assumed. **What that measurement covers, stated plainly:** repeated Linux renders of identical source are byte-identical, and the canary re-checks that on every CI run and weekly. The macOS/Linux cross-platform result is *inherited* from a measurement made when the faces were bundled, and is not re-run here. Native Windows is declared and untested. So the honest claim is "the host cannot choose the typography, and drift is watched for", not "every platform is proven identical".
 - **CI runs the staleness check, the build smoke and the drift canary, Ubuntu only.** Because `make verify` is platform-independent it gates in CI for real (the old "build-smoke only" rule is gone), and the drift canary reuses the render the build smoke already produced. Ubuntu-only + paths-filtered keeps Actions minutes low; a scheduled `kit-drift.yml` warns (never fails) when the kit's shared tooling moves ahead of this guide.
 - **Dual licensing.** Guide content (your `guide.md` and everything rendered from it) is CC BY 4.0; everything else in the repository — tooling, configuration and documentation alike — is Apache 2.0. Both live as explicit `LICENSE*` files. GitHub's detector reads `LICENSE` only, so the sidebar says Apache-2.0 and the [License](#license) section below is where the split is actually stated.
 
@@ -157,7 +159,7 @@ A guide created from this template keeps its shared tooling up to date by **copy
 - `CLAUDE.md` is a `managed-region` file: only the block between the `kit:begin` / `kit:end` markers is synced; your own guide-specific sections outside them are never touched.
 - A scheduled, warn-only `kit-drift.yml` reports (never fails) when the kit moves ahead of a guide.
 
-Adding a web layer to an already-initialized guide is a separate transition, and it is **config-first**: declare `[outputs] site` in the guide's own `guide.toml` and commit that, then run `python guide-kit/adopt.py --target ../my-guide --output site --enable` to materialize what the declaration implies. `--disable` reverses it, and is config-first in the same direction — un-declare the output and commit that first, or it refuses. Neither writes `guide.toml`: it is target-owned, so the declaration stays reviewable in the guide's own history. See [Website deploy](#website-deploy-cloudflare).
+Adding a web layer to an already-initialized guide is a separate transition, and it is **config-first**: declare `[outputs] site` in the guide's own `guide.toml` and commit that, then run `python guide-kit/adopt.py --target my-guide --output site --enable` from the directory that holds both checkouts to materialize what the declaration implies. `--disable` reverses it, and is config-first in the same direction — un-declare the output and commit that first, or it refuses. Neither writes `guide.toml`: it is target-owned, so the declaration stays reviewable in the guide's own history. See [Website deploy](#website-deploy-cloudflare).
 
 ### The guide family
 
@@ -262,7 +264,7 @@ The PDF is the default deliverable; the website is **opt-in**. On a PDF-only for
 | `kit-manifest.toml` / `kitmanifest.py` | The two-axis file manifest (source lifecycle × destination policy) and its loader — the classification `sync.py` and `bootstrap.py` act on. |
 | `sync.py` | Copy-and-checksum engine: reports drift (default) or, with `--apply`, transactionally updates a guide's shared files from the kit. |
 | `adopt.py` | Turn a declared output on or off in an already-adopted guide (`--target <guide> --output site --enable\|--disable`). Config-first: it never writes `guide.toml`. |
-| `cfadapter.py` | Generates `app/wrangler.jsonc` and `_headers` from `guide.toml` (`make wrangler`). The one Cloudflare-specific thing in the built tree. |
+| `cfadapter.py` | Generates the two Cloudflare-specific files, on two different triggers: `app/wrangler.jsonc` from `guide.toml` when you run `make wrangler`, and `_headers` into the built tree during the site build (`make web`). `_headers` is the only Cloudflare-specific thing in what gets served. |
 | `guidekit.py` | The cold-start CLI: `preflight` (are the preconditions met?) and `init` (preflight, then `bootstrap.py`, then bind `[deploy] domain` if one was given). |
 | `hub.py` | Builds the family hub — the omnibus index site. Only meaningful for `[outputs] site = "hub"`, so an ordinary guide never runs it, and it still syncs into every target: a hub **is** a target, and scoping it out would mean `hub build` could only run from a kit checkout. A few unused KB is the price of an adopter's hub working at all. |
 | `tools/subset-cjk.py` | Writes a CJK subset into `fonts/generated/` when `[fonts] cjk` names a locale. Target-owned output, and a render input hashed like any bundled face. |
@@ -288,7 +290,7 @@ The PDF is the default deliverable; the website is **opt-in**. On a PDF-only for
 | `templates/web/` | Opt-in web layer: the `app/` scaffold staging dir (`wrangler.jsonc`, `package.json` + lockfile, `public/.gitkeep`). `--with-web` copies it to `app/` **verbatim** — a plain `copytree`, no templating pass — then regenerates `wrangler.jsonc` from `guide.toml` with `cfadapter.write_wrangler()` and removes the staging copy. The worker name is right because of that regeneration, not because anything substitutes into the template. |
 | `.github/workflows/deploy.yml.example` | Opt-in web layer: inert deploy workflow (GitHub only runs `*.yml`). `--with-web` activates it as `deploy.yml`. |
 | `verify_web.py` | Opt-in web layer: asserts the per-output embed split (iframe on the site, watch-link in print). Skips cleanly when the web layer isn't enabled. |
-| `docs/` | Kit-only maintainer docs: [`family-as-built.md`](docs/family-as-built.md) (the family's decision record), [`determinism-evidence.md`](docs/determinism-evidence.md) (the committed byte-identity measurement), and [`typography-signoff.md`](docs/typography-signoff.md) (the human sign-off on the stage-0+1 re-baseline). Pruned from a fork. |
+| `docs/` | Kit-only maintainer docs: [`family-as-built.md`](docs/family-as-built.md) (the family's decision record) and [`typography-signoff.md`](docs/typography-signoff.md) (the human sign-off on the stage-0+1 re-baseline). Pruned from a fork. |
 
 (The web-layer files above ship inert. A PDF-only fork has no `app/`, no `style-screen.css`, and no live `deploy.yml`. See [Website deploy (Cloudflare)](#website-deploy-cloudflare).)
 
@@ -450,14 +452,42 @@ preview_urls = false              # a SECOND workers.dev surface, independent of
 [fonts]
 cjk = ["jp"]                      # a LIST, and it may name several: "jp", "sc",
                                   # "tc", "kr". Omit the table entirely for none.
-                                  # `tools/subset-cjk.py` writes the subset into
-                                  # fonts/generated/, which is a render input and
-                                  # is hashed like any bundled face.
-
-# --- what this guide requires OF THE KIT -------------------------------------
-[kit]
-min_version = ""                  # reserved; empty means "any version"
+                                  # You supply the face — see "CJK text" below.
 ```
+
+### CJK text
+
+`[fonts] cjk` declares which CJK locales a guide sets. It is a **list of locales, not a
+boolean**, because Han unification gives Japanese, Simplified Chinese, Traditional Chinese and
+Korean the same codepoints with different correct glyph shapes — so the face is selected by
+`:lang()` off the text's own annotation, and a guide declaring two locales must annotate its
+CJK text or the build refuses.
+
+**The kit bundles no CJK binary**, and that is a size decision: a full CJK face is 10–20 MB,
+against roughly 4 MB for every Latin face the kit ships together. You supply one and subset it:
+
+```bash
+# One subset per declared locale, named subset-<locale>.otf.
+pixi run python tools/subset-cjk.py \
+    --source ~/Downloads/NotoSansJP-Regular.otf \
+    --out fonts/generated/subset-jp.otf
+```
+
+Any CJK face you have the right to redistribute works — [Noto Sans
+JP/SC/TC/KR](https://github.com/notofonts/noto-cjk) and [Source Han
+Sans](https://github.com/adobe-fonts/source-han-sans) are both SIL OFL 1.1. The subsetter
+keeps only the codepoints your `guide.md` actually uses, so the committed result is tens of
+kilobytes rather than tens of megabytes, and it is deterministic — `--check-deterministic`
+asserts that two runs produce identical bytes, which matters because `fonts/generated/**` is a
+render input hashed like any bundled face.
+
+**The filename is a convention, not a setting.** `buildcore` looks for
+`fonts/generated/subset-<locale>.otf` and aliases it to the CSS family `Guide CJK <LOCALE>`
+with its own `@font-face` — the same CSS-level rename `fontfaces.css` does for Source Serif,
+which leaves the font's own name table untouched (rewriting it would breach the OFL Reserved
+Font Name clause that faces like Source Han Sans carry). Declare a locale without generating
+its subset and the build stops and names the file and the command; it will not quietly fall
+back to a body face that has no CJK glyphs.
 
 One table is missing above on purpose: `[hub]` (`registry`, `snapshot`) belongs to the family
 hub — the omnibus index that `hub.py build` / `hub.py update` produces under
@@ -529,7 +559,8 @@ The website is an **opt-in** second output. The PDF is the default; a PDF-only f
 **Enabling it later** — this is the path a guide that already exists takes, and it is **config-first**: declare `[outputs] site` and its `[artifacts.site]` date in the guide's own `guide.toml` and commit that, then run
 
 ```bash
-python guide-kit/adopt.py --target ../my-guide --output site --enable
+# from the directory that holds both checkouts (guide-kit/ beside my-guide/)
+python guide-kit/adopt.py --target my-guide --output site --enable
 ```
 
 It materializes the same web layer transactionally and records the new managed files in `.template-version`, so a later `sync.py --apply` does not refuse the files the kit just wrote. `--disable` reverses it, and is config-first in the same direction: **un-declare the output and commit that first**, or `adopt.py` refuses — it never writes `guide.toml`, which is target-owned.

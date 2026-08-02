@@ -262,13 +262,6 @@ class HubConfig:
 
 
 @dataclass(frozen=True)
-class KitMeta:
-    # Reserved for kit-level requirements a guide can state about the kit that
-    # builds it. Empty means "any version".
-    min_version: str = ""
-
-
-@dataclass(frozen=True)
 class Artifact:
     """One declared output and its authored EDITION date.
 
@@ -300,7 +293,6 @@ class KitConfig:
     fonts: FontsConfig = field(default_factory=FontsConfig)
     deploy: DeployConfig = field(default_factory=DeployConfig)
     hub: HubConfig = field(default_factory=HubConfig)
-    kit: KitMeta = field(default_factory=KitMeta)
     artifacts: dict[str, Artifact] = field(default_factory=dict)
 
 
@@ -520,10 +512,8 @@ def _parse_shape(data: dict) -> tuple:
         snapshot=raw.get("snapshot", "guides.snapshot.json"),
     )
 
-    raw = _table(data, "kit", {"min_version": str})
-    kit = KitMeta(min_version=raw.get("min_version", ""))
 
-    return outputs, theme, site, slides, fonts, deploy, hub, kit
+    return outputs, theme, site, slides, fonts, deploy, hub
 
 
 def _parse_artifacts(data: dict, outputs: Outputs) -> dict[str, Artifact]:
@@ -571,8 +561,16 @@ def _validate(data: dict, base: Path) -> KitConfig:
     # from the language entirely: publication always happens in the
     # guide's own repository, so nothing about it is user-configurable, and a
     # leftover [release] table must fail rather than silently do nothing.
+    #
+    # `[kit]` is retired on the same principle. Its only key, `min_version`, was
+    # loaded, type-checked, stored on the config — and read by nothing, ever. A
+    # guide that set it got no version enforcement and no warning, which is the
+    # exact failure mode "reject unknown keys" exists to prevent, wearing the
+    # costume of a feature. `sync.py --check-drift` already answers "is this
+    # guide behind the kit", against measured content rather than a label a
+    # maintainer has to remember to bump.
     known_top = set(_REQUIRED) | {
-        "outputs", "theme", "site", "slides", "fonts", "deploy", "hub", "kit", "artifacts",
+        "outputs", "theme", "site", "slides", "fonts", "deploy", "hub", "artifacts",
     }
     for key in data:
         if key not in known_top:
@@ -630,7 +628,7 @@ def _validate(data: dict, base: Path) -> KitConfig:
                 f"(resolves to {resolved})"
             )
 
-    outputs, theme, site, slides, fonts, deploy, hub, kit = _parse_shape(data)
+    outputs, theme, site, slides, fonts, deploy, hub = _parse_shape(data)
 
     return KitConfig(
         TITLE=data["TITLE"],
@@ -646,7 +644,6 @@ def _validate(data: dict, base: Path) -> KitConfig:
         fonts=fonts,
         deploy=deploy,
         hub=hub,
-        kit=kit,
         artifacts=_parse_artifacts(data, outputs),
     )
 

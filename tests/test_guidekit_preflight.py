@@ -51,8 +51,12 @@ class FakeProbe:
         self.asked.append(("subdomain", account_id))
         return self._subdomain
 
-    def token_permissions(self):
-        self.asked.append(("permissions",))
+    def token_permissions(self, account_id=""):
+        # RECORDS THE ACCOUNT ID it was asked with. The real probe used to read
+        # `CLOUDFLARE_ACCOUNT_ID` from the environment here rather than take the
+        # caller's, so `--account-id` was honoured by one Cloudflare check and
+        # dropped by the other; a fake that ignored the argument could not see it.
+        self.asked.append(("permissions", account_id))
         return self._permissions
 
     def zone_for(self, domain):
@@ -468,6 +472,65 @@ def test_init_requires_an_author(monkeypatch):
     monkeypatch.setattr(guidekit.subprocess, "run", _forbidden)
     with pytest.raises(SystemExit):
         guidekit.main(["init", "My Guide", "my-guide", "--skip-preflight"])
+
+
+def test_the_account_id_on_the_command_line_reaches_every_cloudflare_check():
+    """`--account-id` is one input and it must not be honoured by half the probes.
+
+    `token_permissions()` read `CLOUDFLARE_ACCOUNT_ID` out of the environment
+    itself, while `account_subdomain()` took the caller's value — so an operator
+    who passed the account on the command line and had no env var was told the
+    token "lacks the Workers Scripts:Edit permission", which names the one thing
+    that was not wrong. Asserted on what the probe was ASKED, because the defect
+    was invisible in the verdict: with the env var also set, both paths agreed.
+    """
+    probe = FakeProbe()
+    _problems(probe, account_id="b" * 32)
+    asked = dict((kind, rest) for kind, *rest in probe.asked)
+    assert asked["permissions"] == ["b" * 32], (
+        f"the permission probe did not receive the caller's account id: {probe.asked}")
+    assert asked["subdomain"] == ["b" * 32]
+
+
+def test_init_does_not_advertise_a_worker_name_it_ignores(capsys):
+    """`init` validates the POSITIONAL slug, deliberately — that is what becomes
+    the worker name. It also carried `--worker-name`, through a loop shared with
+    `preflight`, and read it nowhere: passing one changed nothing and said
+    nothing. `preflight` keeps the flag, where it is the subject."""
+    for cmd in ("init", "preflight"):
+        with pytest.raises(SystemExit):
+            guidekit.main([cmd, "--help"])
+        help_text = capsys.readouterr().out
+        if cmd == "init":
+            assert "--worker-name" not in help_text, (
+                "init advertises a flag it never reads")
+        else:
+            assert "--worker-name" in help_text, (
+                "preflight lost the flag it does read")
+
+
+def test_init_refuses_a_domain_without_a_website_before_bootstrapping(monkeypatch, capsys):
+    """The combination had NO REPAIR, which is what puts it in front of bootstrap.
+
+    `init --domain` without `--with-web` bootstrapped a PDF-only guide, wrote
+    `[deploy] domain` into its `guide.toml`, failed to regenerate the wrangler
+    config — `cfadapter.write_wrangler` refuses a guide that declares no site —
+    and then printed "Run `make wrangler` before deploying", which `make wrangler`
+    refuses for the same reason. Bootstrap has deleted itself by then, so the
+    reader was left with a stray key and an instruction that cannot succeed.
+    """
+    def _forbidden(cmd, *a, **k):
+        raise AssertionError(
+            f"the destructive step must not run for a combination that has no "
+            f"repair; got {cmd!r}")
+
+    monkeypatch.setattr(guidekit.subprocess, "run", _forbidden)
+    monkeypatch.setattr(guidekit, "Probe", lambda: FakeProbe())
+    rc = guidekit.main(["init", "My Guide", "my-guide", "--author", "A. Author",
+                        "--domain", "guide.example.com", "--skip-preflight"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "--with-web" in err and "--domain" in err, err
 
 
 def test_init_refuses_a_blank_author_before_running_anything(monkeypatch, capsys):

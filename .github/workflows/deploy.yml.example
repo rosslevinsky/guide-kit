@@ -230,8 +230,18 @@ jobs:
         run: |
           # The deploy differs by SHAPE, and the shape is declared, never probed.
           # A hub has no PDF to gate on and is not built by `make web`.
-          awk -F'"' '/^site[[:space:]]*=/{print "site="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
-          awk -F'=' '/^pdf[[:space:]]*=/{gsub(/[[:space:]]/,"",$2); print "pdf="$2; exit}' guide.toml >> "$GITHUB_OUTPUT"
+          #
+          # THE VALIDATED LOADER, not an awk scrape — for the reason spelled out
+          # on the `check` job's own loader call above, which this step was left
+          # behind by. The two legal spellings the scrape misreads (`[outputs]`
+          # with no `pdf` key, and `pdf = true  # a comment`) both land on a value
+          # that is not `true`, and the staleness gate below reads exactly
+          # `steps.shape.outputs.pdf == 'true'` — so the gate was skipped while
+          # the PDF was still built and served. `kitconfig` OWNS that default;
+          # anything re-deriving it here is a second implementation that can only
+          # drift away from the first. It is stdlib-only, so plain `python3`
+          # reaches it with no pixi environment.
+          python3 -c "import kitconfig; c = kitconfig.load(); print(f'site={c.outputs.site}'); print(f'pdf={str(c.outputs.pdf).lower()}')" >> "$GITHUB_OUTPUT"
 
       - name: Staleness gate — never deploy a stale reference PDF
         id: stale_gate

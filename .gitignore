@@ -14,12 +14,33 @@ build/
 app/dist/
 node_modules/
 
+# Secrets, and the files the local Cloudflare workflow writes. README's
+# "Security notes" tells the reader never to commit a token to `.env` — and
+# nothing here enforced it, so the warning was the only thing standing between a
+# `git add -A` and a published credential. `.dev.vars` and `.wrangler/` are not
+# hypothetical either: `make dev` runs `wrangler dev`, which reads the first for
+# local bindings and writes its own state into the second.
+.env
+.env.local
+.env.*.local
+.dev.vars
+.dev.vars.*
+.wrangler/
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node — the jsdom nav test runs under `npm ci`, and both of these are its
+# by-products rather than anything the kit authors.
+npm-debug.log*
+coverage/
 
 # OS clutter
 .DS_Store
@@ -31,6 +52,12 @@ Thumbs.db
 *.swp
 *~
 .claude/
+
+# A personal transcript-scraping script that lives beside this checkout and has
+# nothing to do with building guides. Ignored rather than deleted: it is
+# somebody's working tool, and being the repository's only untracked file made it
+# one `git add -A` away from being published as if it were part of the kit.
+tools/session-history.sh
 
 # NOTE: `*-slides.pdf` was ignored here while the deck deliberately had no
 # committed reference. It does now — `baseline.py --artifact` plus baseline.yml's

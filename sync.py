@@ -843,13 +843,6 @@ def drift_report(kit_root: Path, target: Path) -> tuple[bool, list[str]]:
     if not target.is_dir():
         return True, [f"{target} is not a directory — nothing was checked"]
 
-    # "UP TO DATE" must mean CHECKED AND CLEAN, never "never looked". Without
-    # this, a family sweep with a typo'd or not-yet-cloned path reported a clean
-    # bill of health, and `kit-drift.yml` greps that verdict. `run_sync` has
-    # always guarded this; this path did not.
-    if not target.is_dir():
-        return True, [f"{target} is not a directory — nothing was checked"]
-
     kit_root, target = kit_root.resolve(), target.resolve()
     tv = _read_template_version(target)
     if tv is None:
