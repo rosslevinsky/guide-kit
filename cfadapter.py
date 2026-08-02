@@ -76,9 +76,13 @@ _WRANGLER_PREAMBLE = """\
   // Cloudflare made the same call: since wrangler 4.44.0 their default is
   // `preview_urls = workers_dev`.
   //
-  // Set `[deploy] preview_urls = true` to get PR preview links back. That is a
-  // real feature — deploy.yml comments the URL on every pull request — so it is
-  // an opt-in rather than a removal.
+  // Setting it true makes Cloudflare mint those URLs. It does NOT bring back PR
+  // preview links: deploy.yml used to upload a version per pull request and
+  // comment the URL, and that path is gone deliberately. A same-repository PR
+  // receives repository secrets, and for `pull_request` GitHub runs the workflow
+  // file from the PR's own merge commit — so no arrangement inside that file can
+  // keep the Cloudflare token away from PR-authored code. `pull-requests: write`
+  // was deleted along with the step that used it.
 """
 
 
