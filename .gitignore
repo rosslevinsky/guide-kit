@@ -51,7 +51,15 @@ Thumbs.db
 .idea/
 *.swp
 *~
-.claude/
+# Local Claude Code state (settings.local.json, session scratch) — but NOT the kit-owned
+# rules and skills, which are source: sync.py copies them into every guide, so a clone
+# without them would silently sync nothing.
+#
+# `.claude/*` rather than `.claude/`: git cannot re-include a file whose parent DIRECTORY is
+# excluded, so the negations below only work against a pattern that excludes the children.
+.claude/*
+!.claude/rules/
+!.claude/skills/
 
 # A personal transcript-scraping script that lives beside this checkout and has
 # nothing to do with building guides. Ignored rather than deleted: it is
