@@ -2,7 +2,7 @@
 """hub.py — the omnibus index, generated from data.
 
     python hub.py update     # NETWORK: refresh the snapshot from live guides
-    python hub.py build      # OFFLINE: render dist/index.html from the snapshot
+    python hub.py build      # OFFLINE: render app/dist/index.html from the snapshot
 
 TWO COMMANDS, AND THE SPLIT IS THE POINT. `update` reaches the network and
 rewrites a committed snapshot; `build` consumes only that snapshot. So one hub
@@ -203,7 +203,7 @@ def update(root: Path, fetch=fetch_manifest) -> dict:
 
 
 def build(root: Path) -> Path:
-    """Render `dist/index.html` from the snapshot. OFFLINE — no network at all.
+    """Render `app/dist/index.html` from the snapshot. OFFLINE — no network at all.
 
     Every value on the page comes from either the committed snapshot (guide
     facts) or `registry.toml` (the hub's editorial data). Nothing is fetched, so
@@ -297,7 +297,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Build the omnibus guide index.")
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("update", help="NETWORK: refresh the snapshot from live guides.")
-    sub.add_parser("build", help="OFFLINE: render dist/index.html from the snapshot.")
+    sub.add_parser("build", help="OFFLINE: render app/dist/index.html from the snapshot.")
     args = p.parse_args(argv)
     try:
         if args.cmd == "update":

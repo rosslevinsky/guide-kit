@@ -374,7 +374,12 @@ jobs:
         if: steps.shape.outputs.site == 'hub'
         run: |
           pixi run python hub.py build
-          test -s dist/index.html
+          # `app/dist`, the same path the web smoke below asserts. This read
+          # `dist/index.html` while the hub built to the repo root, and was the
+          # one hub path missed when the layout moved — the deploy went out
+          # correctly and this step failed behind it, which is the right way
+          # round but still a check pointing at a file nothing writes.
+          test -s app/dist/index.html
 
       # Web build smoke — confirm `make web` produces a nonzero index.html. Gated
       # on web ENABLED (style-screen.css present) AND a reference PDF present:
