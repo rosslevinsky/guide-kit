@@ -3,12 +3,16 @@
   "private": true,
   "version": "0.1.0",
   "license": "Apache-2.0",
-  "description": "Cloudflare Workers Static Assets wrapper for the guide website. The site itself is built by `make web` (Python/pixi) into ./dist; this package only pins wrangler for dev/deploy. Copied to app/ when the web layer is enabled — `bootstrap.py --with-web` at init, or `adopt.py --output site --enable` later.",
+  "description": "Cloudflare Workers Static Assets wrapper for the guide website. The site itself is built by `make web` (Python/pixi) into ./dist; this package only pins wrangler for dev/deploy. Copied to app/ when the web layer is enabled \u2014 `bootstrap.py --with-web` at init, or `adopt.py --output site --enable` later.",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "^4.114.0"
+  },
+  "//overrides": "undici is pinned ABOVE what miniflare asks for. Advisories GHSA-8xcm-r25x-g524, GHSA-4cwx-7wf7-3272, GHSA-m8rv-5g2x-5cg5, GHSA-jr45-8vmc-qm54 and GHSA-v3r7-h72x-cjcm cover undici 7.0.0-7.28.0; miniflare still depends on 7.28.0, and npm's only offered remedy is to DOWNGRADE wrangler to 4.35.0, which is older than what this kit ships and is not a fix. 7.29.0 is out of the vulnerable range, so it is forced here instead. Remove this override once miniflare depends on 7.29.0 or later on its own.",
+  "overrides": {
+    "undici": "^7.29.0"
   }
 }
