@@ -164,8 +164,16 @@ def test_no_table_row_is_unparseable():
     otherwise sit in the document unchecked.
     """
     text = DECOMPOSITION.read_text(encoding="utf-8")
-    table = text.split("## Apportionment", 1)[1].split("## Resulting budget", 1)[0]
-    pipe_rows = [l for l in table.splitlines() if l.startswith("|")]
-    assert len(pipe_rows) == len(recorded_rows()) + 2, (  # + header + separator
-        f"{len(pipe_rows)} rows in the table, {len(recorded_rows())} parsed"
+    # The FIRST contiguous table after the heading. Slicing to the next heading would sweep
+    # in "What moved, and where", whose rows describe subsections that are deliberately no
+    # longer in the file.
+    after = text.split("## Apportionment", 1)[1].splitlines()
+    rows, started = [], False
+    for line in after:
+        if line.startswith("|"):
+            rows.append(line); started = True
+        elif started:
+            break
+    assert len(rows) == len(recorded_rows()) + 2, (  # + header + separator
+        f"{len(rows)} rows in the apportionment table, {len(recorded_rows())} parsed"
     )

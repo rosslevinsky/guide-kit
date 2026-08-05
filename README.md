@@ -689,3 +689,169 @@ This repository is dual-licensed, and the split is by **what a file is**, not by
 The bundled typefaces under `fonts/vendor/` carry their own upstream licences (SIL OFL 1.1 for the Source families; Bitstream Vera, plus Tavmjong Bah's Arev additions, for DejaVu), and those licence texts are committed alongside the faces because redistribution requires them to travel with the files. See [`fonts/vendor/README.md`](fonts/vendor/README.md).
 
 GitHub's licence detector reads `LICENSE` alone, so the repository is labelled Apache-2.0 in its sidebar; `LICENSE-CONTENT` is a second file it does not surface. That is why the split is spelled out here rather than left to the badge.
+
+## Why the reference artifacts and the drift canary work as they do
+
+_Moved out of `CLAUDE.md` by the claude-md-consolidation plan: this is the reasoning
+behind the checks, which a reader needs and a runtime following them does not._
+
+
+Every guide's reference PDF is the reader-facing deliverable, and it renders identically on any
+host: the repo bundles its own faces under `fonts/vendor/` and ships `fontconfig/fonts.conf` in
+place of the system config, so nothing about the render consults the OS's font stack.
+`.github/workflows/baseline.yml` renders it on an `ubuntu-latest` runner and commits it.
+
+**There is no recorded platform and no platform guard.** `guide.toml` used to carry
+`baseline_platform`, and `make baseline` / `make release` refused off the recorded host, with
+`--allow-platform-mismatch` as the escape hatch. All of that is retired. It was written for a
+family that shipped system-font stacks, where the host genuinely chose the typeface; once
+rendering became hermetic the key recorded an intention that nothing could violate, and a
+leftover `baseline_platform` in a fork's `guide.toml` is now rejected as an unknown key.
+
+**What replaced it is a measurement, not a declaration.** `verify.yml` runs a **drift canary**:
+it renders afresh and compares **PDF bytes plus the `pdffonts` embedded-face list** against the
+committed reference. It runs weekly on a schedule and whenever `pixi.lock` or a workflow changes,
+because those are the inputs `make verify` cannot see. If the staleness check passes — the source
+really is unchanged — and the canary still differs, that is toolchain drift by definition: it
+fails loudly and **never** auto-baselines, because auto-baselining drift is how it would get
+silently absorbed into the deliverable.
+
+`make baseline` still **refuses a dirty `SOURCE_FILES` tree** (a `· dirty` baseline could never
+be matched by `make verify`); `make release` instead **commits** your source edits itself and then
+refuses to promote a render whose stamp is `· dirty` or stale, so neither command can bless an
+unmatchable reference. **You do not normally dispatch a baseline yourself:** when a push to the
+default branch leaves the reference stale, `verify.yml` dispatches `baseline.yml`, which renders,
+smoke-checks, commits the PDF, and then dispatches `deploy.yml` so the site stops serving the old
+download.
+
+**That push stays GREEN, and the reason is worth stating.** A reference PDF is a build artifact
+committed to the repo and stamped with a hash of its own sources, so any source push makes it
+stale *by construction*. Reporting the expected intermediate state as a failed run emailed the
+maintainer on every content edit about something the next step was already repairing — and this
+family's own record says a red check that means nothing teaches people to ignore it exactly as
+thoroughly as a green one that checked nothing. So the verdict still drives the rebuild; only who
+it is reported to changed. **If the rebuild cannot produce a good render, `baseline.yml` fails —
+and that is the notification worth having.**
+
+Staleness still FAILS where nothing can repair it: on a pull request (actionable by the author,
+and nothing can auto-commit to their branch), on a scheduled or dispatched run (no push to repair
+it, so it is a standing defect), and whenever the check itself is broken rather than merely
+red — blessing a baseline on a check that did not work is how a wrong PDF ships. `deploy.yml`
+SKIPS rather than fails, so a stale PDF still never reaches the site.
+
+So the everyday flow for a content edit is just **commit and push `guide.md`**; `make release`
+refreshes the reference by hand from any host, and `gh workflow run baseline.yml` is the repair
+path when a site drifted without a source change.
+
+
+### Deploying, and the release protocol that was removed instead
+
+`deploy.yml` is the whole publication story: a push to `main` that touches the site
+redeploys the site. There is no separate tag-triggered release, and the machinery for one —
+an append-only journal on a git ref, a per-artifact publication lease, provider
+reconciliation — was **removed** rather than left armed.
+
+Worth recording why, because it was a considerable amount of careful code:
+
+- **It never ran.** It was materialized into every web-enabled guide and no `release-*` tag
+  was ever pushed, in the family's entire history.
+- **Its output would have been invisible.** GitHub Release assets follow repository
+  visibility, and the guide repositories are private — so the assets would have been
+  collaborator-only while the public download is, and always was, the site.
+- **The archive it offered already exists.** The reference PDF is committed, so every past
+  edition is retrievable with `git show <sha>:<slug>.pdf`. A Release would have added a
+  nicer URL and release notes, not the archival.
+
+**Nothing survives it.** A `relmanifest.py` wrote a per-deploy manifest of every served
+path into `.well-known/guide-kit-release.json`, so anyone could fetch it and check the bytes
+themselves. It was deleted once it was clear nobody did: no tool, no page and no check ever
+read it — only its own test — so it was a receipt written for a reader who never came.
+
+**A tag is still a tag.** Nothing stops you tagging a commit; `git show <tag>:<slug>.pdf`
+gives you that edition. What no longer happens is a workflow reacting to it.
+
+
+### Dependency drift, and the canary that catches it
+
+`make verify` compares hashes over `SOURCE_FILES`. `pixi.lock` is **not** in that list, so a
+dependency bump that changes how WeasyPrint or fontconfig lays out text shifts the rendered PDF
+while `make verify` stays green — the source really is unchanged, so the staleness check is
+answering its own question correctly. This used to be an open gap with nothing in CI closing it.
+
+**`driftcanary.py`, wired into `verify.yml`, closes it.** It renders afresh and compares the
+result against the committed reference on two axes: **PDF bytes** (strictly stronger than a text
+diff — it sees kerning, justification and metric changes that preserve line breaks) and the
+**`pdffonts` embedded-face list** (which catches a face substitution that happens to produce
+identical text and pagination, and which a byte comparison alone would report without naming).
+It runs weekly and on any `pixi.lock` or workflow change, since a rebuilt runner image has no
+push event of its own.
+
+Two properties are load-bearing, not incidental:
+
+- **It only speaks when staleness is silent.** If the reference is stale the canary skips —
+  a stale reference is `make verify`'s finding to report, and a difference then says nothing
+  about the toolchain. A difference on a *fresh* reference is drift by definition.
+- **It never auto-baselines.** The stale path auto-dispatches `baseline.yml`; the drift path
+  must not, or the drift would be committed into the deliverable and the check would have
+  laundered exactly what it exists to surface.
+
+`make verify-render` remains as the local, pre-push version of the same question — page count
+plus stamp-stripped text, weaker than the canary and needing a build. Still treat a `pixi.lock`
+change as a **rendering** change: run it, **eyeball the PDF**, re-baseline if the layout moved,
+and pin tighter in `pixi.toml` if a guide needs a narrower window. (`fontconfig` in particular
+already differs across this family, so a lock refresh can move one guide's pagination and not
+another's.)
+
+## Why the version stamp reads no git history
+
+The PDF footer carries `YYYY-MM-DD · <sha256[:12]>`. The date is the artifact's authored
+`[artifacts.<name>] date` in `guide.toml` — an *edition* date, not a commit date. The hash is
+over that artifact's own dependency closure (`kitconfig.ArtifactSpec`), so the site's stamp and
+the PDF's move independently.
+
+The render path reads **no git history**. The date used to be `%ad` of the most recent commit
+touching a pathspec, which meant a `[deploy]`-only commit moved the PDF's displayed date even
+though the PDF renders nothing from `[deploy]` — git cannot scope to a key inside a file. The
+only git call left in the render path is `git status --porcelain`, for the dirty marker: a
+` · dirty` segment is appended when the working tree has uncommitted changes to that artifact's
+own inputs.
+
+## The kit, the manifest, and `sync.py` — in full
+
+_`CLAUDE.md` keeps the ownership rule; the mechanism is here._
+
+This guide is kept in sync with the kit (`guide-kit`) by copy-and-checksum, not merge.
+`kit-manifest.toml` classifies every kit file on **two independent axes**: source lifecycle
+(`retained-in-kit` / `bootstrap-source` / `generated`) and destination policy (`identical` /
+`templated` / `managed-region` / `never`). `sync.py <guide>` reports drift and writes nothing;
+`sync.py <guide> --apply` writes transactionally and refuses a dirty tree or an unrecorded managed
+file. **This `CLAUDE.md` is a `managed-region` file** — only the block between the markers is
+synced; your own sections outside them are never touched.
+
+First contact uses the **six-step adoption sequence**: (1) hand-write the guide's `guide.toml` and
+insert the managed-region markers in this file; (2) review and commit; (3) confirm a clean
+worktree; (4) `sync.py <guide> --adopt --source-repo <owner/repo> --kit-version <ref>` (both flags
+are required; records pre-sync hashes; state `adopted_unapplied`); (5) commit `.template-version`;
+(6) `sync.py <guide> --apply` (state → `applied`). A scheduled,
+warn-only `kit-drift.yml` reports when the kit's managed content moves.
+
+**A sync can hand you a change it cannot make for you, and it says so first.** Sync overwrites
+kit-owned files and never touches target-owned ones — `guide.toml`, `style.css` and
+`style-screen.css` are yours. So it can deliver a stricter `kitconfig.py` while leaving in place
+the `guide.toml` that version now rejects: the sync succeeds and reports success, the next `make`
+dies on `unknown key`, and the error names a file the sync did not write. Every step behaves
+correctly, which is exactly why nothing inside sync can catch it.
+
+So the kit keeps `BREAKING.md` — kit-only, read out of the kit checkout, never copied into a guide
+— and `sync.py` prints the entries **your** guide has not passed yet, before it writes anything:
+
+```
+  !! 1 breaking change since this guide's last sync needs your attention:
+     bcdb317e  2026-08-02  `[kit] min_version` removed; a `guide.toml` declaring `[kit]` now fails to load.
+     Full detail in the kit's BREAKING.md.
+```
+
+Which entries those are comes from `git rev-list <your recorded kit_version>..HEAD`, so it is the
+real set of commits you have not taken rather than a guess from dates. It **prints and does not
+prompt** — `--apply` is already the deliberate act, and a question would hang an unattended sweep.
+If the range cannot be worked out it lists everything with a caveat rather than nothing.

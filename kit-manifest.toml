@@ -346,6 +346,47 @@ lifecycle = "retained-in-kit"
 projects_to = "CLAUDE.md"
 policy = "managed-region"
 
+# --- path-scoped rules and the build skill -----------------------------------
+# Most of what CLAUDE.md used to carry is not true every session, so it moved to files that
+# load only when they apply: a rule when Claude opens a matching path, the skill when it is
+# invoked. Wholly kit-owned, so `identical` — a guide has no reason to diverge from these, and
+# one that did would drift from every other guide's behaviour without anything noticing.
+[[entry]]
+path = ".claude/rules/guide-markdown-conventions.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/guide-markdown-conventions.md"
+policy = "identical"
+
+[[entry]]
+path = ".claude/rules/website.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/website.md"
+policy = "identical"
+
+[[entry]]
+path = ".claude/rules/slide-deck.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/slide-deck.md"
+policy = "identical"
+
+[[entry]]
+path = ".claude/rules/transforms-hook.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/transforms-hook.md"
+policy = "identical"
+
+[[entry]]
+path = ".claude/rules/dependency-drift.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/dependency-drift.md"
+policy = "identical"
+
+[[entry]]
+path = ".claude/skills/guide-build/SKILL.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/skills/guide-build/SKILL.md"
+policy = "identical"
+
 # --- never: exists in the target but sync leaves it alone (target-owned) ---
 [[entry]]
 path = "guide.md"

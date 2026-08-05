@@ -14,12 +14,12 @@ would be false precision. Those are review's job, not the test's.
 ## Measured
 
 - region_begin: 36
-- region_end: 725
-- region_lines: 690
-- subsections: 17
+- region_end: 118
+- region_lines: 83
+- subsections: 7
 
-Only 35 lines of `CLAUDE.md` sit outside the region; the managed block is effectively the
-whole file. These bounds come from matching the marker **comments**
+Thirty-five lines of `CLAUDE.md` sit outside the region — its own content, untouched by the
+split. These bounds come from matching the marker **comments**
 (`<!-- kit:begin -->` / `<!-- kit:end -->`), not a substring search for `kit:begin`, which
 also matches prose naming the markers earlier in the file.
 
@@ -38,23 +38,36 @@ editing certain files, only while running a procedure, or never by a runtime at 
 | 6 | Shared kit policy (synced — do not edit per-guide) | resident |
 | 18 | Per-guide values: `guide.toml` | resident |
 | 22 | Build pipeline | resident |
-| 14 | The version stamp | resident |
+| 8 | The version stamp | resident |
+| 11 | The kit, the manifest, and `sync.py` | resident |
 | 5 | Tone | resident |
-| 98 | Markdown vs. HTML conventions | rule — `guide.md` |
-| 9 | The transforms hook (per-output) | rule — `transforms.py` |
-| 110 | The website's navigation chrome (script-built, screen only) | rule — site sources |
-| 64 | The website (opt-in) | rule — site sources |
-| 71 | The slide deck (opt-in) | rule — `guide.md`, slide sources |
-| 60 | Verification: which command asks which question | skill |
-| 31 | When to run `make baseline` / `make release` | skill |
-| 35 | After editing | skill |
-| 49 | Reference PDFs render anywhere — the drift canary is what keeps that true | README |
-| 26 | Deploying, and the release protocol that was removed instead | README |
-| 38 | The kit, the manifest, and `sync.py` | split — resident + README |
-| 31 | Dependency drift, and the canary that catches it | split — rule + README |
+| 10 | Where everything else went | resident |
 
-**Two subsections split.** In both cases a rule a runtime must act on is wrapped around
-material that only explains why.
+## What moved, and where
+
+The split is done. The region was **690 lines across 17 subsections**; it is now 83 across 7.
+Those seven are the table above. The other ten went here:
+
+| Was | Now |
+|---|---|
+| Markdown vs. HTML conventions (98) | `.claude/rules/guide-markdown-conventions.md` |
+| The website's navigation chrome (110) + The website (64) | `.claude/rules/website.md` |
+| The slide deck (71) | `.claude/rules/slide-deck.md` |
+| The transforms hook (9) | `.claude/rules/transforms-hook.md` |
+| Dependency drift — the instruction half (~6) | `.claude/rules/dependency-drift.md` |
+| Verification: which command asks which question (60) | the `guide-build` skill |
+| When to run `make baseline` / `make release` (31) | the `guide-build` skill |
+| After editing (35) | the `guide-build` skill |
+| Reference PDFs / the drift canary (49) | `README.md` |
+| Deploying, and the release protocol removed instead (26) | `README.md` |
+| Dependency drift — the rationale half (~25) | `README.md` |
+| The kit/manifest/`sync.py` detail (~30 of 38) | `README.md` |
+| The version-stamp rationale (~7) | `README.md` |
+
+**Three subsections were split**, each wrapping a rule a runtime must act on around material
+that only explains why. The version stamp joined the other two during execution: its statement
+of what the footer contains is resident, and its account of why the render path reads no git
+history is README material by the same test.
 
 *The kit, the manifest, and `sync.py`* carries the single most consequential sentence in the
 file — the managed region is owned by the kit, and a per-guide edit is overwritten on the next
