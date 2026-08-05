@@ -14,8 +14,8 @@ would be false precision. Those are review's job, not the test's.
 ## Measured
 
 - region_begin: 36
-- region_end: 118
-- region_lines: 83
+- region_end: 121
+- region_lines: 86
 - subsections: 7
 
 Thirty-five lines of `CLAUDE.md` sit outside the region — its own content, untouched by the
@@ -41,7 +41,7 @@ editing certain files, only while running a procedure, or never by a runtime at 
 | 8 | The version stamp | resident |
 | 11 | The kit, the manifest, and `sync.py` | resident |
 | 5 | Tone | resident |
-| 10 | Where everything else went | resident |
+| 13 | Where everything else went | resident |
 
 ## What moved, and where
 
@@ -83,37 +83,39 @@ README would contradict the criterion above. ~6 lines become a rule scoped to `p
 
 ## Resulting budget
 
-| Destination | Lines |
-|---|---:|
-| resident (incl. one split's resident half) | **73** |
-| path-scoped rules | 358 |
-| skill | 126 |
-| README | 130 |
-| | 687 |
+Measured after the split, not projected before it. The earlier projection is kept in *What
+moved, and where* above; these are the files as they now stand.
 
-The 687 accounted for against a 690-line region is three lines the subsection spans do not
-cover: the `kit:begin` comment at 36, the blank line at 37 before the first heading at 38, and
-the `kit:end` comment at 725.
+| Where it went | Lines |
+|---|---:|
+| resident, in the managed region | **83** (+3 framing = 86) |
+| `.claude/rules/` — five files | 399 |
+| `.claude/skills/guide-build/SKILL.md` | 136 |
+| the kit's `README.md` | the remainder |
+
+The rule and skill files are larger than the source subsections they carry: each gained
+frontmatter, a heading and a sentence saying why it lives where it does. That cost is paid
+only when the rule fires.
 
 **What that produces:**
 
-The three framing lines stay in the file, so they count toward every total below.
+| | Lines |
+|---|---:|
+| `guide-kit/CLAUDE.md` (35 own + 86) | **121** |
+| `accounting-guide/CLAUDE.md` (96 own + 86) | **179** |
+| `git-guide/CLAUDE.md` — the largest (97 own + 86) | **180** |
+| a guide session: 39 user + 6 exe.dev + 23 workspace + 179 | **247** |
+| the same for `git-guide` | **248** |
 
-- `guide-kit/CLAUDE.md` — 35 own + 3 framing + 73 resident = **~111 lines**, under the
-  200-line target.
-- A guide's `CLAUDE.md` — ~96 own + 3 framing + 73 resident = **~172 lines**, under it.
-- A guide session's unconditional startup — ~50 user + ~5 exe.dev rule + ~12 workspace + 172
-  = **~239 lines**, under the plan's 250 limit, down from 980.
-
-The margin on the session total is 11 lines, which is thin. If the resident core grows during
-Phase 6, the session total is what breaks first — not the per-file limits, which have ~89
-lines of headroom in the kit and ~28 in a guide.
+Against limits of 200 per file and 250 per session, from 980. **The margin is two lines on
+the worst guide.** Any growth in the resident core, the user file or the workspace file breaks
+the session limit before any per-file limit does.
 
 ## Note on the path-scoped rules
 
-358 lines move into `.claude/rules/*.md` with `paths:` frontmatter. They load only when Claude
+399 lines sit in `.claude/rules/*.md` with `paths:` frontmatter. They load only when Claude
 opens a matching file, so they do not count toward the startup total above — but they are not
-free. Opening `guide.md` adds 169 lines to that session, because the Markdown conventions and
-the slide-deck rules are both scoped to it; a session touching site sources adds 174. That is
-the intended trade, and it is why the plan's criterion measures **unconditional startup**
-rather than a session's peak.
+free. Opening `guide.md` adds **184** lines to that session, because both the Markdown
+conventions (106) and the slide-deck rules (78) are scoped to it; touching a site source adds
+184 on its own. That is the intended trade, and it is why the plan's criterion measures
+**unconditional startup** rather than a session's peak.

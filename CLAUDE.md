@@ -112,7 +112,10 @@ Loaded on demand instead, because none of it is true every session:
 - `.claude/rules/` — `guide.md` conventions, site sources, `transforms.py`, slides, and
   `pixi.lock` changes. Each loads only when a matching file is opened.
 - the `guide-build` skill — verify / baseline / release, and the order of steps after an edit.
-- `README.md` — why the reference artifacts, the deploy path and the drift canary are shaped
-  as they are. `docs/claude-md-decomposition.md` records the full apportionment.
+- **the kit's** `README.md` — why the reference artifacts, the deploy path, the drift canary
+  and the version stamp are shaped as they are, plus the manifest and adoption detail. It is
+  in the `guide-kit` checkout, not this repository: this block is synced verbatim into every
+  guide, so a bare `README.md` here would name a file that has none of it.
+  `guide-kit/docs/claude-md-decomposition.md` records the full apportionment.
 
 <!-- kit:end -->
