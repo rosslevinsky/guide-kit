@@ -2007,7 +2007,18 @@ def _check_wrangler_is_current() -> None:
     silently, because every other check would still pass.
 
     Absent is not an error: a guide with no web layer materialized yet has no
-    `app/` at all, and `build_web` no-ops long before this for a PDF-only guide."""
+    `app/` at all, and `build_web` no-ops long before this for a PDF-only guide.
+
+    THAT EARLY RETURN USED TO SWALLOW THE HUB. `app/` was hardcoded here while
+    the hub kept its worker at the repo root, so this looked in the wrong place,
+    found nothing, and took the "no web layer yet" branch — on the one repository
+    in the family whose config was still hand-written and therefore the only one
+    that could drift. Nothing was wrong with the check; it was reading a layout
+    that two other files knew about and this one did not.
+
+    The hub now builds to `app/dist` like every other target, so `app/` is
+    universal and this reads what it always claimed to. `absent` means absent
+    again, rather than "looked somewhere this repository does not keep it"."""
     path = buildcore.ROOT / "app" / cfadapter.WRANGLER_FILENAME
     if not path.exists():
         return

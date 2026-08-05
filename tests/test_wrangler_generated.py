@@ -186,12 +186,23 @@ def test_each_targets_committed_wrangler_matches_the_generator(target):
     propagation becomes a RED CHECK rather than a silent correction.
 
     Skips when the sibling is not checked out, exactly as the other cross-repo
-    checks do: `verify.yml` clones this repo alone."""
+    checks do: `verify.yml` clones this repo alone.
+
+    THE SKIP IS KEYED ON THE DECLARATION, not on the file. Keyed on the file, a
+    target that declares a website and has somehow lost its config skips in
+    silence — the same shape of hole this whole change is closing, where
+    `_check_wrangler_fresh` read "no file here" as "nothing to check". The hub
+    fell through exactly that way for a different reason (its worker was at the
+    repo root), and it is covered here now without a special case, because it
+    keeps its config under `app/` like everything else."""
     root = buildcore.ROOT.parent / target
     if not root.is_dir():
         pytest.skip(f"{target} is not checked out beside the kit")
-    if not (root / "app" / "wrangler.jsonc").is_file():
-        pytest.skip(f"{target} has no web layer")
+    if kitconfig.load(root).outputs.site == "none":
+        pytest.skip(f"{target} declares no website")
+    assert (root / "app" / "wrangler.jsonc").is_file(), (
+        f"{target} declares a website but has no app/wrangler.jsonc — run "
+        f"`make wrangler` in it and commit the result")
     # HEAD, not the working tree. What deploys is what is COMMITTED — reading the
     # file on disk would let an uncommitted `make wrangler` satisfy a check whose
     # whole subject is the committed config, and the uncommitted version is

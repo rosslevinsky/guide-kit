@@ -273,7 +273,20 @@ def build(root: Path) -> Path:
         copyright=f"© {cfg.COPYRIGHT_YEAR} {cfg.AUTHOR}",
         kit_url=_kit_url(root),
     )
-    out = root / "dist" / "index.html"
+    # `app/dist`, the SAME place a guide's site is built to, and the same place
+    # `app/wrangler.jsonc` points its `assets.directory` at. The hub used to
+    # render to `dist/` at the repo root with its config beside it, which made it
+    # the one target whose worker lived somewhere else — and that divergence had
+    # to be re-stated in every tool that went looking: the Makefile branched to
+    # find the config, deploy.yml branched to pick a working directory, and
+    # `render_site._check_wrangler_fresh` did not branch at all, so it looked in
+    # `app/`, found nothing, and skipped the one config in the family that was
+    # still hand-written. A rule written down three times is a rule that drifts.
+    #
+    # The hub is still genuinely different — it renders an index rather than a
+    # document, from its own template, offline. Those differences remain and are
+    # still branched on. WHERE ITS FILES SIT was never one of them.
+    out = root / "app" / "dist" / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(html, encoding="utf-8")
     print(f"  HUB   ->  {out}")

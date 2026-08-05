@@ -90,14 +90,15 @@ on:
       # the hub shape five times — so every hub content change pushed GREEN with
       # no run created at all, and the published index kept serving the old
       # guide list. `hub update` and editing `registry.toml` are the hub's only
-      # content operations; neither published. A hub's wrangler config is at the
-      # ROOT (`workingDirectory: '.'` below says so), which `app/**` never covers.
+      # content operations; neither published. The hub's own INPUTS still live at
+      # the root and are still not covered by `app/**`, so they are listed here;
+      # its worker and built page are under `app/` now like every other target's,
+      # so `wrangler.jsonc` and `dist/**` are gone from this list — `app/**`
+      # above already covers both.
       - 'hub.py'
       - 'hub-template.html'
       - 'registry.toml'
       - 'guides.snapshot.json'
-      - 'wrangler.jsonc'
-      - 'dist/**'
   pull_request:
     branches: [main]
     paths:
@@ -130,14 +131,15 @@ on:
       # the hub shape five times — so every hub content change pushed GREEN with
       # no run created at all, and the published index kept serving the old
       # guide list. `hub update` and editing `registry.toml` are the hub's only
-      # content operations; neither published. A hub's wrangler config is at the
-      # ROOT (`workingDirectory: '.'` below says so), which `app/**` never covers.
+      # content operations; neither published. The hub's own INPUTS still live at
+      # the root and are still not covered by `app/**`, so they are listed here;
+      # its worker and built page are under `app/` now like every other target's,
+      # so `wrangler.jsonc` and `dist/**` are gone from this list — `app/**`
+      # above already covers both.
       - 'hub.py'
       - 'hub-template.html'
       - 'registry.toml'
       - 'guides.snapshot.json'
-      - 'wrangler.jsonc'
-      - 'dist/**'
   workflow_dispatch:
 
 # Don't let concurrent deploys against the same ref clobber each other.
@@ -274,8 +276,8 @@ jobs:
           exit "$rc"
 
       - name: Set up Node 22
-        # The hub has no app/package-lock.json to cache against, so the cache
-        # inputs are only set for a guide.
+        # Every shape has `app/package-lock.json` to cache against, the hub
+        # included — it is projected there by sync like any other target file.
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4
         with:
           # Wrangler 4.x requires Node >=22.
@@ -302,7 +304,11 @@ jobs:
           cache-dependency-path: app/package-lock.json
 
       - name: Install app deps (wrangler)
-        if: steps.shape.outputs.site != 'hub'
+        # EVERY SHAPE, hub included. This was skipped for a hub back when the hub
+        # kept its worker at the repo root and had no app/ to install into. It has
+        # `app/package.json` like every other target now, so it installs the same
+        # pinned wrangler 4 — which is what let the `wranglerVersion` override
+        # below go away.
         run: npm ci
         working-directory: ./app
 
@@ -349,7 +355,7 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # A guide's wrangler config lives in app/; a hub's is at the repo root.
-          workingDirectory: ${{ steps.shape.outputs.site == 'hub' && '.' || './app' }}
+          workingDirectory: ./app
           # NOT optional for the hub. With no local wrangler to detect (no
           # package.json — there is nothing to build), the action installs its
           # own default, still wrangler 3.90.0, which predates assets-only
@@ -357,5 +363,10 @@ jobs:
           # because a v3 wrangler reads a config with `assets` and no `main` as a
           # Worker missing its script. A guide pins wrangler 4 in
           # app/package.json and never hits this.
-          wranglerVersion: ${{ steps.shape.outputs.site == 'hub' && '4' || '' }}
+          # No `wranglerVersion` override. It existed only for the hub, which
+          # skipped `npm ci` and so got the action's own default — wrangler
+          # 3.90.0, which predates assets-only Workers and fails with "Missing
+          # entry-point" rather than warning. The hub installs from
+          # `app/package.json` now, so every shape reaches the same pinned 4.x
+          # and the action needs no help choosing.
           command: deploy

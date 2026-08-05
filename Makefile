@@ -88,9 +88,14 @@ slides-coverage:
 # (`policy = "never"`), so sync will never write it — run this after changing
 # [deploy] domain, and commit the result. The kit's own test suite fails when a
 # guide's committed file has drifted from what this produces.
+#
+# `app` FOR EVERY SHAPE, hub included. This used to read
+# `'.' if cfg.outputs.site == 'hub' else 'app'`, one of three places that each
+# had to remember the hub kept its worker at the repo root. The hub now builds
+# to `app/dist` like everything else, so there is nothing left to remember here.
 wrangler:
-	pixi run python -c "import pathlib, cfadapter, kitconfig; cfg = kitconfig.load(); \
-	print('  WRANGLER ->', cfadapter.write_wrangler(pathlib.Path('.' if cfg.outputs.site == 'hub' else 'app'), cfg))"
+	pixi run python -c "import pathlib, cfadapter, kitconfig; \
+	print('  WRANGLER ->', cfadapter.write_wrangler(pathlib.Path('app'), kitconfig.load()))"
 
 # dev serves the site locally via wrangler. The app/ scaffold (package.json +
 # wrangler config) only exists once the web layer is enabled, so guard on it and
