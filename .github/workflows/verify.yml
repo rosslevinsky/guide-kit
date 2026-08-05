@@ -56,6 +56,12 @@ on:
       - 'baseline.py'
       - 'release.py'
       - 'bootstrap.py'
+      # The kit-owned Claude rules and skill. They are copied into every guide by
+      # sync.py and read by bootstrap.py's managed-digest computation, so a change
+      # to them is a change to what every target receives — and one that omitted
+      # them from git entirely still passed locally, because the working tree had
+      # them. Absent from this list, that class of break runs no test at all.
+      - '.claude/**'
       - 'Makefile'
       - 'pixi.toml'
       - 'pixi.lock'
@@ -118,6 +124,12 @@ on:
       - 'baseline.py'
       - 'release.py'
       - 'bootstrap.py'
+      # The kit-owned Claude rules and skill. They are copied into every guide by
+      # sync.py and read by bootstrap.py's managed-digest computation, so a change
+      # to them is a change to what every target receives — and one that omitted
+      # them from git entirely still passed locally, because the working tree had
+      # them. Absent from this list, that class of break runs no test at all.
+      - '.claude/**'
       - 'Makefile'
       - 'pixi.toml'
       - 'pixi.lock'
