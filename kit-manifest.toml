@@ -382,6 +382,18 @@ projects_to = ".claude/rules/dependency-drift.md"
 policy = "identical"
 
 [[entry]]
+path = ".claude/rules/guide-config.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/guide-config.md"
+policy = "identical"
+
+[[entry]]
+path = ".claude/rules/build-pipeline.md"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/rules/build-pipeline.md"
+policy = "identical"
+
+[[entry]]
 path = ".claude/skills/guide-build/SKILL.md"
 lifecycle = "retained-in-kit"
 projects_to = ".claude/skills/guide-build/SKILL.md"
