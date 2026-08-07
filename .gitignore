@@ -58,6 +58,7 @@ Thumbs.db
 # `.claude/*` rather than `.claude/`: git cannot re-include a file whose parent DIRECTORY is
 # excluded, so the negations below only work against a pattern that excludes the children.
 .claude/*
+!.claude/settings.json
 !.claude/rules/
 !.claude/skills/
 

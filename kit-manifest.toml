@@ -381,6 +381,16 @@ lifecycle = "retained-in-kit"
 projects_to = ".claude/rules/dependency-drift.md"
 policy = "identical"
 
+# Suppresses the agent attribution trailers. It is committed, and projected, because
+# settings that live only on a maintainer's machine do not reach a session running in
+# the cloud with the repository cloned into it — which is the only kind of session that
+# emits a `Claude-Session` link at all.
+[[entry]]
+path = ".claude/settings.json"
+lifecycle = "retained-in-kit"
+projects_to = ".claude/settings.json"
+policy = "identical"
+
 [[entry]]
 path = ".claude/rules/guide-config.md"
 lifecycle = "retained-in-kit"
