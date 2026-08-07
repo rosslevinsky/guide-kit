@@ -14,19 +14,21 @@ would be false precision. Those are review's job, not the test's.
 ## Measured
 
 - region_begin: 36
-- region_end: 121
-- region_lines: 86
-- subsections: 7
+- region_end: 69
+- region_lines: 34
+- subsections: 3
 
 Thirty-five lines of `CLAUDE.md` sit outside the region — its own content, untouched by the
 split. These bounds come from matching the marker **comments**
 (`<!-- kit:begin -->` / `<!-- kit:end -->`), not a substring search for `kit:begin`, which
 also matches prose naming the markers earlier in the file.
 
-**The scan must be fence-aware.** A `## ` heading sits inside a fenced `::: slide` example at
-line 500. A naive heading scan treats it as a section boundary, stops there, and reports a
-462-line region with 10 subsections — 228 lines and seven subsections short. That reading was
-made during planning and drove a wrong apportionment before this record existed.
+**The scan must be fence-aware**, even though nothing in the region is fenced today. When it
+was 690 lines a `## ` heading sat inside a fenced `::: slide` example; a naive heading scan
+treated it as a section boundary, stopped there, and reported a 462-line region with 10
+subsections — 228 lines and seven subsections short. That reading was made during planning
+and drove a wrong apportionment before this record existed. The property is kept because the
+next fence added to the region would reintroduce it silently.
 
 ## Apportionment
 
@@ -35,18 +37,22 @@ editing certain files, only while running a procedure, or never by a runtime at 
 
 | Lines | Subsection | Destination |
 |---:|---|---|
-| 6 | Shared kit policy (synced — do not edit per-guide) | resident |
-| 18 | Per-guide values: `guide.toml` | resident |
-| 22 | Build pipeline | resident |
-| 8 | The version stamp | resident |
-| 11 | The kit, the manifest, and `sync.py` | resident |
+| 10 | Shared kit policy (synced — do not edit per-guide) | resident |
 | 5 | Tone | resident |
-| 13 | Where everything else went | resident |
+| 16 | Where the rest is | resident |
+
+A second pass on 2026-08-07 asked the same question of the four subsections this table used
+to call resident, and none of them survived it. `Per-guide values: guide.toml` is true while
+`guide.toml` is open. `Build pipeline` and `The version stamp` are true while a build file
+is open. `The kit, the manifest, and sync.py` was already mostly in the README; the one
+sentence a session needs — the region is the kit's and a per-guide edit is overwritten —
+folded into the preamble that was already saying it.
 
 ## What moved, and where
 
-The split is done. The region was **690 lines across 17 subsections**; it is now 83 across 7.
-Those seven are the table above. The other ten went here:
+The split is done, in two passes. The region was **690 lines across 17 subsections**; the
+first pass took it to 83 across 7, and the second to **31 across 3**. Those three are the
+table above. The other fourteen went here:
 
 | Was | Now |
 |---|---|
@@ -63,6 +69,9 @@ Those seven are the table above. The other ten went here:
 | Dependency drift — the rationale half (~25) | `README.md` |
 | The kit/manifest/`sync.py` detail (~30 of 38) | `README.md` |
 | The version-stamp rationale (~7) | `README.md` |
+| Per-guide values: `guide.toml` (18) | `.claude/rules/guide-config.md` |
+| Build pipeline (22) + The version stamp (8) | `.claude/rules/build-pipeline.md` |
+| The kit, the manifest, and `sync.py` — the rest (8 of 11) | the preamble, and `README.md` |
 
 **Three subsections were split**, each wrapping a rule a runtime must act on around material
 that only explains why. The version stamp joined the other two during execution: its statement
@@ -88,8 +97,8 @@ moved, and where* above; these are the files as they now stand.
 
 | Where it went | Lines |
 |---|---:|
-| resident, in the managed region | **83** (+3 framing = 86) |
-| `.claude/rules/` — five files | 399 |
+| resident, in the managed region | **31** (+3 framing = 34) |
+| `.claude/rules/` — seven files | 490 |
 | `.claude/skills/guide-build/SKILL.md` | 136 |
 | the kit's `README.md` | the remainder |
 
@@ -101,21 +110,32 @@ only when the rule fires.
 
 | | Lines |
 |---|---:|
-| `guide-kit/CLAUDE.md` (35 own + 86) | **121** |
-| `accounting-guide/CLAUDE.md` (96 own + 86) | **179** |
-| `git-guide/CLAUDE.md` — the largest (97 own + 86) | **180** |
-| a guide session: 39 user + 6 exe.dev + 23 workspace + 179 | **247** |
-| the same for `git-guide` | **248** |
+| `guide-kit/CLAUDE.md` (35 own + 34) | **69** |
+| `accounting-guide/CLAUDE.md` (96 own + 34) | **130** |
+| `git-guide/CLAUDE.md` — the largest (97 own + 34) | **131** |
+| a guide session: 22 user + 6 exe.dev + 23 workspace + 130 | **181** |
+| the same for `git-guide` | **182** |
 
-Against limits of 200 per file and 250 per session, from 980. **The margin is two lines on
-the worst guide.** Any growth in the resident core, the user file or the workspace file breaks
-the session limit before any per-file limit does.
+Against limits of 200 per file and 250 per session, from 980.
+
+The first pass left a two-line margin on the worst guide, and it did not hold: `git-guide`
+reached 251 and nobody saw it, because the check was only ever run against three directories
+someone typed by hand. That is fixed at both ends — the check now enumerates every repo, and
+the margin here is 68 lines rather than 2. The remaining weight is the guides' **own** halves,
+96 and 97 lines of rules about editing `guide.md` and `style.css`, which are per-guide content
+and cannot move from the kit.
 
 ## Note on the path-scoped rules
 
-399 lines sit in `.claude/rules/*.md` with `paths:` frontmatter. They load only when Claude
+490 lines sit in `.claude/rules/*.md` with `paths:` frontmatter. They load only when Claude
 opens a matching file, so they do not count toward the startup total above — but they are not
 free. Opening `guide.md` adds **184** lines to that session, because both the Markdown
 conventions (106) and the slide-deck rules (78) are scoped to it; touching a site source adds
-184 on its own. That is the intended trade, and it is why the plan's criterion measures
-**unconditional startup** rather than a session's peak.
+184 on its own; opening `style.css` now adds the 56-line build-pipeline rule. That is the
+intended trade, and it is why the criterion measures **unconditional startup** rather than a
+session's peak.
+
+The two rules added in the second pass are the smallest so far — 35 and 56 lines — because
+they carry one subject each. A rule that fires on `build.py` and also explains `guide.toml`
+would cost every build session the config vocabulary it does not need, which is the same
+mistake one level down.
