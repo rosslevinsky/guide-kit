@@ -104,3 +104,12 @@ renderer (WeasyPrint 69), not assumed.
 Do **not** add other island types. Do **not** convert Markdown that already works into HTML.
 Smart quotes are disabled in pandoc (`markdown+raw_html-smart`) so `---`, `'`, and `"` stay
 literal for ASCII diagrams and copy-pasteable snippets.
+
+**Never hand-write a license or copyright block.** The build appends it for you: a colophon
+to the PDF and a `site-footer` to the web output, both derived from `guide.toml`'s `AUTHOR`
+and `COPYRIGHT_YEAR` together with the family-fixed `LICENSE_*` constants in `buildcore.py`.
+
+This is here because three guides learned it separately and each wrote the lesson into its
+own `CLAUDE.md`. Each had carried a hand-written `<div class="license-notice">` island, and
+after convergence each rendered its terms **twice** — once styled by the island, once by the
+generated colophon. Style `.colophon` in `style.css`; do not reproduce its text in `guide.md`.
